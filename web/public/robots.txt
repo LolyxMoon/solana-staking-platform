@@ -1,0 +1,24 @@
+# robots.txt for StakePoint
+User-agent: *
+Allow: /
+
+# Sitemaps
+Sitemap: https://stakepoint.app/sitemap.xml
+
+# Disallow admin routes
+User-agent: *
+Disallow: /api/
+Disallow: /admin/
+
+# Allow specific user-facing routes
+Allow: /
+Allow: /landing
+Allow: /pools
+Allow: /pool/*
+Allow: /swap
+Allow: /docs
+Allow: /support
+
+# Crawl delay (be respectful to crawlers)
+Crawl-delay: 1
+

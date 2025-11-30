@@ -1,0 +1,395 @@
+@import "@solana/wallet-adapter-react-ui/styles.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========== EXISTING STYLES ========== */
+body {
+  @apply bg-gray-50 text-gray-900;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  @apply font-bold;
+}
+
+/* ========== THEME VARIABLES ========== */
+:root {
+  /* Dark theme - Streamflow exact colors */
+  --bg-primary: #060609;
+  --bg-secondary: #0F1420;
+  --bg-tertiary: #1A1F2E;
+  --bg-elevated: #242937;
+  --text-primary: #FFFFFF;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
+  --border-color: #2F3541;
+  --accent-blue: #5B8DEF;
+  --accent-green: #10B981;
+  
+  /* Fonts */
+  --font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+html.light {
+  /* Light theme */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --bg-tertiary: #f1f5f9;
+  --bg-elevated: #e2e8f0;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --border-color: #cbd5e1;
+  --accent-blue: #3B82F6;
+  --accent-green: #10B981;
+}
+
+/* Shimmer animation for lock progress */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite;
+}
+
+/* Smooth theme transition */
+body {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ========== CUSTOM SCROLLBAR ========== */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* ========== ANIMATIONS ========== */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideInFromTop {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInFromBottom {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes zoomIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* ========== ANIMATION CLASSES ========== */
+.animate-in {
+  animation-fill-mode: both;
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.slide-in-from-top {
+  animation: slideInFromTop 0.3s ease-out;
+}
+
+.slide-in-from-top-5 {
+  animation: slideInFromTop 0.3s ease-out;
+}
+
+.slide-in-from-bottom {
+  animation: slideInFromBottom 0.3s ease-out;
+}
+
+.zoom-in-95 {
+  animation: zoomIn 0.2s ease-out;
+}
+
+.animate-slideIn {
+  animation: slideIn 0.4s ease-out;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Duration utilities */
+.duration-200 {
+  animation-duration: 200ms;
+}
+
+.duration-300 {
+  animation-duration: 300ms;
+}
+
+/* ========== LOADING STATES ========== */
+.skeleton {
+  animation: shimmer 2s infinite linear;
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 25%,
+    var(--border-color) 50%,
+    var(--bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+}
+
+/* ========== FOCUS STATES ========== */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* ========== TRANSITIONS ========== */
+button,
+a,
+.interactive {
+  transition: all 0.2s ease-in-out;
+}
+
+/* ========== MOBILE OPTIMIZATIONS ========== */
+@media (max-width: 768px) {
+  /* Improved touch targets */
+  button,
+  a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Better spacing on mobile */
+  .mobile-spacing {
+    padding: 1rem;
+  }
+}
+
+/* ========== BACKDROP BLUR ========== */
+@supports (backdrop-filter: blur(10px)) {
+  .backdrop-blur {
+    backdrop-filter: blur(10px);
+  }
+  
+  .backdrop-blur-sm {
+    backdrop-filter: blur(4px);
+  }
+}
+
+/* ========== GLASS MORPHISM ========== */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+html.light .glass {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* ========== MODAL BACKDROP ========== */
+.modal-backdrop {
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+/* ========== WALLET ADAPTER BUTTON STYLING ========== */
+.wallet-adapter-button {
+  transition: all 0.2s ease-in-out !important;
+}
+
+.wallet-adapter-button:hover {
+  transform: scale(1.02);
+}
+
+/* ========== TOAST Z-INDEX ========== */
+.toast-container {
+  z-index: 9999;
+}
+
+/* ========== SMOOTH SCROLLING ========== */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ========== SELECTION COLORS ========== */
+::selection {
+  background-color: #3b82f6;
+  color: white;
+}
+
+/* ========== ACCESSIBILITY ========== */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ========== HOVER EFFECTS ========== */
+.hover-lift {
+  transition: transform 0.2s ease-in-out;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+}
+
+.hover-scale {
+  transition: transform 0.2s ease-in-out;
+}
+
+.hover-scale:hover {
+  transform: scale(1.05);
+}
+
+.hover-scale-102 {
+  transition: transform 0.2s ease-in-out;
+}
+
+.hover-scale-102:hover {
+  transform: scale(1.02);
+}
+
+/* ========== CUSTOM UTILITIES ========== */
+.scale-102 {
+  transform: scale(1.02);
+}
+
+.scale-105 {
+  transform: scale(1.05);
+}
+
+/* ========== WALLET ADAPTER BUTTON OVERRIDES ========== */
+.wallet-adapter-button {
+  height: auto !important;
+  padding: 0.5rem 1rem !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  min-height: unset !important;
+  border-radius: 0.5rem !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+}
+
+.wallet-adapter-button-trigger {
+  height: auto !important;
+  padding: 0.5rem 1rem !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  min-height: unset !important;
+}
+
+/* Add wallet icon before button text */
+.wallet-adapter-button:not(.wallet-adapter-button-trigger)::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12V7H5a2 2 0 0 1 0-4h14v4'%3E%3C/path%3E%3Cpath d='M3 5v14a2 2 0 0 0 2 2h16v-5'%3E%3C/path%3E%3Cpath d='M18 12a2 2 0 0 0 0 4h4v-4Z'%3E%3C/path%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  flex-shrink: 0;
+}
+
+/* ========== HIDE SCROLLBAR UTILITY ========== */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

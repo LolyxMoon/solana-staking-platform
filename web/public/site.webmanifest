@@ -1,0 +1,40 @@
+{
+  "name": "StakePoint - Solana Staking Platform",
+  "short_name": "StakePoint",
+  "description": "The most advanced staking platform on Solana. Earn passive income with industry-leading APYs.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#060609",
+  "theme_color": "#fb57ff",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["finance", "defi"],
+  "screenshots": [
+    {
+      "src": "/screenshot-desktop.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide"
+    },
+    {
+      "src": "/screenshot-mobile.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ]
+}
+

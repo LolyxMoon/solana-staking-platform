@@ -1,0 +1,28 @@
+node_modules/
+.next/
+out/
+dist/
+.env.local
+target/
+.anchor/
+.vercel
+.env.local
+
+# PostgreSQL database files - DO NOT COMMIT
+data/
+postgres/
+pgdata/
+*.pid
+pg_stat/
+
+# Logs
+*.log
+log/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

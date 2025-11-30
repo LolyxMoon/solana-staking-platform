@@ -1,0 +1,1392 @@
+"use client";
+
+import { useState, useEffect, useMemo } from "react";
+import { useWallet, useConnection, useAnchorWallet } from "@solana/wallet-adapter-react";
+import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction } from "@solana/spl-token";
+import * as anchor from "@coral-xyz/anchor";
+import { isAdmin } from "@/lib/adminAuth";
+import AdvancedPoolControls from "@/components/AdvancedPoolControls";
+import { useToast } from "@/components/ToastContainer";
+import { getProgram, getPDAs } from "@/lib/anchor-program";
+import { useAdminProgram } from "@/hooks/useAdminProgram";
+import { 
+  ChevronDown, 
+  ChevronUp, 
+  Search, 
+  Plus,
+  BarChart3,
+  Settings,
+  Eye,
+  Calendar,
+  TrendingUp,
+  Pause,
+  Play,
+  CheckSquare,
+  Square,
+  ShieldAlert,
+  Lock,
+  Zap
+} from "lucide-react";
+
+export default function AdminPage() {
+  const { publicKey, connected } = useWallet();
+  const { connection } = useConnection();
+  const wallet = useAnchorWallet();
+  const { showSuccess, showError } = useToast();
+  const { updateFeeCollector } = useAdminProgram();
+
+  const userIsAdmin = connected && publicKey ? isAdmin(publicKey.toString()) : false;
+
+  // Platform state
+  const [platformInitialized, setPlatformInitialized] = useState<boolean | null>(null);
+  const [showInitModal, setShowInitModal] = useState(false);
+  const [initForm, setInitForm] = useState({
+    platformTokenFeeBps: "250", // 2.5%
+    platformSolFee: "1000000", // 0.001 SOL in lamports
+    feeCollector: "",
+  });
+  const [showFeeCollectorModal, setShowFeeCollectorModal] = useState(false);
+  const [newFeeCollector, setNewFeeCollector] = useState("");
+  const [tokenMintForFeeCollector, setTokenMintForFeeCollector] = useState("");
+  const [creatingTokenAccount, setCreatingTokenAccount] = useState(false);
+
+  const [form, setForm] = useState({
+  name: "",
+  symbol: "",
+  apr: "",
+  apy: "",
+  type: "locked",
+  lockPeriod: "",
+  rewards: "",
+  logo: "",
+  mintAddress: "",
+  pairAddress: "",
+  poolId: 0,  // ← ADD THIS
+  hasSelfReflections: false,
+  hasExternalReflections: false,
+  externalReflectionMint: "",
+});
+
+  const [pools, setPools] = useState<any[]>([]);
+  const [editingPool, setEditingPool] = useState<any | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  
+  const [searchQuery, setSearchQuery] = useState("");
+  const [expandedPools, setExpandedPools] = useState<Set<string>>(new Set());
+  
+  const [activeTab, setActiveTab] = useState<"dashboard" | "pools" | "create">("dashboard");
+  
+  const [selectedPools, setSelectedPools] = useState<Set<string>>(new Set());
+
+  // ✅ FIXED: Check if platform is initialized - ONCE on mount only
+  useEffect(() => {
+    let isMounted = true;
+    
+    const checkPlatformInit = async () => {
+      if (!wallet || !connection) return;
+      
+      // Prevent running if already checked
+      if (platformInitialized !== null) return;
+      
+      try {
+        console.log("🔍 Checking platform initialization (ONCE)...");
+        const program = getProgram(wallet, connection);
+        const [platformPDA] = getPDAs.platformConfig();
+        console.log("Checking platform at:", platformPDA.toString());
+        
+        // Fetch the platform account
+        const platformAccount = await program.account.platform.fetch(platformPDA);
+        console.log("Platform account data:", platformAccount);
+        console.log("Is initialized:", platformAccount.isInitialized);
+        
+        // Platform exists and is initialized
+        if (isMounted) {
+          setPlatformInitialized(true);
+        }
+      } catch (error: any) {
+        console.log("Platform check error:", error.message);
+        console.log("Platform not found - needs initialization");
+        if (isMounted) {
+          setPlatformInitialized(false);
+        }
+      }
+    };
+
+    if (userIsAdmin && wallet && platformInitialized === null) {
+      checkPlatformInit();
+    }
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [userIsAdmin, wallet]); // ✅ REMOVED 'connection' from dependencies
+
+  useEffect(() => {
+    if (userIsAdmin && publicKey) {
+      showSuccess(`Welcome, Admin! (${publicKey.toString().slice(0, 8)}...)`);
+    }
+  }, [userIsAdmin, publicKey]);
+
+  // Initialize Platform
+  const handleInitializePlatform = async () => {
+    if (!wallet || !publicKey || !initForm.feeCollector) {
+      showError("❌ Please fill in all required fields");
+      return;
+    }
+
+    try {
+      const program = getProgram(wallet, connection);
+      const [platformPDA] = getPDAs.platformConfig();
+      
+      const feeCollectorPubkey = new PublicKey(initForm.feeCollector);
+      const platformTokenFeeBps = parseInt(initForm.platformTokenFeeBps);
+      const platformSolFee = parseInt(initForm.platformSolFee);
+
+      console.log("Initializing with:", {
+        platformPDA: platformPDA.toString(),
+        platformTokenFeeBps,
+        platformSolFee,
+        feeCollector: feeCollectorPubkey.toString(),
+        admin: publicKey.toString()
+      });
+
+      const tx = await program.methods
+        .initialize(
+          new anchor.BN(platformTokenFeeBps),
+          new anchor.BN(platformSolFee)
+        )
+        .accounts({
+          platform: platformPDA,
+          feeCollector: feeCollectorPubkey,
+          admin: publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      showSuccess(`✅ Platform initialized! TX: ${tx.slice(0, 8)}...`);
+      setPlatformInitialized(true);
+      setShowInitModal(false);
+      setInitForm({
+        platformTokenFeeBps: "250",
+        platformSolFee: "1000000",
+        feeCollector: "",
+      });
+    } catch (error: any) {
+      console.error("Initialize platform error:", error);
+      showError(`❌ ${error.message || "Failed to initialize platform"}`);
+    }
+  };
+
+  // Update Fee Collector
+  const handleUpdateFeeCollector = async () => {
+    if (!newFeeCollector) {
+      showError("❌ Please enter a valid fee collector address");
+      return;
+    }
+
+    try {
+      console.log("🔄 Updating fee collector to:", newFeeCollector);
+      const tx = await updateFeeCollector(newFeeCollector);
+      showSuccess(`✅ Fee collector updated! TX: ${tx.slice(0, 8)}...`);
+      setShowFeeCollectorModal(false);
+      setNewFeeCollector("");
+    } catch (error: any) {
+      console.error("Update fee collector error:", error);
+      showError(`❌ ${error.message || "Failed to update fee collector"}`);
+    }
+  };
+
+  // Create Token Account for Fee Collector
+  const handleCreateTokenAccount = async () => {
+    if (!publicKey || !wallet) {
+      showError("❌ Please connect your wallet");
+      return;
+    }
+    if (!tokenMintForFeeCollector) {
+      showError("❌ Please enter token mint address");
+      return;
+    }
+
+    setCreatingTokenAccount(true);
+    try {
+      const tokenMint = new PublicKey(tokenMintForFeeCollector);
+      const feeCollector = new PublicKey("66oZ17EyWhmRXPYpuVpoojvmaz3AZWAaewekTWqJFhfB");
+      
+      const ata = await getAssociatedTokenAddress(tokenMint, feeCollector);
+      console.log("🔍 Token Account Address:", ata.toString());
+      
+      const accountInfo = await connection.getAccountInfo(ata);
+      if (accountInfo) {
+        showSuccess("✅ Token account already exists!");
+        setCreatingTokenAccount(false);
+        return;
+      }
+
+      console.log("⚙️ Creating token account...");
+      const ix = createAssociatedTokenAccountInstruction(publicKey, ata, feeCollector, tokenMint);
+      const tx = new Transaction().add(ix);
+      
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized");
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = publicKey;
+
+      const signed = await wallet.signTransaction(tx);
+      const sig = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false,
+        maxRetries: 3
+      });
+      
+      console.log("📤 Transaction sent:", sig);
+
+      await connection.confirmTransaction({
+        signature: sig,
+        blockhash,
+        lastValidBlockHeight
+      }, "confirmed");
+
+      showSuccess(`✅ Token account created! TX: ${sig.slice(0, 8)}...`);
+      console.log("✅ Full signature:", sig);
+      console.log("✅ Token Account:", ata.toString());
+    } catch (error: any) {
+      console.error("Error:", error);
+      if (error.message?.includes("already been processed")) {
+        showSuccess("✅ Token account created successfully!");
+      } else {
+        showError(`❌ ${error.message || "Failed to create token account"}`);
+      }
+    } finally {
+      setCreatingTokenAccount(false);
+    }
+  };
+
+  if (!connected || !publicKey) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800 p-6">
+        <div className="max-w-md w-full bg-gray-800/50 border-2 border-red-500/50 rounded-2xl p-8 text-center">
+          <Lock className="w-16 h-16 text-red-400 mx-auto mb-4" />
+          <h1 className="text-3xl font-bold text-white mb-2">Admin Access Required</h1>
+          <p className="text-gray-400 mb-6">
+            Please connect your wallet to access the admin panel
+          </p>
+          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+            <p className="text-yellow-300 text-sm">
+              ⚠️ Only authorized wallets can access this area
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!userIsAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800 p-6">
+        <div className="max-w-md w-full bg-gray-800/50 border-2 border-red-500/50 rounded-2xl p-8 text-center">
+          <ShieldAlert className="w-16 h-16 text-red-400 mx-auto mb-4 animate-pulse" />
+          <h1 className="text-3xl font-bold text-white mb-2">Access Denied</h1>
+          <p className="text-gray-400 mb-6">
+            Your wallet is not authorized to access the admin panel
+          </p>
+          
+          <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-4 mb-6">
+            <p className="text-xs text-gray-500 mb-1">Connected Wallet:</p>
+            <p className="text-gray-300 font-mono text-sm break-all">
+              {publicKey.toString()}
+            </p>
+          </div>
+
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+            <p className="text-red-300 text-sm font-semibold mb-2">
+              🚫 Unauthorized Access
+            </p>
+            <p className="text-red-400 text-xs">
+              This incident has been logged. If you believe this is an error, please contact the administrator.
+            </p>
+          </div>
+
+          <button
+            onClick={() => window.location.href = "/"}
+            className="mt-6 w-full px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-semibold transition-all"
+          >
+            Return to Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  useEffect(() => {
+    refreshPools();
+  }, []);
+
+  const refreshPools = async () => {
+    try {
+      const res = await fetch("/api/admin/pools");
+      const data = await res.json();
+      
+      // If there are expanded pools, collapse them first
+      const currentExpanded = Array.from(expandedPools);
+      if (currentExpanded.length > 0) {
+        setExpandedPools(new Set());
+      }
+      
+      // Update pools data
+      setPools(data);
+      
+      // Re-expand after state has settled
+      if (currentExpanded.length > 0) {
+        setTimeout(() => {
+          setExpandedPools(new Set(currentExpanded));
+        }, 150);
+      }
+    } catch (error) {
+      showError("❌ Failed to fetch pools");
+    }
+  };
+
+  const stats = useMemo(() => {
+    const total = pools.length;
+    const active = pools.filter(p => !p.isPaused && !p.hidden).length;
+    const paused = pools.filter(p => p.isPaused).length;
+    const hidden = pools.filter(p => p.hidden).length;
+    const featured = pools.filter(p => p.featured).length;
+    const initialized = pools.filter(p => p.isInitialized).length;
+    const totalViews = pools.reduce((sum, p) => sum + (p.views || 0), 0);
+    
+    return { total, active, paused, hidden, featured, initialized, totalViews };
+  }, [pools]);
+
+  const filteredPools = useMemo(() => {
+    if (!searchQuery) return pools;
+    
+    const query = searchQuery.toLowerCase();
+    return pools.filter(pool => 
+      pool.name.toLowerCase().includes(query) ||
+      pool.symbol.toLowerCase().includes(query) ||
+      pool.id.toLowerCase().includes(query)
+    );
+  }, [pools, searchQuery]);
+
+  const toggleExpand = (poolId: string) => {
+    setExpandedPools(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(poolId)) {
+        newSet.delete(poolId);
+      } else {
+        newSet.add(poolId);
+      }
+      return newSet;
+    });
+  };
+
+  const expandAll = () => {
+    setExpandedPools(new Set(filteredPools.map(p => p.id)));
+  };
+
+  const collapseAll = () => {
+    setExpandedPools(new Set());
+  };
+
+  const toggleSelectPool = (poolId: string) => {
+    setSelectedPools(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(poolId)) {
+        newSet.delete(poolId);
+      } else {
+        newSet.add(poolId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllFiltered = () => {
+    setSelectedPools(new Set(filteredPools.map(p => p.id)));
+  };
+
+  const deselectAll = () => {
+    setSelectedPools(new Set());
+  };
+
+  const bulkHide = async () => {
+    const promises = Array.from(selectedPools).map(id =>
+      fetch(`/api/admin/pools/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hidden: true }),
+      })
+    );
+    
+    try {
+      await Promise.all(promises);
+      showSuccess(`✅ Hidden ${selectedPools.size} pools`);
+      refreshPools();
+      deselectAll();
+    } catch (err) {
+      showError("❌ Failed to hide pools");
+    }
+  };
+
+  const handleChange = (e: any) => {
+    const { name, value, type, checked } = e.target;
+    setForm({ 
+      ...form, 
+      [name]: type === "checkbox" ? checked : value 
+    });
+  };
+
+  const verifyPair = async () => {
+    if (!form.pairAddress) {
+      alert("⚠️ No pair address provided. You can manually fill in the token details.");
+      return;
+    }
+    try {
+      const res = await fetch(
+        `https://api.dexscreener.com/latest/dex/pairs/solana/${form.pairAddress}`
+      );
+      const data = await res.json();
+      const pair = data.pairs?.[0] || data.pair;
+      if (pair) {
+        setForm((prev) => ({
+          ...prev,
+          name: pair.baseToken?.name || prev.name,
+          symbol: pair.baseToken?.symbol || prev.symbol,
+          logo: pair.info?.imageUrl || pair.baseToken?.logoURI || prev.logo,
+          mintAddress: pair.baseToken?.address || prev.mintAddress,
+        }));
+        alert("✅ Token info loaded from pair!");
+      } else {
+        alert("❌ Pair not found. Enter details manually.");
+      }
+    } catch (err) {
+      console.error("Verify pair error:", err);
+      alert("❌ Failed to verify pair. Enter details manually.");
+    }
+  };
+
+  const handleSubmit = async (e: any) => {
+    e.preventDefault();
+    try {
+      const url = editingPool
+        ? `/api/admin/pools/${editingPool.id}`
+        : "/api/admin/pools";
+      const method = editingPool ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+
+      if (!res.ok) throw new Error("Failed to save pool");
+
+      const updatedPool = await res.json();
+
+      if (editingPool) {
+        setPools((prev) =>
+          prev.map((p) => (p.id === updatedPool.id ? updatedPool : p))
+        );
+        setEditingPool(null);
+        showSuccess("✅ Pool updated successfully!");
+        setActiveTab("pools");
+      } else {
+        setPools((prev) => [...prev, updatedPool]);
+        showSuccess("✅ Pool created successfully!");
+        setActiveTab("pools");
+      }
+
+      setForm({
+        name: "",
+        symbol: "",
+        apr: "",
+        apy: "",
+        type: "locked",
+        lockPeriod: "",
+        rewards: "",
+        logo: "",
+        mintAddress: "",
+        pairAddress: "",
+        poolId: 0,
+        hasSelfReflections: false,
+        hasExternalReflections: false,
+        externalReflectionMint: "",
+      });
+    } catch (err) {
+      showError("❌ Error creating/updating pool");
+    }
+  };
+
+  const handleEdit = (pool: any) => {
+    setEditingPool(pool);
+    setForm({
+      name: pool.name || "",
+      symbol: pool.symbol || "",
+      apr: pool.apr || "",
+      apy: pool.apy || "",
+      type: pool.type || "locked",
+      lockPeriod: pool.lockPeriod || "",
+      rewards: pool.rewards || "",
+      logo: pool.logo || "",
+      mintAddress: pool.mintAddress || "",
+      pairAddress: pool.pairAddress || "",
+      poolId: pool.poolId || 0,
+      hasSelfReflections: pool.hasSelfReflections || false,
+      hasExternalReflections: pool.hasExternalReflections || false,
+      externalReflectionMint: pool.externalReflectionMint || "",
+    });
+    setActiveTab("create");
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/pools/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete pool");
+      setPools((prev) => prev.filter((p) => p.id !== id));
+      showSuccess("✅ Pool deleted");
+    } catch (err) {
+      showError("❌ Error deleting pool");
+    }
+  };
+
+  const handleToggle = async (id: string, field: string) => {
+    try {
+      const pool = pools.find((p) => p.id === id);
+      if (!pool) return;
+      const res = await fetch(`/api/admin/pools/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: !pool[field] }),
+      });
+      if (!res.ok) throw new Error("Failed to update pool");
+      const updated = await res.json();
+      setPools((prev) => prev.map((p) => (p.id === id ? updated : p)));
+    } catch (err) {
+      showError(`❌ Error toggling ${field}`);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+              Admin Dashboard
+            </h1>
+            <p className="text-gray-400 mt-1">Manage your staking pools</p>
+          </div>
+          <button
+            onClick={() => setActiveTab("create")}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg hover:from-blue-500 hover:to-purple-500 transition-all"
+          >
+            <Plus className="w-5 h-5" />
+            New Pool
+          </button>
+        </div>
+
+        <div className="flex gap-2 border-b border-slate-700">
+          <button
+            onClick={() => setActiveTab("dashboard")}
+            className={`flex items-center gap-2 px-4 py-3 font-medium transition-all ${
+              activeTab === "dashboard"
+                ? "text-blue-400 border-b-2 border-blue-400"
+                : "text-gray-400 hover:text-gray-300"
+            }`}
+          >
+            <BarChart3 className="w-5 h-5" />
+            Dashboard
+          </button>
+          <button
+            onClick={() => setActiveTab("pools")}
+            className={`flex items-center gap-2 px-4 py-3 font-medium transition-all ${
+              activeTab === "pools"
+                ? "text-blue-400 border-b-2 border-blue-400"
+                : "text-gray-400 hover:text-gray-300"
+            }`}
+          >
+            <Settings className="w-5 h-5" />
+            Manage Pools
+          </button>
+          <button
+            onClick={() => setActiveTab("create")}
+            className={`flex items-center gap-2 px-4 py-3 font-medium transition-all ${
+              activeTab === "create"
+                ? "text-blue-400 border-b-2 border-blue-400"
+                : "text-gray-400 hover:text-gray-300"
+            }`}
+          >
+            <Plus className="w-5 h-5" />
+            {editingPool ? "Edit Pool" : "Create Pool"}
+          </button>
+        </div>
+
+        {activeTab === "dashboard" && (
+          <div className="space-y-6">
+            {platformInitialized === false && (
+              <div className="bg-gradient-to-r from-yellow-900/50 to-orange-900/50 backdrop-blur border border-yellow-500/50 rounded-xl p-6">
+                <div className="flex items-start gap-4">
+                  <Zap className="w-8 h-8 text-yellow-400 flex-shrink-0 animate-pulse" />
+                  <div className="flex-1">
+                    <h2 className="text-2xl font-bold mb-2 text-yellow-200">
+                      🚀 Platform Not Initialized
+                    </h2>
+                    <p className="text-yellow-100 mb-4">
+                      Before you can create and manage pools, you need to initialize the platform with fee settings.
+                    </p>
+                    <button
+                      onClick={() => setShowInitModal(true)}
+                      className="px-6 py-3 bg-gradient-to-r from-yellow-600 to-orange-600 rounded-lg hover:from-yellow-500 hover:to-orange-500 transition-all font-semibold flex items-center gap-2"
+                    >
+                      <Zap className="w-5 h-5" />
+                      Initialize Platform Now
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div className="bg-slate-900/50 backdrop-blur border border-slate-700 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-gray-400 text-sm">Total Pools</span>
+                  <Settings className="w-5 h-5 text-blue-400" />
+                </div>
+                <p className="text-3xl font-bold text-white">{stats.total}</p>
+              </div>
+
+              <div className="bg-slate-900/50 backdrop-blur border border-slate-700 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-gray-400 text-sm">Active Pools</span>
+                  <Play className="w-5 h-5 text-green-400" />
+                </div>
+                <p className="text-3xl font-bold text-white">{stats.active}</p>
+              </div>
+
+              <div className="bg-slate-900/50 backdrop-blur border border-slate-700 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-gray-400 text-sm">Paused</span>
+                  <Pause className="w-5 h-5 text-yellow-400" />
+                </div>
+                <p className="text-3xl font-bold text-white">{stats.paused}</p>
+              </div>
+
+              <div className="bg-slate-900/50 backdrop-blur border border-slate-700 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-gray-400 text-sm">Featured</span>
+                  <TrendingUp className="w-5 h-5 text-purple-400" />
+                </div>
+                <p className="text-3xl font-bold text-white">{stats.featured}</p>
+              </div>
+
+              <div className="bg-slate-900/50 backdrop-blur border border-slate-700 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-gray-400 text-sm">Hidden</span>
+                  <Eye className="w-5 h-5 text-gray-400" />
+                </div>
+                <p className="text-3xl font-bold text-white">{stats.hidden}</p>
+              </div>
+
+              <div className="bg-slate-900/50 backdrop-blur border border-slate-700 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-gray-400 text-sm">Initialized</span>
+                  <CheckSquare className="w-5 h-5 text-blue-400" />
+                </div>
+                <p className="text-3xl font-bold text-white">{stats.initialized}</p>
+              </div>
+
+              <div className="bg-slate-900/50 backdrop-blur border border-slate-700 rounded-xl p-5 md:col-span-2">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-gray-400 text-sm">Total Views</span>
+                  <Eye className="w-5 h-5 text-indigo-400" />
+                </div>
+                <p className="text-3xl font-bold text-white">{stats.totalViews.toLocaleString()}</p>
+              </div>
+            </div>
+
+              {/* Create Token Account for Fee Collector */}
+              <div className="bg-gradient-to-br from-blue-900/30 to-blue-800/30 p-6 rounded-2xl border border-blue-500/30">
+                <h3 className="text-xl font-bold mb-4">Create Token Account</h3>
+                <p className="text-gray-400 text-sm mb-4">
+                  Create token account for fee collector before staking
+                </p>
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-400 mb-2">Token Mint Address *</label>
+                  <input
+                    type="text"
+                    value={tokenMintForFeeCollector}
+                    onChange={(e) => setTokenMintForFeeCollector(e.target.value)}
+                    placeholder="Enter token mint"
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-blue-500 focus:outline-none font-mono text-sm"
+                  />
+                </div>
+                <button
+                  onClick={handleCreateTokenAccount}
+                  disabled={creatingTokenAccount || !tokenMintForFeeCollector}
+                  className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-lg hover:from-blue-500 hover:to-cyan-500 transition-all disabled:opacity-50 font-semibold"
+                >
+                  {creatingTokenAccount ? "Creating..." : "Create Token Account"}
+                </button>
+              </div>
+
+              {/* Platform Settings Card */}
+              <div className="bg-gradient-to-br from-purple-900/30 to-purple-800/30 p-6 rounded-2xl border border-purple-500/30">
+                <div className="flex items-center gap-3 mb-4">
+                  <Settings className="w-8 h-8 text-purple-400" />
+                  <h3 className="text-xl font-bold">Platform Settings</h3>
+                </div>
+                <p className="text-gray-400 mb-4">Manage platform configuration</p>
+                <button
+                  onClick={() => setShowFeeCollectorModal(true)}
+                  className="w-full px-4 py-2 bg-purple-600 rounded-lg hover:bg-purple-500 transition-all"
+                >
+                  Update Fee Collector
+                </button>
+              </div>
+
+            <div className="bg-slate-900/50 backdrop-blur border border-slate-700 rounded-xl p-6">
+              <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-blue-400" />
+                Recent Pools
+              </h3>
+              <div className="space-y-3">
+                {pools.slice(0, 5).map((pool) => (
+                  <div key={pool.id} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      {pool.logo && (
+                        <img src={pool.logo} alt={pool.symbol} className="w-10 h-10 rounded" />
+                      )}
+                      <div>
+                        <p className="font-semibold">{pool.name}</p>
+                        <p className="text-sm text-gray-400">{pool.symbol}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-gray-400">{pool.views || 0} views</span>
+                      {pool.isPaused && (
+                        <span className="text-xs bg-yellow-600/30 text-yellow-400 px-2 py-1 rounded">
+                          Paused
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "pools" && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search pools by name, symbol, or ID..."
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-slate-900/50 backdrop-blur border border-slate-700 text-white focus:border-blue-500 focus:outline-none transition-all"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={expandAll}
+                  className="px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg hover:bg-slate-700 transition-all text-sm"
+                >
+                  Expand All
+                </button>
+                <button
+                  onClick={collapseAll}
+                  className="px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg hover:bg-slate-700 transition-all text-sm"
+                >
+                  Collapse All
+                </button>
+              </div>
+            </div>
+
+            {selectedPools.size > 0 && (
+              <div className="bg-blue-600/20 border border-blue-600 rounded-lg p-4 flex items-center justify-between">
+                <span className="text-blue-400 font-medium">
+                  {selectedPools.size} pool{selectedPools.size !== 1 ? "s" : ""} selected
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={bulkHide}
+                    className="px-3 py-2 bg-gray-600 rounded hover:bg-gray-700 transition-all text-sm"
+                  >
+                    Hide All
+                  </button>
+                  <button
+                    onClick={deselectAll}
+                    className="px-3 py-2 bg-slate-700 rounded hover:bg-slate-600 transition-all text-sm"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-400">
+                Showing {filteredPools.length} of {pools.length} pools
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={selectAllFiltered}
+                  className="text-blue-400 hover:text-blue-300"
+                >
+                  Select All
+                </button>
+                <span className="text-gray-600">|</span>
+                <button
+                  onClick={deselectAll}
+                  className="text-gray-400 hover:text-gray-300"
+                >
+                  Deselect All
+                </button>
+              </div>
+            </div>
+
+            <ul className="space-y-3">
+              {filteredPools.map((pool) => {
+                const isExpanded = expandedPools.has(pool.id);
+                const isSelected = selectedPools.has(pool.id);
+                
+                return (
+                  <li
+                    key={pool.id}
+                    className={`bg-slate-900/50 backdrop-blur rounded-lg border transition-all ${
+                      isSelected ? "border-blue-500 bg-blue-900/10" : "border-slate-700"
+                    }`}
+                  >
+                    <div className="p-4 flex items-center gap-4">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSelectPool(pool.id);
+                        }}
+                        className="flex-shrink-0"
+                      >
+                        {isSelected ? (
+                          <CheckSquare className="w-5 h-5 text-blue-400" />
+                        ) : (
+                          <Square className="w-5 h-5 text-gray-600" />
+                        )}
+                      </button>
+
+                      <div 
+                        className="flex items-center gap-3 flex-1 cursor-pointer"
+                        onClick={() => toggleExpand(pool.id)}
+                      >
+                        {pool.logo && (
+                          <img
+                            src={pool.logo}
+                            alt={pool.symbol}
+                            className="w-10 h-10 rounded"
+                          />
+                        )}
+                        <div className="flex-1">
+                          <p className="font-bold">
+                            {pool.name} ({pool.symbol})
+                          </p>
+                          <div className="flex gap-2 mt-1 flex-wrap">
+                            {pool.isInitialized && (
+                              <span className="text-xs bg-green-600/30 text-green-400 px-2 py-0.5 rounded">
+                                ✓ Init
+                              </span>
+                            )}
+                            {pool.isPaused && (
+                              <span className="text-xs bg-yellow-600/30 text-yellow-400 px-2 py-0.5 rounded">
+                                ⏸ Paused
+                              </span>
+                            )}
+                            {pool.featured && (
+                              <span className="text-xs bg-purple-600/30 text-purple-400 px-2 py-0.5 rounded">
+                                ⭐ Featured
+                              </span>
+                            )}
+                            {pool.hidden && (
+                              <span className="text-xs bg-gray-600/30 text-gray-400 px-2 py-0.5 rounded">
+                                👁 Hidden
+                              </span>
+                            )}
+                            {pool.hasSelfReflections && (
+                              <span className="text-xs bg-blue-600/30 text-blue-400 px-2 py-0.5 rounded">
+                                Self Ref
+                              </span>
+                            )}
+                            {pool.hasExternalReflections && (
+                              <span className="text-xs bg-purple-600/30 text-purple-400 px-2 py-0.5 rounded">
+                                Ext Ref
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="text-right hidden sm:block">
+                        <p className="text-sm text-gray-400">{pool.views || 0} views</p>
+                        <p className="text-xs text-gray-500">
+                          {pool.createdAt ? new Date(pool.createdAt).toLocaleDateString() : "N/A"}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => toggleExpand(pool.id)}
+                        className="flex-shrink-0 text-gray-400 hover:text-white transition-colors"
+                      >
+                        {isExpanded ? (
+                          <ChevronUp className="w-5 h-5" />
+                        ) : (
+                          <ChevronDown className="w-5 h-5" />
+                        )}
+                      </button>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="px-4 pb-4 border-t border-slate-700 pt-4 space-y-4">
+                        <div className="flex gap-2 flex-wrap">
+                          <button
+                            onClick={() => handleEdit(pool)}
+                            className="px-3 py-1.5 bg-blue-600 rounded hover:bg-blue-700 transition-all text-sm"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleToggle(pool.id, "hidden")}
+                            className="px-3 py-1.5 bg-gray-600 rounded hover:bg-gray-700 transition-all text-sm"
+                          >
+                            {pool.hidden ? "Unhide" : "Hide"}
+                          </button>
+                          <button
+                            onClick={() => handleToggle(pool.id, "featured")}
+                            className="px-3 py-1.5 bg-purple-600 rounded hover:bg-purple-700 transition-all text-sm"
+                          >
+                            {pool.featured ? "Unfeature" : "Feature"}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(pool.id)}
+                            className="px-3 py-1.5 bg-red-600 rounded hover:bg-red-700 transition-all text-sm ml-auto"
+                          >
+                            Delete
+                          </button>
+                        </div>
+
+                        <AdvancedPoolControls 
+                          key={`pool-${pool.id}-${pool.isInitialized}-${pool.apy}-${pool.lockPeriod}-${pool.isPaused}`}
+                          pool={pool} 
+                          onUpdate={refreshPools} 
+                        />
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+
+            {filteredPools.length === 0 && (
+              <div className="text-center py-16 text-gray-400">
+                <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                <p className="text-lg">No pools found matching "{searchQuery}"</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "create" && (
+          <form
+            onSubmit={handleSubmit}
+            className="bg-slate-900/50 backdrop-blur border border-slate-700 rounded-xl p-6 space-y-6"
+          >
+            <h2 className="text-2xl font-semibold">
+              {editingPool ? "✏️ Edit Pool" : "🎨 Create New Pool"}
+            </h2>
+
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold text-blue-400">Step 1: Verify Token Pair</h3>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  name="pairAddress"
+                  value={form.pairAddress}
+                  onChange={handleChange}
+                  placeholder="Enter DexScreener Pair Address"
+                  className="flex-1 p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={verifyPair}
+                  className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg hover:from-blue-500 hover:to-purple-500 transition-all font-medium"
+                >
+                  Verify
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold text-blue-400">Step 2: Token Details</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input
+                  type="text"
+                  name="name"
+                  value={form.name}
+                  onChange={handleChange}
+                  placeholder="Token Name"
+                  required
+                  className="p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+                />
+                <input
+                  type="text"
+                  name="symbol"
+                  value={form.symbol}
+                  onChange={handleChange}
+                  placeholder="Symbol"
+                  required
+                  className="p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+                />
+                <input
+                  type="text"
+                  name="logo"
+                  value={form.logo}
+                  onChange={handleChange}
+                  placeholder="Logo URL"
+                  className="p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+                />
+                <input
+                  type="text"
+                  name="mintAddress"
+                  value={form.mintAddress}
+                  onChange={handleChange}
+                  placeholder="Mint Address"
+                  className="p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+                />
+                <input
+                  type="number"
+                  name="poolId"
+                  value={form.poolId}
+                  onChange={handleChange}
+                  placeholder="Pool ID (0 for first pool, 1 for second pool...)"
+                  min="0"
+                  className="p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold text-blue-400">Step 3: Pool Configuration</h3>          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Pool Type</label>
+                  <select
+                    name="type"
+                    value={form.type}
+                    onChange={handleChange}
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="locked">Locked</option>
+                    <option value="unlocked">Unlocked</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">APY (for locked)</label>
+                  <input
+                    type="text"
+                    name="apy"
+                    value={form.apy}
+                    onChange={handleChange}
+                    placeholder="e.g., 25%"
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">APR (for unlocked)</label>
+                  <input
+                    type="text"
+                    name="apr"
+                    value={form.apr}
+                    onChange={handleChange}
+                    placeholder="e.g., 15%"
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Lock Period (days)</label>
+                  <input
+                    type="text"
+                    name="lockPeriod"
+                    value={form.lockPeriod}
+                    onChange={handleChange}
+                    placeholder="e.g., 30"
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm text-gray-400 mb-1">Rewards</label>
+                  <input
+                    type="text"
+                    name="rewards"
+                    value={form.rewards}
+                    onChange={handleChange}
+                    placeholder="e.g., 10 TOKEN"
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3 border-t border-slate-700 pt-4">
+              <h3 className="text-lg font-semibold text-blue-400">Step 4: Reflection Settings</h3>
+              <div className="space-y-3">
+                <label className="flex items-center gap-3 cursor-pointer p-3 bg-slate-800 rounded-lg hover:bg-slate-750 transition-all">
+                  <input
+                    type="checkbox"
+                    name="hasSelfReflections"
+                    checked={form.hasSelfReflections}
+                    onChange={handleChange}
+                    className="w-5 h-5 rounded bg-slate-700 border-slate-600"
+                  />
+                  <div>
+                    <span className="font-medium">Enable Self Reflections</span>
+                    <p className="text-sm text-gray-400">Users earn more of the staked token</p>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 cursor-pointer p-3 bg-slate-800 rounded-lg hover:bg-slate-750 transition-all">
+                  <input
+                    type="checkbox"
+                    name="hasExternalReflections"
+                    checked={form.hasExternalReflections}
+                    onChange={handleChange}
+                    className="w-5 h-5 rounded bg-slate-700 border-slate-600"
+                  />
+                  <div>
+                    <span className="font-medium">Enable External Reflections</span>
+                    <p className="text-sm text-gray-400">Users earn a different token</p>
+                  </div>
+                </label>
+
+                {form.hasExternalReflections && (
+                  <input
+                    type="text"
+                    name="externalReflectionMint"
+                    value={form.externalReflectionMint}
+                    onChange={handleChange}
+                    placeholder="External Reflection Token (e.g., USDC, SOL)"
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+                  />
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="submit"
+                className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg hover:from-blue-500 hover:to-purple-500 transition-all font-medium text-lg"
+              >
+                {editingPool ? "💾 Update Pool" : "🚀 Create Pool"}
+              </button>
+              {editingPool && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingPool(null);
+                    setForm({
+                      name: "",
+                      symbol: "",
+                      apr: "",
+                      apy: "",
+                      type: "locked",
+                      lockPeriod: "",
+                      rewards: "",
+                      logo: "",
+                      mintAddress: "",
+                      pairAddress: "",
+                      hasSelfReflections: false,
+                      hasExternalReflections: false,
+                      externalReflectionMint: "",
+                    });
+                    setActiveTab("pools");
+                  }}
+                  className="px-6 py-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-all"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </form>
+        )}
+      </div>
+
+      {showInitModal && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm z-50 p-4">
+          <div className="bg-slate-900 border border-yellow-700 p-6 rounded-xl shadow-2xl text-white max-w-lg w-full">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+              <Zap className="w-6 h-6 text-yellow-400" />
+              Initialize Platform
+            </h2>
+            <p className="text-gray-400 mb-6 text-sm">
+              Set up the platform with initial fee configuration. This is a one-time operation.
+            </p>
+            
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">
+                  Token Fee (Basis Points)
+                </label>
+                <input
+                  type="number"
+                  value={initForm.platformTokenFeeBps}
+                  onChange={(e) => setInitForm({...initForm, platformTokenFeeBps: e.target.value})}
+                  placeholder="250"
+                  className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-yellow-500 focus:outline-none"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  250 = 2.5%, 100 = 1%, 10000 = 100%
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">
+                  SOL Fee (in lamports)
+                </label>
+                <input
+                  type="number"
+                  value={initForm.platformSolFee}
+                  onChange={(e) => setInitForm({...initForm, platformSolFee: e.target.value})}
+                  placeholder="1000000"
+                  className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-yellow-500 focus:outline-none"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  1000000 lamports = 0.001 SOL | 1000000000 = 1 SOL
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">
+                  Fee Collector Address *
+                </label>
+                <input
+                  type="text"
+                  value={initForm.feeCollector}
+                  onChange={(e) => setInitForm({...initForm, feeCollector: e.target.value})}
+                  placeholder="Enter wallet address to receive fees"
+                  className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-yellow-500 focus:outline-none font-mono text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-3 mb-6">
+              <p className="text-yellow-300 text-xs">
+                ℹ️ Platform initialization can only be done once. Make sure the fee collector address is correct!
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowInitModal(false);
+                  setInitForm({
+                    platformTokenFeeBps: "250",
+                    platformSolFee: "1000000",
+                    feeCollector: "",
+                  });
+                }}
+                className="flex-1 px-4 py-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleInitializePlatform}
+                disabled={!initForm.feeCollector}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-yellow-600 to-orange-600 rounded-lg hover:from-yellow-500 hover:to-orange-500 transition-all disabled:opacity-50 font-semibold"
+              >
+                Initialize Platform
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-2xl text-white max-w-md w-full">
+            <h2 className="text-xl font-bold mb-4">⚠️ Confirm Deletion</h2>
+            <p className="mb-6 text-gray-300">
+              Are you sure you want to delete this pool? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                className="px-4 py-2 bg-slate-700 rounded-lg hover:bg-slate-600 transition-all"
+                onClick={() => setConfirmDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 bg-red-600 rounded-lg hover:bg-red-700 transition-all"
+                onClick={() => {
+                  handleDelete(confirmDelete);
+                  setConfirmDelete(null);
+                }}
+              >
+                Delete Pool
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showFeeCollectorModal && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm z-50 p-4">
+          <div className="bg-slate-900 border border-purple-700 p-6 rounded-xl shadow-2xl text-white max-w-lg w-full">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+              <Settings className="w-6 h-6 text-purple-400" />
+              Update Fee Collector
+            </h2>
+            <p className="text-gray-400 mb-6 text-sm">
+              Change the wallet address that receives platform fees
+            </p>
+            
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">
+                  New Fee Collector Address *
+                </label>
+                <input
+                  type="text"
+                  value={newFeeCollector}
+                  onChange={(e) => setNewFeeCollector(e.target.value)}
+                  placeholder="66oZ17EyWhmRXPYpuVpoojvmaz3AZWAaewekTWqJFhfB"
+                  className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 text-white focus:border-purple-500 focus:outline-none font-mono text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3 mb-6">
+              <p className="text-purple-300 text-xs">
+                ℹ️ This will update where all future fees are sent. Current stakes are unaffected.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowFeeCollectorModal(false);
+                  setNewFeeCollector("");
+                }}
+                className="flex-1 px-4 py-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateFeeCollector}
+                disabled={!newFeeCollector}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg hover:from-purple-500 hover:to-blue-500 transition-all disabled:opacity-50 font-semibold"
+              >
+                Update Fee Collector
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

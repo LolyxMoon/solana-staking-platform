@@ -1,0 +1,7 @@
+{
+  "build": {
+    "env": {
+      "PASSWORD_PROTECT": "1"
+    }
+  }
+}

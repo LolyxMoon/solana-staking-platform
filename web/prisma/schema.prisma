@@ -1,0 +1,228 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Pool {
+  id                      String     @id @default(cuid())
+  poolId                  Int        @map("pool_id")
+  tokenMint               String     @map("token_mint")
+  name                    String
+  symbol                  String
+  apr                     Float?
+  apy                     Float?
+  type                    String
+  lockPeriod              Int?       @map("lock_period")
+  duration                Int?   
+  totalStaked             Float      @default(0) @map("total_staked")
+  rewards                 String?
+  logo                    String?
+  pairAddress             String?    @map("pair_address")
+  hidden                  Boolean    @default(false)
+  featured                Boolean    @default(false)
+  views                   Int        @default(0)
+  createdAt               DateTime   @default(now()) @map("created_at")
+  hasSelfReflections      Boolean    @default(false) @map("has_self_reflections")
+  hasExternalReflections  Boolean    @default(false) @map("has_external_reflections")
+  externalReflectionMint  String?    @map("external_reflection_mint")
+  reflectionTokenAccount  String?    @map("reflection_token_account")
+  reflectionVaultAddress  String?    @map("reflection_vault_address")
+  reflectionTokenSymbol   String?    @map("reflection_token_symbol")
+  reflectionTokenDecimals Int?
+  isInitialized           Boolean    @default(false) @map("is_initialized")
+  poolAddress             String?    @map("pool_address")
+  isPaused                Boolean    @default(false) @map("is_paused")
+  isEmergencyUnlocked     Boolean    @default(false) @map("is_emergency_unlocked")
+  platformFeePercent      Float      @default(2) @map("platform_fee_percent")
+  flatSolFee              Float      @default(0.005) @map("flat_sol_fee")
+  referralEnabled         Boolean    @default(false) @map("referral_enabled")
+  referralWallet          String?    @map("referral_wallet")
+  referralSplitPercent    Float?     @map("referral_split_percent")
+  transferTaxBps          Int        @default(0) @map("transfer_tax_bps")
+  Activity                Activity[]
+  stakes                  Stake[]
+  isLPPool                Boolean?   @default(false)
+  rewardTokenMint         String?
+  rewardTokenSymbol       String?
+  dexType                 String?
+  dexPoolAddress          String?
+
+  @@unique([tokenMint, poolId], name: "pool_token_pool_id_unique")
+  @@index([tokenMint, poolId], map: "pool_token_pool_id_idx")
+  @@index([tokenMint], map: "pool_token_mint_idx")
+  @@index([transferTaxBps], map: "pool_transfer_tax_idx")
+  @@map("pools")
+}
+
+model Stake {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  poolId    String   @map("pool_id")
+  amount    Float
+  createdAt DateTime @default(now()) @map("created_at")
+  pool      Pool     @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "stake_user_id_idx")
+  @@index([poolId], map: "stake_pool_id_idx")
+  @@map("stakes")
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  type      String
+  amount    Float
+  timestamp DateTime @default(now())
+  poolId    String   @map("pool_id")
+  userId    String   @map("user_id")
+  pool      Pool     @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "activity_user_id_idx")
+  @@index([poolId], map: "activity_pool_id_idx")
+  @@index([type], map: "activity_type_idx")
+  @@map("activities")
+}
+
+model UserStake {
+  id           String   @id @default(cuid())
+  userWallet   String   @map("user_wallet")
+  tokenMint    String   @map("token_mint")
+  poolId       Int      @default(0) @map("pool_id")
+  stakedAmount BigInt   @default(0) @map("staked_amount")
+  stakePda     String   @unique @map("stake_pda")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([userWallet, tokenMint, poolId])
+  @@index([userWallet])
+  @@index([tokenMint])
+  @@index([stakedAmount])
+  @@map("user_stakes")
+}
+
+model SEO {
+  id                 String   @id @default(cuid())
+  page               String   @unique
+  title              String
+  description        String
+  keywords           String?
+  ogTitle            String?  @map("og_title")
+  ogDescription      String?  @map("og_description")
+  ogImage            String?  @map("og_image")
+  twitterCard        String?  @map("twitter_card")
+  twitterTitle       String?  @map("twitter_title")
+  twitterDescription String?  @map("twitter_description")
+  twitterImage       String?  @map("twitter_image")
+  canonicalUrl       String?  @map("canonical_url")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@map("seo")
+}
+
+model SwapConfig {
+  id             Int      @id @default(autoincrement())
+  platformFeeBps Int      @default(50)
+  treasuryWallet String
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  maxSlippageBps Int      @default(100)
+  featuredTokens String?  @db.Text
+}
+
+model SwapStats {
+  id          String   @id @default(cuid())
+  fromToken   String
+  toToken     String
+  fromAmount  Float
+  toAmount    Float
+  userAddress String
+  volumeUsd   Float    @default(0)  // ✅ Required
+  priceUsd    Float    @default(0)  // ✅ Required
+  createdAt   DateTime @default(now())
+  
+  @@index([userAddress])
+  @@index([createdAt])
+  @@index([volumeUsd])  // For leaderboard queries
+}
+
+model LiquidityConfig {
+  id             Int      @id @default(autoincrement())
+  platformFeeBps Int      @default(50)
+  treasuryWallet String
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model LiquidityPool {
+  id          Int      @id @default(autoincrement())
+  poolAddress String   @unique
+  tokenA      String
+  tokenB      String
+  userAddress String
+  lpTokens    Float
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userAddress])
+  @@index([tokenA, tokenB])
+}
+
+model Lock {
+  id                String   @id @default(cuid())
+  lockId            BigInt   @map("lock_id")
+  tokenMint         String   @map("token_mint")
+  name              String
+  symbol            String
+  amount            Float
+  lockDuration      Int      @map("lock_duration")
+  unlockTime        DateTime @map("unlock_time")
+  creatorWallet     String   @map("creator_wallet")
+  poolAddress       String?  @map("pool_address")
+  stakePda          String?  @map("stake_pda")
+  poolId            Int?
+  logo              String?
+  isActive          Boolean  @default(true) @map("is_active")
+  isUnlocked        Boolean  @default(false) @map("is_unlocked")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([tokenMint, lockId], name: "lock_token_lock_id_unique")
+  @@index([tokenMint, lockId], map: "lock_token_lock_id_idx")
+  @@index([creatorWallet], map: "lock_creator_wallet_idx")
+  @@index([isActive], map: "lock_is_active_idx")
+  @@map("locks")
+}
+
+model PopUpAd {
+  id                String    @id @default(uuid())
+  title             String
+  description       String?
+  imageUrl          String?   @map("image_url")
+  ctaText           String?   @map("cta_text")
+  ctaLink           String?   @map("cta_link")
+  isActive          Boolean   @default(true) @map("is_active")
+  startDate         DateTime? @map("start_date")
+  endDate           DateTime? @map("end_date")
+  displayFrequency  String    @default("once_per_session") @map("display_frequency")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("pop_up_ads")
+}
+
+model PlatformConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_config")
+}

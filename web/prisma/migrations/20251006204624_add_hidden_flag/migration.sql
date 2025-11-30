@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Pool" ALTER COLUMN "type" DROP DEFAULT;

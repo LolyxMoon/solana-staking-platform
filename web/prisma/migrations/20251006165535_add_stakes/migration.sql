@@ -1,0 +1,14 @@
+-- CreateTable
+CREATE TABLE "Stake" (
+    "id" SERIAL NOT NULL,
+    "user" TEXT NOT NULL,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "rewards" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "poolId" INTEGER NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Stake_pkey" PRIMARY KEY ("id")
+);
+
+-- AddForeignKey
+ALTER TABLE "Stake" ADD CONSTRAINT "Stake_poolId_fkey" FOREIGN KEY ("poolId") REFERENCES "Pool"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

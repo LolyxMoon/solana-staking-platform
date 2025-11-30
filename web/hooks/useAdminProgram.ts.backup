@@ -1,0 +1,848 @@
+import * as anchor from "@coral-xyz/anchor";
+import { useConnection, useWallet, useAnchorWallet } from "@solana/wallet-adapter-react";
+import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
+import { BN } from "@coral-xyz/anchor";
+import { getProgram, getPDAs, PROGRAM_ID } from "@/lib/anchor-program";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
+
+/**
+ * Hook for admin functions - Version 3.4 (FIXED: Fresh blockhashes to prevent "already processed" errors)
+ */
+export function useAdminProgram() {
+  const { connection } = useConnection();
+  const wallet = useAnchorWallet();
+  const { publicKey } = useWallet();
+
+  /**
+   * Helper: Get fresh blockhash for transaction
+   */
+  const getFreshBlockhash = async () => {
+    return await connection.getLatestBlockhash('finalized');
+  };
+
+  /**
+   * Helper: Send transaction with fresh blockhash
+   */
+  const sendTransactionWithFreshBlockhash = async (
+    program: any,
+    method: any
+  ) => {
+    const { blockhash, lastValidBlockHeight } = await getFreshBlockhash();
+    
+    const tx = await method.transaction();
+    tx.recentBlockhash = blockhash;
+    tx.lastValidBlockHeight = lastValidBlockHeight;
+    tx.feePayer = publicKey!;
+
+    const signedTx = await wallet!.signTransaction(tx);
+    const signature = await connection.sendRawTransaction(signedTx.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed',
+      maxRetries: 3
+    });
+
+    await connection.confirmTransaction({
+      signature,
+      blockhash,
+      lastValidBlockHeight
+    }, 'confirmed');
+
+    return signature;
+  };
+
+  /**
+   * Helper: Get associated token address
+   */
+  const getTokenAccount = async (mint: PublicKey, owner: PublicKey) => {
+    return await getAssociatedTokenAddress(mint, owner);
+  };
+
+  /**
+   * ONE-TIME: Initialize the platform (call once after deployment)
+   */
+  const initializePlatform = async (params: {
+    tokenFeeBps: number;
+    solFee: number;
+    feeCollector: string;
+  }) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const [platformPDA] = getPDAs.platformConfig();
+    const feeCollectorPubkey = new PublicKey(params.feeCollector);
+
+    const method = program.methods
+      .initialize(
+        new BN(params.tokenFeeBps),
+        new BN(params.solFee)
+      )
+      .accounts({
+        platform: platformPDA,
+        feeCollector: feeCollectorPubkey,
+        admin: publicKey,
+        systemProgram: SystemProgram.programId,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * STEP 1: Create a new project
+   */
+  const createProject = async (tokenMint: string) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const [stakingVaultPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("staking_vault"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const [rewardVaultPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("reward_vault"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .createProject(tokenMintPubkey)
+      .accounts({
+        project: projectPDA,
+        stakingVault: stakingVaultPDA,
+        rewardVault: rewardVaultPDA,
+        tokenMint: tokenMintPubkey,
+        admin: publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        rent: SYSVAR_RENT_PUBKEY,
+      });
+
+    const tx = await sendTransactionWithFreshBlockhash(program, method);
+
+    return {
+      tx,
+      projectPda: projectPDA.toString(),
+      tokenMint,
+    };
+  };
+
+  /**
+   * STEP 2: Initialize pool with parameters
+   */
+  const initializePool = async (params: {
+    tokenMint: string;
+    rateBpsPerYear: number;
+    rateMode: number;
+    lockupSeconds: number;
+    poolDurationSeconds: number;
+    referrer?: string | null;
+    referrerSplitBps?: number | null;
+    enableReflections: boolean;
+    reflectionToken?: string | null;
+  }) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(params.tokenMint);
+    
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const reflectionMintPubkey = params.reflectionToken 
+      ? new PublicKey(params.reflectionToken)
+      : tokenMintPubkey;
+    
+    const [reflectionVaultPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("reflection_vault"), projectPDA.toBuffer(), reflectionMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const accountsObj = {
+      project: projectPDA,
+      reflectionVault: reflectionVaultPDA,
+      reflectionTokenMint: reflectionMintPubkey,
+      admin: publicKey,
+      systemProgram: SystemProgram.programId,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      rent: SYSVAR_RENT_PUBKEY,
+    };
+
+    const method = program.methods
+      .initializePool({
+        rateBpsPerYear: new BN(params.rateBpsPerYear),
+        rateMode: params.rateMode,
+        lockupSeconds: new BN(params.lockupSeconds),
+        poolDurationSeconds: new BN(params.poolDurationSeconds),
+        referrer: params.referrer ? new PublicKey(params.referrer) : null,
+        referrerSplitBps: params.referrerSplitBps ? new BN(params.referrerSplitBps) : null,
+        enableReflections: params.enableReflections,
+        reflectionToken: params.reflectionToken ? new PublicKey(params.reflectionToken) : null,
+      })
+      .accounts(accountsObj);
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Update APY and lock period
+   */
+  const setProjectParams = async (
+    tokenMint: string,
+    rateBpsPerYear: number,
+    lockupSeconds: number
+  ) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .setProjectParams(new BN(rateBpsPerYear), new BN(lockupSeconds))
+      .accounts({
+        project: projectPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Update pool duration
+   */
+  const setPoolDuration = async (tokenMint: string, durationSeconds: number) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .setPoolDuration(new BN(durationSeconds))
+      .accounts({
+        project: projectPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Deposit rewards into the reward vault
+   */
+  const depositRewards = async (tokenMint: string, amount: number) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+    
+    const [rewardVaultPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("reward_vault"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const adminTokenAccount = await getTokenAccount(tokenMintPubkey, publicKey);
+
+    const method = program.methods
+      .depositRewards(new BN(amount))
+      .accounts({
+        project: projectPDA,
+        rewardVault: rewardVaultPDA,
+        adminTokenAccount: adminTokenAccount,
+        admin: publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Transfer admin rights for a PROJECT
+   */
+  const transferAdmin = async (tokenMint: string, newAdmin: string) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const newAdminPubkey = new PublicKey(newAdmin);
+    
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .transferAdmin(newAdminPubkey)
+      .accounts({
+        project: projectPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Set referrer for a project
+   */
+  const setProjectReferrer = async (
+    tokenMint: string,
+    referrer: string | null,
+    splitBps: number
+  ) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const referrerPubkey = referrer ? new PublicKey(referrer) : null;
+    
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .setProjectReferrer(referrerPubkey, new BN(splitBps))
+      .accounts({
+        project: projectPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Toggle reflections
+   */
+  const setReflections = async (
+    tokenMint: string,
+    enabled: boolean,
+    reflectionTokenMint?: string
+  ) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const accountsObj: any = {
+      project: projectPDA,
+      admin: publicKey,
+      systemProgram: SystemProgram.programId,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      rent: SYSVAR_RENT_PUBKEY,
+    };
+
+    let reflectionTokenArg = null;
+
+    if (enabled) {
+      const reflectionMintPubkey = reflectionTokenMint 
+        ? new PublicKey(reflectionTokenMint) 
+        : tokenMintPubkey;
+
+      const [reflectionVaultPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("reflection_vault"), projectPDA.toBuffer(), reflectionMintPubkey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      accountsObj.reflectionVault = reflectionVaultPDA;
+      accountsObj.reflectionTokenMint = reflectionMintPubkey;
+      reflectionTokenArg = reflectionMintPubkey;
+    }
+
+    const method = program.methods
+      .setReflections(enabled, reflectionTokenArg)
+      .accounts(accountsObj);
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Pause deposits
+   */
+  const pauseDeposits = async (tokenMint: string) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .pauseDeposits()
+      .accounts({
+        project: projectPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Unpause deposits
+   */
+  const unpauseDeposits = async (tokenMint: string) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .unpauseDeposits()
+      .accounts({
+        project: projectPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Pause withdrawals
+   */
+  const pauseWithdrawals = async (tokenMint: string) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .pauseWithdrawals()
+      .accounts({
+        project: projectPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Unpause withdrawals
+   */
+  const unpauseWithdrawals = async (tokenMint: string) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .unpauseWithdrawals()
+      .accounts({
+        project: projectPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Pause claims
+   */
+  const pauseClaims = async (tokenMint: string) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .pauseClaims()
+      .accounts({
+        project: projectPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Unpause claims
+   */
+  const unpauseClaims = async (tokenMint: string) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .unpauseClaims()
+      .accounts({
+        project: projectPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Pause entire project
+   */
+  const pauseProject = async (tokenMint: string) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .pauseProject()
+      .accounts({
+        project: projectPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Unpause entire project
+   */
+  const unpauseProject = async (tokenMint: string) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .unpauseProject()
+      .accounts({
+        project: projectPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Update platform fees (platform-wide)
+   */
+  const setFees = async (tokenFeeBps: number, solFee: number) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const [platformPDA] = getPDAs.platformConfig();
+
+    const method = program.methods
+      .setFees(new BN(tokenFeeBps), new BN(solFee))
+      .accounts({
+        platform: platformPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Emergency unlock - remove all time locks
+   */
+  const emergencyUnlock = async (tokenMint: string) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .emergencyUnlock()
+      .accounts({
+        project: projectPDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Emergency return stake to a specific user
+   */
+  const emergencyReturnStake = async (tokenMint: string, userWallet: string) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const userPubkey = new PublicKey(userWallet);
+    
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+    
+    const [stakePDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("stake"), projectPDA.toBuffer(), userPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+    
+    const [stakingVaultPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("staking_vault"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const stakeData = await program.account.stake.fetch(stakePDA);
+    const withdrawalWallet = stakeData.withdrawalWallet as PublicKey;
+
+    const userWithdrawalAccount = await getTokenAccount(tokenMintPubkey, withdrawalWallet);
+
+    const method = program.methods
+      .emergencyReturnStake(userPubkey)
+      .accounts({
+        project: projectPDA,
+        stake: stakePDA,
+        stakingVault: stakingVaultPDA,
+        userWithdrawalAccount: userWithdrawalAccount,
+        admin: publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Change a user's withdrawal wallet
+   */
+  const changeWithdrawalWallet = async (
+    tokenMint: string,
+    user: string,
+    newWallet: string
+  ) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const userPubkey = new PublicKey(user);
+    const newWalletPubkey = new PublicKey(newWallet);
+    
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+    
+    const [stakePDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("stake"), projectPDA.toBuffer(), userPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const method = program.methods
+      .changeWithdrawalWallet(newWalletPubkey)
+      .accounts({
+        project: projectPDA,
+        stake: stakePDA,
+        admin: publicKey,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Claim unclaimed tokens from a vault
+   */
+  const claimUnclaimedTokens = async (
+    projectTokenMint: string,
+    vaultType: "staking" | "reward" | "reflection",
+    amount: number,
+    reflectionTokenMint?: string
+  ) => {
+    if (!wallet || !publicKey) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const projectTokenMintPubkey = new PublicKey(projectTokenMint);
+
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), projectTokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    let vaultPDA: PublicKey;
+    let tokenToClaimPubkey: PublicKey;
+
+    if (vaultType === "reflection") {
+      if (!reflectionTokenMint) {
+        throw new Error("Reflection token mint is required for reflection vault");
+      }
+      tokenToClaimPubkey = new PublicKey(reflectionTokenMint);
+      
+      [vaultPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("reflection_vault"), projectPDA.toBuffer(), tokenToClaimPubkey.toBuffer()],
+        PROGRAM_ID
+      );
+    } else {
+      tokenToClaimPubkey = projectTokenMintPubkey;
+      
+      const vaultSeed = vaultType === "staking" ? "staking_vault" : "reward_vault";
+      [vaultPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from(vaultSeed), projectTokenMintPubkey.toBuffer()],
+        PROGRAM_ID
+      );
+    }
+
+    const adminTokenAccount = await getTokenAccount(tokenToClaimPubkey, publicKey);
+
+    const method = program.methods
+      .claimUnclaimedTokens(new BN(amount))
+      .accounts({
+        project: projectPDA,
+        vault: vaultPDA,
+        adminTokenAccount: adminTokenAccount,
+        admin: publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      });
+
+    return await sendTransactionWithFreshBlockhash(program, method);
+  };
+
+  /**
+   * Get project info
+   */
+  const getProjectInfo = async (tokenMint: string) => {
+    if (!wallet) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = await getProgram(wallet, connection);
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const [projectPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("project"), tokenMintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+
+    const projectData = await program.account.project.fetch(projectPDA);
+    return projectData;
+  };
+
+  return {
+    // Platform Setup
+    initializePlatform,
+    
+    // Pool Creation (Two-Step)
+    createProject,
+    initializePool,
+    
+    // Pool Management
+    setProjectParams,
+    setPoolDuration,
+    depositRewards,
+    transferAdmin,
+    setProjectReferrer,
+    setReflections,
+    
+    // Pause Controls
+    pauseDeposits,
+    unpauseDeposits,
+    pauseWithdrawals,
+    unpauseWithdrawals,
+    pauseClaims,
+    unpauseClaims,
+    pauseProject,
+    unpauseProject,
+    
+    // Platform Settings
+    setFees,
+    
+    // Emergency Functions
+    emergencyUnlock,
+    emergencyReturnStake,
+    changeWithdrawalWallet,
+    claimUnclaimedTokens,
+    
+    // Query
+    getProjectInfo,
+    
+    // Status
+    connected: !!wallet && !!publicKey,
+  };
+}

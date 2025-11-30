@@ -1,0 +1,2484 @@
+{
+  "address": "8PQxN4ArNB8vZUNT8RiuGTGSDMHkPWAHFa75JGZVppij",
+  "metadata": {
+    "name": "staking_program",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "claim",
+      "discriminator": [
+        62,
+        198,
+        214,
+        193,
+        213,
+        159,
+        108,
+        210
+      ],
+      "accounts": [
+        {
+          "name": "platform",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  116,
+                  102,
+                  111,
+                  114,
+                  109,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "project",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "token_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reward_vault",
+          "writable": true
+        },
+        {
+          "name": "user_token_account",
+          "writable": true
+        },
+        {
+          "name": "fee_collector",
+          "writable": true
+        },
+        {
+          "name": "reflection_vault",
+          "optional": true
+        },
+        {
+          "name": "token_mint_account"
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "pool_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "claim_reflections",
+      "discriminator": [
+        89,
+        178,
+        73,
+        28,
+        194,
+        243,
+        107,
+        3
+      ],
+      "accounts": [
+        {
+          "name": "project",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "token_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reflection_vault",
+          "writable": true
+        },
+        {
+          "name": "user_reflection_account",
+          "writable": true
+        },
+        {
+          "name": "reflection_token_mint"
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "pool_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "claim_unclaimed_tokens",
+      "discriminator": [
+        187,
+        94,
+        222,
+        22,
+        244,
+        138,
+        103,
+        24
+      ],
+      "accounts": [
+        {
+          "name": "project",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "token_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "admin_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_mint_account"
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "pool_id",
+          "type": "u64"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_project",
+      "discriminator": [
+        148,
+        219,
+        181,
+        42,
+        221,
+        114,
+        145,
+        190
+      ],
+      "accounts": [
+        {
+          "name": "project",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "token_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reward_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  119,
+                  97,
+                  114,
+                  100,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_mint"
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "pool_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "deposit",
+      "discriminator": [
+        242,
+        35,
+        198,
+        137,
+        82,
+        225,
+        242,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "platform",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  116,
+                  102,
+                  111,
+                  114,
+                  109,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "project",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "token_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_vault",
+          "writable": true
+        },
+        {
+          "name": "user_token_account",
+          "writable": true
+        },
+        {
+          "name": "fee_collector_token_account",
+          "writable": true
+        },
+        {
+          "name": "fee_collector",
+          "writable": true
+        },
+        {
+          "name": "reflection_vault",
+          "optional": true
+        },
+        {
+          "name": "token_mint_account"
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "pool_id",
+          "type": "u64"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "deposit_rewards",
+      "discriminator": [
+        52,
+        249,
+        112,
+        72,
+        206,
+        161,
+        196,
+        1
+      ],
+      "accounts": [
+        {
+          "name": "project",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "token_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reward_vault",
+          "writable": true
+        },
+        {
+          "name": "admin_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_mint_account"
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "pool_id",
+          "type": "u64"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "emergency_unlock",
+      "discriminator": [
+        17,
+        106,
+        80,
+        63,
+        244,
+        220,
+        225,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "project",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "token_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "pool_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "platform",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  116,
+                  102,
+                  111,
+                  114,
+                  109,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "fee_collector"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "platform_token_fee_bps",
+          "type": "u64"
+        },
+        {
+          "name": "platform_sol_fee",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_pool",
+      "discriminator": [
+        95,
+        180,
+        10,
+        172,
+        84,
+        174,
+        232,
+        40
+      ],
+      "accounts": [
+        {
+          "name": "project",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "token_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reflection_token_mint",
+          "optional": true
+        },
+        {
+          "name": "reflection_token_account",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "associated_token_program",
+          "optional": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "reflection_token_program",
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "pool_id",
+          "type": "u64"
+        },
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "InitializePoolParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "pause_project",
+      "discriminator": [
+        8,
+        68,
+        240,
+        82,
+        45,
+        162,
+        129,
+        230
+      ],
+      "accounts": [
+        {
+          "name": "project",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "token_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "pool_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "refresh_reflections",
+      "discriminator": [
+        123,
+        144,
+        125,
+        113,
+        190,
+        156,
+        42,
+        146
+      ],
+      "accounts": [
+        {
+          "name": "project",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "token_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reflection_vault",
+          "writable": true
+        },
+        {
+          "name": "user",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "pool_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "set_fees",
+      "discriminator": [
+        137,
+        178,
+        49,
+        58,
+        0,
+        245,
+        242,
+        190
+      ],
+      "accounts": [
+        {
+          "name": "platform",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  116,
+                  102,
+                  111,
+                  114,
+                  109,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "platform_token_fee_bps",
+          "type": "u64"
+        },
+        {
+          "name": "platform_sol_fee",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "unpause_project",
+      "discriminator": [
+        65,
+        73,
+        219,
+        36,
+        147,
+        9,
+        150,
+        90
+      ],
+      "accounts": [
+        {
+          "name": "project",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "token_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "pool_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "update_fee_collector",
+      "discriminator": [
+        132,
+        54,
+        153,
+        82,
+        79,
+        118,
+        79,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "platform",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  116,
+                  102,
+                  111,
+                  114,
+                  109,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "new_fee_collector",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "update_referrer",
+      "discriminator": [
+        208,
+        225,
+        56,
+        15,
+        244,
+        21,
+        195,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "project",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "token_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "pool_id",
+          "type": "u64"
+        },
+        {
+          "name": "referrer",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "split_bps",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "withdraw",
+      "discriminator": [
+        183,
+        18,
+        70,
+        156,
+        148,
+        109,
+        161,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "platform",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  116,
+                  102,
+                  111,
+                  114,
+                  109,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "project",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "token_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "withdrawal_token_account",
+          "docs": [
+            "Ownership validated in transfer_tokens function"
+          ],
+          "writable": true
+        },
+        {
+          "name": "fee_collector_token_account",
+          "writable": true
+        },
+        {
+          "name": "fee_collector",
+          "writable": true
+        },
+        {
+          "name": "reflection_vault",
+          "optional": true
+        },
+        {
+          "name": "token_mint_account"
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "pool_id",
+          "type": "u64"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Platform",
+      "discriminator": [
+        77,
+        92,
+        204,
+        58,
+        187,
+        98,
+        91,
+        12
+      ]
+    },
+    {
+      "name": "Project",
+      "discriminator": [
+        205,
+        168,
+        189,
+        202,
+        181,
+        247,
+        142,
+        19
+      ]
+    },
+    {
+      "name": "Stake",
+      "discriminator": [
+        150,
+        197,
+        176,
+        29,
+        55,
+        132,
+        112,
+        149
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "EmergencyUnlockEvent",
+      "discriminator": [
+        144,
+        202,
+        6,
+        49,
+        76,
+        47,
+        238,
+        43
+      ]
+    },
+    {
+      "name": "FeeCollectorUpdated",
+      "discriminator": [
+        13,
+        42,
+        159,
+        224,
+        200,
+        161,
+        65,
+        247
+      ]
+    },
+    {
+      "name": "FeesUpdated",
+      "discriminator": [
+        65,
+        34,
+        234,
+        59,
+        248,
+        242,
+        101,
+        118
+      ]
+    },
+    {
+      "name": "PlatformInitialized",
+      "discriminator": [
+        16,
+        222,
+        212,
+        5,
+        213,
+        140,
+        112,
+        162
+      ]
+    },
+    {
+      "name": "PoolInitialized",
+      "discriminator": [
+        100,
+        118,
+        173,
+        87,
+        12,
+        198,
+        254,
+        229
+      ]
+    },
+    {
+      "name": "ProjectCreated",
+      "discriminator": [
+        192,
+        10,
+        163,
+        29,
+        185,
+        31,
+        67,
+        168
+      ]
+    },
+    {
+      "name": "ProjectPaused",
+      "discriminator": [
+        126,
+        250,
+        145,
+        29,
+        201,
+        145,
+        236,
+        173
+      ]
+    },
+    {
+      "name": "ProjectUnpaused",
+      "discriminator": [
+        116,
+        235,
+        152,
+        198,
+        226,
+        132,
+        178,
+        188
+      ]
+    },
+    {
+      "name": "ReferrerUpdated",
+      "discriminator": [
+        93,
+        92,
+        217,
+        183,
+        151,
+        78,
+        43,
+        114
+      ]
+    },
+    {
+      "name": "ReflectionsClaimed",
+      "discriminator": [
+        225,
+        96,
+        178,
+        22,
+        191,
+        219,
+        0,
+        189
+      ]
+    },
+    {
+      "name": "RewardsClaimed",
+      "discriminator": [
+        75,
+        98,
+        88,
+        18,
+        219,
+        112,
+        88,
+        121
+      ]
+    },
+    {
+      "name": "RewardsDeposited",
+      "discriminator": [
+        120,
+        19,
+        149,
+        33,
+        111,
+        163,
+        248,
+        156
+      ]
+    },
+    {
+      "name": "TokensDeposited",
+      "discriminator": [
+        196,
+        217,
+        199,
+        88,
+        35,
+        117,
+        60,
+        96
+      ]
+    },
+    {
+      "name": "TokensWithdrawn",
+      "discriminator": [
+        30,
+        116,
+        110,
+        147,
+        87,
+        89,
+        9,
+        158
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Unauthorized",
+      "msg": "Unauthorized"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidAmount",
+      "msg": "Invalid amount"
+    },
+    {
+      "code": 6002,
+      "name": "InsufficientBalance",
+      "msg": "Insufficient balance"
+    },
+    {
+      "code": 6003,
+      "name": "ProjectPaused",
+      "msg": "Project is paused"
+    },
+    {
+      "code": 6004,
+      "name": "DepositsPaused",
+      "msg": "Deposits are paused"
+    },
+    {
+      "code": 6005,
+      "name": "WithdrawalsPaused",
+      "msg": "Withdrawals are paused"
+    },
+    {
+      "code": 6006,
+      "name": "ClaimsPaused",
+      "msg": "Claims are paused"
+    },
+    {
+      "code": 6007,
+      "name": "LockupNotExpired",
+      "msg": "Lockup period not expired"
+    },
+    {
+      "code": 6008,
+      "name": "NoStake",
+      "msg": "No stake found"
+    },
+    {
+      "code": 6009,
+      "name": "NoRewards",
+      "msg": "No rewards available"
+    },
+    {
+      "code": 6010,
+      "name": "NoReflections",
+      "msg": "No reflections available"
+    },
+    {
+      "code": 6011,
+      "name": "MathOverflow",
+      "msg": "Math overflow"
+    },
+    {
+      "code": 6012,
+      "name": "AlreadyInitialized",
+      "msg": "Already initialized"
+    },
+    {
+      "code": 6013,
+      "name": "NotInitialized",
+      "msg": "Not initialized"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidSplitPercentage",
+      "msg": "Invalid split percentage"
+    },
+    {
+      "code": 6015,
+      "name": "ReflectionVaultRequired",
+      "msg": "Reflection vault required"
+    },
+    {
+      "code": 6016,
+      "name": "ReflectionTokenRequired",
+      "msg": "Reflection token required"
+    },
+    {
+      "code": 6017,
+      "name": "ReflectionsNotEnabled",
+      "msg": "Reflections not enabled"
+    },
+    {
+      "code": 6018,
+      "name": "InsufficientSolForFee",
+      "msg": "Insufficient SOL for fee - would leave account below rent-exempt minimum"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidReferrer",
+      "msg": "Referrer address does not match project referrer"
+    },
+    {
+      "code": 6020,
+      "name": "InsufficientVaultBalance",
+      "msg": "Insufficient balance in vault"
+    },
+    {
+      "code": 6021,
+      "name": "InsufficientRewardVault",
+      "msg": "Insufficient rewards in reward vault"
+    },
+    {
+      "code": 6022,
+      "name": "InsufficientReflectionVault",
+      "msg": "Insufficient reflections in reflection vault"
+    },
+    {
+      "code": 6023,
+      "name": "NoStakers",
+      "msg": "No stakers in pool"
+    },
+    {
+      "code": 6024,
+      "name": "InvalidPoolDuration",
+      "msg": "Invalid pool duration - must be greater than 0"
+    },
+    {
+      "code": 6025,
+      "name": "DivisionByZero",
+      "msg": "Division by zero"
+    },
+    {
+      "code": 6026,
+      "name": "InvalidFeeCollector",
+      "msg": "Invalid fee collector"
+    },
+    {
+      "code": 6027,
+      "name": "AprTooHigh",
+      "msg": "Calculated APR exceeds maximum u64 value"
+    },
+    {
+      "code": 6028,
+      "name": "WrongTokenType",
+      "msg": "Wrong token type - must match project token mint"
+    },
+    {
+      "code": 6029,
+      "name": "UnauthorizedVault",
+      "msg": "Unauthorized vault - must belong to this project"
+    },
+    {
+      "code": 6030,
+      "name": "InvalidWithdrawalWallet",
+      "msg": "Invalid withdrawal wallet - does not match stake withdrawal_wallet"
+    },
+    {
+      "code": 6031,
+      "name": "InvalidReflectionVault",
+      "msg": "Invalid reflection vault - does not match project reflection vault"
+    },
+    {
+      "code": 6032,
+      "name": "InvalidProject",
+      "msg": "Invalid project - stake does not belong to this project"
+    },
+    {
+      "code": 6033,
+      "name": "InconsistentTotalStaked",
+      "msg": "Inconsistent total staked - total_staked is less than withdrawal amount"
+    },
+    {
+      "code": 6034,
+      "name": "InvalidTimestamp",
+      "msg": "Invalid timestamp - clock moved backwards"
+    },
+    {
+      "code": 6035,
+      "name": "PoolEnded",
+      "msg": "Pool has ended - cannot deposit after pool end time"
+    },
+    {
+      "code": 6036,
+      "name": "InvalidRateMode",
+      "msg": "Invalid rate mode - must be 0 (fixed APY) or 1 (variable APR)"
+    },
+    {
+      "code": 6037,
+      "name": "MissingAssociatedTokenProgram",
+      "msg": "Missing Associated Token Program - required when reflections are enabled"
+    },
+    {
+      "code": 6038,
+      "name": "RefreshRequired",
+      "msg": "Please refresh reflections before claiming - new tokens have arrived in the vault"
+    },
+    {
+      "code": 6039,
+      "name": "InvalidRateBps",
+      "msg": "Invalid rate BPS - must be less than or equal to 1,000,000"
+    },
+    {
+      "code": 6040,
+      "name": "InvalidReferrerSplit",
+      "msg": "Invalid referrer split - must be less than or equal to 10,000 BPS (100%)"
+    },
+    {
+      "code": 6041,
+      "name": "NoReflectionsToClaim",
+      "msg": "No reflections to claim - refresh reflections first"
+    }
+  ],
+  "types": [
+    {
+      "name": "EmergencyUnlockEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeCollectorUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "old_fee_collector",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_fee_collector",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeesUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "platform_token_fee_bps",
+            "type": "u64"
+          },
+          {
+            "name": "platform_sol_fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializePoolParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "rate_bps_per_year",
+            "type": "u64"
+          },
+          {
+            "name": "rate_mode",
+            "type": "u8"
+          },
+          {
+            "name": "lockup_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "pool_duration_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "referrer",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "referrer_split_bps",
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "enable_reflections",
+            "type": "bool"
+          },
+          {
+            "name": "reflection_token",
+            "type": {
+              "option": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Platform",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_collector",
+            "type": "pubkey"
+          },
+          {
+            "name": "platform_token_fee_bps",
+            "type": "u64"
+          },
+          {
+            "name": "platform_sol_fee",
+            "type": "u64"
+          },
+          {
+            "name": "is_initialized",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlatformInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_collector",
+            "type": "pubkey"
+          },
+          {
+            "name": "platform_token_fee_bps",
+            "type": "u64"
+          },
+          {
+            "name": "platform_sol_fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "staking_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "rate_bps_per_year",
+            "type": "u64"
+          },
+          {
+            "name": "rate_mode",
+            "type": "u8"
+          },
+          {
+            "name": "lockup_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "pool_duration_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "reflections_enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Project",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool_id",
+            "type": "u64"
+          },
+          {
+            "name": "staking_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "reflection_vault",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "reflection_token",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "total_staked",
+            "type": "u64"
+          },
+          {
+            "name": "total_rewards_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "total_rewards_claimed",
+            "type": "u64"
+          },
+          {
+            "name": "rate_bps_per_year",
+            "type": "u64"
+          },
+          {
+            "name": "rate_mode",
+            "type": "u8"
+          },
+          {
+            "name": "reward_rate_per_second",
+            "type": "u64"
+          },
+          {
+            "name": "lockup_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "pool_duration_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "pool_start_time",
+            "type": "i64"
+          },
+          {
+            "name": "pool_end_time",
+            "type": "i64"
+          },
+          {
+            "name": "last_update_time",
+            "type": "i64"
+          },
+          {
+            "name": "reward_per_token_stored",
+            "type": "u64"
+          },
+          {
+            "name": "reflection_per_token_stored",
+            "type": "u64"
+          },
+          {
+            "name": "last_reflection_update_time",
+            "type": "i64"
+          },
+          {
+            "name": "last_reflection_balance",
+            "type": "u64"
+          },
+          {
+            "name": "referrer",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "referrer_split_bps",
+            "type": "u64"
+          },
+          {
+            "name": "is_paused",
+            "type": "bool"
+          },
+          {
+            "name": "deposit_paused",
+            "type": "bool"
+          },
+          {
+            "name": "withdraw_paused",
+            "type": "bool"
+          },
+          {
+            "name": "claim_paused",
+            "type": "bool"
+          },
+          {
+            "name": "is_initialized",
+            "type": "bool"
+          },
+          {
+            "name": "enable_reflections",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "total_reflection_debt",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProjectCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "staking_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProjectPaused",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "project",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProjectUnpaused",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "project",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReferrerUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "referrer",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "split_bps",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReflectionsClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardsClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardsDeposited",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "total_rewards",
+            "type": "u64"
+          },
+          {
+            "name": "reward_rate",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Stake",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "last_stake_timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "withdrawal_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_per_token_paid",
+            "type": "u64"
+          },
+          {
+            "name": "rewards_pending",
+            "type": "u64"
+          },
+          {
+            "name": "total_rewards_claimed",
+            "type": "u64"
+          },
+          {
+            "name": "reflection_per_token_paid",
+            "type": "u64"
+          },
+          {
+            "name": "reflections_pending",
+            "type": "u64"
+          },
+          {
+            "name": "total_reflections_claimed",
+            "type": "u64"
+          },
+          {
+            "name": "reflection_debt",
+            "type": "u64"
+          },
+          {
+            "name": "reward_rate_snapshot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokensDeposited",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "token_fee",
+            "type": "u64"
+          },
+          {
+            "name": "sol_fee",
+            "type": "u64"
+          },
+          {
+            "name": "new_total",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokensWithdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "remaining",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+@keyframes enter {
+  0% { opacity: 0; transform: translateY(10px) scale(0.95); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes leave {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-10px) scale(0.95); }
+}
+
+.animate-enter {
+  animation: enter 0.25s ease-out forwards;
+}
+
+.animate-leave {
+  animation: leave 0.2s ease-in forwards;
+}
