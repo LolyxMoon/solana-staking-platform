@@ -11,6 +11,14 @@ import * as anchor from "@coral-xyz/anchor";
 
 const ADMIN_WALLET = new PublicKey("ecfvkqWdJiYJRyUtWvuYpPWP5faf9GBcA1K6TaDW7wS");
 
+// Helper function to safely convert decimal strings to token amounts
+function toTokenAmount(amount: string, decimals: number): string {
+  const [whole, fraction = ''] = amount.split('.');
+  const paddedFraction = fraction.padEnd(decimals, '0').slice(0, decimals);
+  const combined = whole + paddedFraction;
+  return combined.replace(/^0+/, '') || '0';
+}
+
 interface UserToken {
   mint: string;
   balance: number;
@@ -316,7 +324,9 @@ export default function CreatePoolModal({ onClose, onSuccess }: CreatePoolModalP
         throw new Error(`Insufficient balance. You have ${userBalance} ${selectedToken.symbol} but need ${rewardAmount}`);
       }
       
-      const rewardAmountWithDecimals = new anchor.BN(rewardAmount * Math.pow(10, selectedToken.decimals));
+      const rewardAmountWithDecimals = new anchor.BN(
+        toTokenAmount(poolConfig.rewardAmount, selectedToken.decimals)
+      );
       
       // Transaction 1: Payment
       setStatusMessage("Step 1/4: Processing payment...");
