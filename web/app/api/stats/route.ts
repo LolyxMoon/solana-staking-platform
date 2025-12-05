@@ -9,8 +9,20 @@ export const revalidate = 0;
 // Cache for token decimals (in-memory, resets on server restart)
 const decimalsCache = new Map<string, number>();
 
+// Known token decimals (hardcoded for reliability)
+const KNOWN_DECIMALS: Record<string, number> = {
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 6, // USDC
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 6, // USDT
+  'So11111111111111111111111111111111111111112': 9,  // SOL
+};
+
 async function getTokenDecimals(connection: Connection, mintAddress: string): Promise<number> {
-  // Check cache first
+  // Check known tokens first
+  if (KNOWN_DECIMALS[mintAddress] !== undefined) {
+    return KNOWN_DECIMALS[mintAddress];
+  }
+
+  // Check cache
   if (decimalsCache.has(mintAddress)) {
     return decimalsCache.get(mintAddress)!;
   }
@@ -37,7 +49,7 @@ export async function GET(request: NextRequest) {
     console.log('\n📊 Fetching platform stats...');
 
     // Get RPC endpoint
-    const rpcEndpoint = process.env.NEXT_PUBLIC_HELIUS_RPC || 'https://api.devnet.solana.com';
+    const rpcEndpoint = process.env.NEXT_PUBLIC_RPC_URL || process.env.NEXT_PUBLIC_HELIUS_RPC || process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com';
     const connection = new Connection(rpcEndpoint, 'confirmed');
 
     // 1. Get all stakes from database (using UserStake model - the correct one!)
