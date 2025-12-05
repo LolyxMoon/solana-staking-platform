@@ -165,7 +165,7 @@ export default function LandingPage() {
 
       setPlatformStats({
         totalValueLocked: data.totalValueLocked > 0 
-          ? `${formatNumber(data.totalValueLocked)}` 
+          ? `$${formatNumber(data.totalValueLocked)}` 
           : "TBA",
         activeStakers: data.totalStakers > 0 
           ? formatWholeNumber(data.totalStakers) 
