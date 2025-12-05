@@ -903,7 +903,7 @@ export default function PoolCard(props: PoolCardProps) {
     return `${mins}m`;
   };
 
-  const rate = dynamicRate ?? (type === "locked" ? apy : apr) ?? 0;
+  const rate = dynamicRate ?? apy || apr ?? 0;
   
   // Store data in localStorage so Dashboard can read it
   useEffect(() => {
