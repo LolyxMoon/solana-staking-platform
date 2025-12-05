@@ -245,6 +245,7 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       id: pool.id,
       isInitialized: true,
       apy: (apyBps / 100),
+      apr: (apyBps / 100).toString(),
       lockPeriod: Math.round(lockSeconds / 86400),
       isPaused: isPausedValue,
       hasExternalReflections: !!(info.reflectionToken && info.reflectionVault),
