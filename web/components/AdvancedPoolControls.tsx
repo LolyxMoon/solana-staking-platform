@@ -525,18 +525,24 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
         // ✅ Check actual on-chain balance
         try {
           const reflectionVaultPubkey = new PublicKey(vaultInfo.reflectionVault.tokenAccount);
-          const accountInfo = await connection.getAccountInfo(reflectionVaultPubkey);
+          const accountInfo = await connection.getParsedAccountInfo(reflectionVaultPubkey);
           
-          if (accountInfo) {
+          if (accountInfo.value) {
             console.log("   ✅ Account exists on-chain");
-            console.log("   Owner:", accountInfo.owner.toString());
-            console.log("   Lamports:", accountInfo.lamports);
+            console.log("   Owner:", accountInfo.value.owner.toString());
+            console.log("   Lamports:", accountInfo.value.lamports);
             
             try {
-              const tokenAccount = await getAccount(connection, reflectionVaultPubkey);
-              const balance = tokenAccount.amount;
-              const readableBalance = (Number(balance) / 1_000_000_000).toLocaleString();
-              console.log("   💰 ACTUAL TOKEN BALANCE:", readableBalance, "tokens");
+              if ('parsed' in accountInfo.value.data) {
+                const parsed = accountInfo.value.data.parsed.info;
+                const tokenAmount = parsed.tokenAmount;
+                const balance = tokenAmount.amount;
+                const decimals = tokenAmount.decimals;
+                const readableBalance = (Number(balance) / Math.pow(10, decimals)).toLocaleString();
+                console.log("   💰 ACTUAL TOKEN BALANCE:", readableBalance, "tokens");
+              } else {
+                console.log("   ⚠️ Could not parse as token account: Not a parsed account");
+              }
             } catch (tokenErr: any) {
               console.log("   ⚠️ Could not parse as token account:", tokenErr.message);
             }
@@ -607,10 +613,18 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
         publicKey
       );
       
-      const accountInfo = await getAccount(connection, associatedTokenAccount);
+      const accountInfo = await connection.getParsedAccountInfo(associatedTokenAccount);
       
-      const balance = accountInfo.amount;
-      const readableBalance = (Number(balance) / 1_000_000_000).toLocaleString();
+      if (!accountInfo.value || !('parsed' in accountInfo.value.data)) {
+        throw new Error("Could not parse token account");
+      }
+      
+      const parsed = accountInfo.value.data.parsed.info;
+      const tokenAmount = parsed.tokenAmount;
+      
+      const balance = tokenAmount.amount;
+      const decimals = tokenAmount.decimals;
+      const readableBalance = (Number(balance) / Math.pow(10, decimals)).toLocaleString();
       
       setTokenBalance(readableBalance);
       
