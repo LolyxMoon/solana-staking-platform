@@ -54,6 +54,7 @@ interface Pool {
   featured?: boolean;
   views?: number;
   createdAt?: string;
+  transferTaxBps?: number;
 }
 
 export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; onUpdate: () => void }) {
@@ -1938,6 +1939,12 @@ ${calculatedPerToken > storedPerToken
             {tokenBalance && (
               <div className="p-3 bg-green-900/20 border border-green-500/30 rounded text-[#fb57ff] text-sm">
                 💰 Your balance: {tokenBalance} tokens
+              </div>
+            )}
+            {pool?.transferTaxBps > 0 && (
+              <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded text-yellow-300 text-sm">
+                ⚠️ This token has a {(pool.transferTaxBps / 100).toFixed(1)}% transfer tax.
+                Depositing {rewardAmount} will result in ~{(rewardAmount * (1 - pool.transferTaxBps / 10000)).toFixed(4)} tokens in the vault.
               </div>
             )}
           </div>
