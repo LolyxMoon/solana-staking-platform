@@ -31,6 +31,8 @@ interface Pool {
   logo?: string;
   apy?: number;
   apr?: number;
+  liveRate?: number;
+  liveRateType?: string;
   type: string;
   totalStaked: number;
   featured: boolean;
@@ -151,19 +153,15 @@ export default function LandingPage() {
       const poolsData = await poolsRes.json();
       const visiblePools = poolsData.filter((p: any) => !p.hidden);
 
-      const poolsWithAPY = visiblePools.filter((p: any) => p.apy && p.apy > 0);
-      const poolsWithAPR = visiblePools.filter((p: any) => p.apr && p.apr > 0);
-      
-      let averageReturn = 0;
-      let returnType = "APY";
-      
-      if (poolsWithAPY.length > 0) {
-        averageReturn = poolsWithAPY.reduce((sum: number, p: any) => sum + p.apy, 0) / poolsWithAPY.length;
-        returnType = "APY";
-      } else if (poolsWithAPR.length > 0) {
-        averageReturn = poolsWithAPR.reduce((sum: number, p: any) => sum + p.apr, 0) / poolsWithAPR.length;
-        returnType = "APR";
-      }
+      const poolsWithRate = visiblePools.filter((p: any) => p.liveRate && p.liveRate > 0);
+      const averageRate = poolsWithRate.length > 0 
+        ? poolsWithRate.reduce((sum: number, p: any) => sum + p.liveRate, 0) / poolsWithRate.length
+        : 0;
+
+      // Determine if mostly APY or APR pools
+      const apyPools = poolsWithRate.filter((p: any) => p.liveRateType === 'apy');
+      const returnType = apyPools.length >= poolsWithRate.length / 2 ? "APY" : "APR";
+      const averageReturn = averageRate;
 
       setPlatformStats({
         totalValueLocked: data.totalValueLocked > 0 
@@ -433,14 +431,12 @@ export default function LandingPage() {
                             </div>
                             <div className="text-right">
                               <p className="text-sm font-bold text-accent-green">
-                                {pool.apy
-                                  ? `${pool.apy}%`
-                                  : pool.apr
-                                  ? `${pool.apr}%`
+                                {pool.liveRate && pool.liveRate > 0
+                                  ? `${pool.liveRate.toFixed(2)}%`
                                   : "—"}
                               </p>
                               <p className="text-[10px] text-gray-500 uppercase tracking-wide">
-                                {pool.apy ? "APY" : pool.apr ? "APR" : "Variable"}
+                                {pool.liveRateType ? pool.liveRateType.toUpperCase() : "Variable"}
                               </p>
                             </div>
                             <ChevronRight className="w-4 h-4 text-gray-600 group-hover:translate-x-0.5 transition-all flex-shrink-0 ml-1" style={{ ['--hover-color' as any]: '#fb57ff' }} onMouseEnter={(e) => e.currentTarget.style.color = '#fb57ff'} onMouseLeave={(e) => e.currentTarget.style.color = ''} />
