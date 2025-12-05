@@ -8,7 +8,7 @@ export function calculatePendingRewards(
 ): number {
   try {
     // If user has no stake, no rewards
-    if (!stake || !stake.amount || stake.amount.toNumber() === 0) {
+    if (!stake || !stake.amount || stake.amount.toString() === '0') {
       return 0;
     }
 
