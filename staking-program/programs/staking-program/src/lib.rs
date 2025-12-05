@@ -14,7 +14,7 @@ use anchor_lang::solana_program::program::invoke_signed;
 use anchor_lang::solana_program::system_instruction;
 use std::str::FromStr;
 
-declare_id!("8PQxN4ArNB8vZUNT8RiuGTGSDMHkPWAHFa75JGZVppij");
+declare_id!("gLHaGJsZ6G7AXZxoDL9EsSWkRbKAWhFHi73gVfNXuzK");
 
 const SECONDS_PER_YEAR: u64 = 31_536_000; // 365 days
 
