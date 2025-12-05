@@ -957,8 +957,19 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
     let txSignature = "";
     
     try {
-      const amountInLamports = rewardAmount * 1_000_000_000;
-      
+      // Fetch token decimals
+      const tokenMintPubkey = new PublicKey(tokenMint);
+      const mintInfo = await connection.getParsedAccountInfo(tokenMintPubkey);
+
+      if (!mintInfo.value || !('parsed' in mintInfo.value.data)) {
+        throw new Error("Could not fetch token mint info");
+      }
+
+      const decimals = mintInfo.value.data.parsed.info.decimals;
+      const amountInLamports = rewardAmount * Math.pow(10, decimals);
+
+      console.log(`💰 Depositing ${rewardAmount} tokens with ${decimals} decimals = ${amountInLamports} raw units`);
+            
       showMessage("success", "📝 Sending transaction...");
       
       txSignature = await depositRewards(tokenMint, pool?.poolId ?? 0, amountInLamports);
