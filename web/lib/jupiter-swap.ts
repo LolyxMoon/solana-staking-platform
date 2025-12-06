@@ -1,12 +1,9 @@
-// lib/jupiter-swap.ts - Ultra API with Phantom warning fix
+// lib/jupiter-swap.ts - Ultra API with minimal modification
 
 import { 
   Connection, 
   PublicKey, 
   VersionedTransaction,
-  TransactionMessage,
-  ComputeBudgetProgram,
-  AddressLookupTableAccount,
 } from "@solana/web3.js";
 
 const REFERRAL_ACCOUNT = process.env.NEXT_PUBLIC_JUPITER_REFERRAL_ACCOUNT || "";
@@ -161,86 +158,17 @@ export async function executeJupiterSwap(
       feeBps: orderData.feeBps,
     });
 
-    // Step 2: Deserialize the transaction
+    // Step 2: Deserialize Jupiter's transaction - DO NOT MODIFY
     const transactionBuf = Buffer.from(orderData.transaction, 'base64');
-    const originalTx = VersionedTransaction.deserialize(transactionBuf);
+    const transaction = VersionedTransaction.deserialize(transactionBuf);
 
-    // Step 3: Get address lookup tables
-    const addressLookupTableAccounts: AddressLookupTableAccount[] = [];
+    console.log('✍️ Requesting signature (using Jupiter transaction as-is)...');
     
-    if (originalTx.message.addressTableLookups.length > 0) {
-      const lookupTableAddresses = originalTx.message.addressTableLookups.map(
-        lookup => lookup.accountKey
-      );
-      
-      const lookupTableAccounts = await Promise.all(
-        lookupTableAddresses.map(async (address) => {
-          const account = await connection.getAddressLookupTable(address);
-          return account.value;
-        })
-      );
-      
-      for (const account of lookupTableAccounts) {
-        if (account) {
-          addressLookupTableAccounts.push(account);
-        }
-      }
-    }
-
-    // Step 4: Decompile the message to get instructions
-    const decompiledMessage = TransactionMessage.decompile(
-      originalTx.message,
-      { addressLookupTableAccounts }
-    );
-
-    // Step 5: Check if compute budget instructions already exist
-    const computeBudgetProgramId = ComputeBudgetProgram.programId.toString();
-    const hasComputeBudget = decompiledMessage.instructions.some(
-      ix => ix.programId.toString() === computeBudgetProgramId
-    );
-
-    // Step 6: Build new instructions with compute budget at front
-    let newInstructions = [...decompiledMessage.instructions];
-    
-    if (!hasComputeBudget) {
-      console.log('➕ Adding compute budget instructions...');
-      
-      const computeUnitLimit = ComputeBudgetProgram.setComputeUnitLimit({
-        units: 400000,
-      });
-      
-      const computeUnitPrice = ComputeBudgetProgram.setComputeUnitPrice({
-        microLamports: 50000,
-      });
-      
-      // Prepend compute budget instructions
-      newInstructions = [computeUnitLimit, computeUnitPrice, ...newInstructions];
-    } else {
-      console.log('✅ Compute budget already present');
-    }
-
-    // Step 7: Get fresh blockhash
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
-
-    // Step 8: Create new transaction message with feePayer explicitly first
-    const newMessage = new TransactionMessage({
-      payerKey: userPublicKey,
-      recentBlockhash: blockhash,
-      instructions: newInstructions,
-    });
-
-    // Step 9: Compile to versioned transaction
-    const newTransaction = new VersionedTransaction(
-      newMessage.compileToV0Message(addressLookupTableAccounts)
-    );
-
-    console.log('✍️ Requesting signature...');
-    
-    // Step 10: Sign
-    const signedTransaction = await signTransaction(newTransaction);
+    // Step 3: Sign the original transaction without modification
+    const signedTransaction = await signTransaction(transaction);
     const signedTransactionBase64 = Buffer.from(signedTransaction.serialize()).toString('base64');
 
-    // Step 11: Execute via Ultra API
+    // Step 4: Execute via Ultra API
     console.log('📤 Executing via Ultra...');
     const executeResponse = await fetch('https://lite-api.jup.ag/ultra/v1/execute', {
       method: 'POST',
@@ -256,10 +184,11 @@ export async function executeJupiterSwap(
 
     if (!executeResponse.ok) {
       const errorText = await executeResponse.text();
-      console.error('❌ Execute failed:', executeResponse.status, errorText);
+      console.error('❌ Ultra execute failed:', errorText);
       
       // Fallback: Send directly to RPC
       console.log('🔄 Trying direct RPC submission...');
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
       const rawTransaction = signedTransaction.serialize();
       
       const txid = await connection.sendRawTransaction(rawTransaction, {
