@@ -595,7 +595,7 @@ const sendTransactionWithFreshBlockhash = async (
   const depositRewards = async (
     tokenMint: string,
     poolId: number = 0,
-    amount: number
+    amount: number | string | bigint
   ) => {
     if (!wallet || !publicKey) {
       throw new Error("Wallet not connected");
@@ -635,7 +635,7 @@ const sendTransactionWithFreshBlockhash = async (
       .depositRewards(
         tokenMintPubkey,
         new BN(poolId),
-        new BN(amount))
+        new BN(amount.toString()))
       .accounts({
         project: projectPDA,
         rewardVault: rewardVaultPDA,
@@ -1087,7 +1087,7 @@ const sendTransactionWithFreshBlockhash = async (
     tokenMint: string,
     poolId: number = 0,
     vaultType: 'staking' | 'reward' | 'reflection',
-    amount: number
+    amount: number | string | bigint
   ) => {
     if (!wallet || !publicKey) {
       throw new Error("Wallet not connected");
@@ -1122,7 +1122,7 @@ const sendTransactionWithFreshBlockhash = async (
     );
 
     const method = program.methods
-      .claimUnclaimedTokens(tokenMintPubkey, new BN(poolId), new BN(amount))
+      .claimUnclaimedTokens(tokenMintPubkey, new BN(poolId), new BN(amount.toString()))
       .accounts({
         project: projectPDA,
         vault: vaultPDA,

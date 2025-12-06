@@ -234,13 +234,19 @@ export default function MyPoolsPage() {
       }
 
       const decimals = mintInfo.value.data.parsed.info.decimals;
-      const amountInLamports = depositAmount * Math.pow(10, decimals);
+
+        // Handle BigInt properly to avoid overflow with large numbers
+        const depositStr = depositAmount.toString();
+        const [whole, fraction = ''] = depositStr.split('.');
+        const paddedFraction = fraction.padEnd(decimals, '0').slice(0, decimals);
+        const amountString = whole + paddedFraction;
+        const amountInLamports = BigInt(amountString);
 
       console.log(`💰 Depositing ${depositAmount} tokens (${amountInLamports} raw units)`);
 
       showInfo('📝 Sending transaction...');
 
-      const txSignature = await depositRewards(tokenMint, pool.poolId ?? 0, amountInLamports);
+      const txSignature = await depositRewards(tokenMint, pool.poolId ?? 0, amountInLamports.toString());
 
       playSound('success');
       showSuccess(`✅ Deposited ${depositAmount.toLocaleString()} tokens! TX: ${txSignature.slice(0, 8)}...`);
