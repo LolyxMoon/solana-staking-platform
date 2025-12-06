@@ -26,3 +26,8 @@ log/
 # OS
 .DS_Store
 Thumbs.db
+*.env
+server/.env
+web/.env
+*.env
+*.env >> .gitignore.env.example
