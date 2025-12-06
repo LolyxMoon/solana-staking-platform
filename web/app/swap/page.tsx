@@ -457,7 +457,7 @@ export default function SwapPage() {
   };
 
   const handleSwap = async () => {
-    if (!publicKey || !signTransaction || !fromToken || !toToken || !fromAmount) {
+    if (!publicKey || !sendTransaction || !fromToken || !toToken || !fromAmount) {
       playSound('error'); // ✅ ADD THIS LINE
       showError("Please connect wallet");
       return;
