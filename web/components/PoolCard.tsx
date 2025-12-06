@@ -1052,7 +1052,9 @@ export default function PoolCard(props: PoolCardProps) {
           <div className="bg-white/[0.02] p-2 rounded-lg border border-white/[0.05]">
             <p className="text-gray-500 text-[9px] sm:text-[10px] md:text-xs mb-0.5 leading-tight">Total Staked</p>
             <p className="font-semibold text-[11px] sm:text-xs md:text-sm leading-tight truncate" style={{ color: '#fb57ff' }}>
-              {totalStaked ? `${parseFloat(totalStaked).toLocaleString()} ${symbol}` : "0 " + symbol}
+              {projectData?.totalStaked 
+                ? `${(Number(projectData.totalStaked.toString()) / Math.pow(10, tokenDecimals)).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${symbol}` 
+                : "0 " + symbol}
             </p>
           </div>
           
