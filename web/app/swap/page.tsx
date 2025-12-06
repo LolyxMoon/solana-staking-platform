@@ -129,7 +129,7 @@ const JUPITER_REFERRAL_ACCOUNT = process.env.NEXT_PUBLIC_JUPITER_REFERRAL_ACCOUN
 const JUPITER_REFERRAL_FEE_BPS = parseInt(process.env.NEXT_PUBLIC_JUPITER_REFERRAL_FEE || "50");
 
 export default function SwapPage() {
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
   const { showSuccess, showError, showInfo } = useToast();
 
@@ -491,7 +491,7 @@ export default function SwapPage() {
         toToken.address,
         amount,
         Math.floor(slippage * 100),
-        signTransaction,
+        sendTransaction,
         config?.platformFeeBps,
         config?.treasuryWallet
       );
