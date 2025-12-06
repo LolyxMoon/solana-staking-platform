@@ -129,7 +129,7 @@ export default function MyPoolsPage() {
     } finally {
       setLoading(false);
     }
-  }, [publicKey, getProjectInfo, showError, showInfo]);
+  }, [publicKey]);
 
   useEffect(() => {
     fetchMyPools();
