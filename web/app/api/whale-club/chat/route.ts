@@ -1,49 +1,92 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { encrypt, decrypt } from '@/lib/encryption';
-import { verifyWalletSignature, isSignatureValid } from '@/lib/verify-wallet';
+import crypto from 'crypto';
+import nacl from 'tweetnacl';
+import bs58 from 'bs58';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-// Verify user is whale club member
+// Encryption helpers
+const ALGORITHM = 'aes-256-gcm';
+
+function getKey(): Buffer {
+  const key = process.env.CHAT_ENCRYPTION_KEY;
+  if (!key || key.length !== 64) {
+    throw new Error('CHAT_ENCRYPTION_KEY must be 64 hex characters');
+  }
+  return Buffer.from(key, 'hex');
+}
+
+function encrypt(text: string): string {
+  const key = getKey();
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
+}
+
+function decrypt(encryptedData: string): string {
+  const key = getKey();
+  const [ivHex, authTagHex, encrypted] = encryptedData.split(':');
+  const iv = Buffer.from(ivHex, 'hex');
+  const authTag = Buffer.from(authTagHex, 'hex');
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+  decipher.setAuthTag(authTag);
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+// Signature verification
+function verifyWalletSignature(wallet: string, message: string, signature: string): boolean {
+  try {
+    const messageBytes = new TextEncoder().encode(message);
+    const signatureBytes = bs58.decode(signature);
+    const publicKeyBytes = bs58.decode(wallet);
+    return nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
+  } catch {
+    return false;
+  }
+}
+
+function isSignatureValid(timestamp: number): boolean {
+  return Math.abs(Date.now() - timestamp) <= 5 * 60 * 1000;
+}
+
 async function isWhaleMember(wallet: string): Promise<boolean> {
   const { data } = await supabase
     .from('whale_club_users')
     .select('wallet_address')
     .eq('wallet_address', wallet)
     .single();
-  
   return !!data;
 }
 
-// GET messages (requires signature)
+// GET messages
 export async function GET(request: NextRequest) {
   const wallet = request.nextUrl.searchParams.get('wallet');
   const signature = request.nextUrl.searchParams.get('signature');
   const timestamp = request.nextUrl.searchParams.get('timestamp');
   const limit = parseInt(request.nextUrl.searchParams.get('limit') || '50');
 
-  // Validate required params
   if (!wallet || !signature || !timestamp) {
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
   }
 
-  // Verify signature is recent (5 min)
-  const ts = parseInt(timestamp);
-  if (!isSignatureValid(ts)) {
+  if (!isSignatureValid(parseInt(timestamp))) {
     return NextResponse.json({ error: 'Signature expired' }, { status: 401 });
   }
 
-  // Verify signature
   const message = `WhaleChat:${wallet}:${timestamp}`;
   if (!verifyWalletSignature(wallet, message, signature)) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 
-  // Verify whale membership
   if (!(await isWhaleMember(wallet))) {
     return NextResponse.json({ error: 'Not a Whale Club member' }, { status: 403 });
   }
@@ -57,7 +100,6 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
-    // Decrypt messages
     const decryptedMessages = (data || []).map(msg => ({
       ...msg,
       message: decrypt(msg.message)
@@ -70,28 +112,24 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST new message (requires signature)
+// POST new message
 export async function POST(request: NextRequest) {
   try {
     const { wallet, nickname, message, signature, timestamp } = await request.json();
 
-    // Validate required params
     if (!wallet || !message?.trim() || !signature || !timestamp) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Verify signature is recent (5 min)
     if (!isSignatureValid(timestamp)) {
       return NextResponse.json({ error: 'Signature expired' }, { status: 401 });
     }
 
-    // Verify signature
     const signMessage = `WhaleChat:${wallet}:${timestamp}`;
     if (!verifyWalletSignature(wallet, signMessage, signature)) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
 
-    // Verify whale membership
     const { data: user } = await supabase
       .from('whale_club_users')
       .select('wallet_address, nickname')
@@ -102,7 +140,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not a Whale Club member' }, { status: 403 });
     }
 
-    // Sanitize and encrypt message
     const cleanMessage = message.trim().slice(0, 500);
     const encryptedMessage = encrypt(cleanMessage);
 
@@ -118,13 +155,9 @@ export async function POST(request: NextRequest) {
 
     if (error) throw error;
 
-    // Return decrypted for immediate display
     return NextResponse.json({ 
       success: true, 
-      message: {
-        ...data,
-        message: cleanMessage // Return decrypted for sender
-      }
+      message: { ...data, message: cleanMessage }
     });
   } catch (error) {
     console.error('Error posting message:', error);
