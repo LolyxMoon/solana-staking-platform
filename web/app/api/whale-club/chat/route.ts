@@ -1,55 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import crypto from 'crypto';
-import nacl from 'tweetnacl';
-import bs58 from 'bs58';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-// Encryption helpers
-const ALGORITHM = 'aes-256-gcm';
-
-function getKey(): Buffer {
-  const key = process.env.CHAT_ENCRYPTION_KEY;
-  if (!key || key.length !== 64) {
-    throw new Error('CHAT_ENCRYPTION_KEY must be 64 hex characters');
-  }
-  return Buffer.from(key, 'hex');
-}
-
-function encrypt(text: string): string {
-  const key = getKey();
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  const authTag = cipher.getAuthTag();
-  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
-}
-
-function decrypt(encryptedData: string): string {
-  const key = getKey();
-  const [ivHex, authTagHex, encrypted] = encryptedData.split(':');
-  const iv = Buffer.from(ivHex, 'hex');
-  const authTag = Buffer.from(authTagHex, 'hex');
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(authTag);
-  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
-}
-
-// Signature verification
-function verifyWalletSignature(wallet: string, message: string, signature: string): boolean {
+async function verifySignature(wallet: string, message: string, signature: string): Promise<boolean> {
   try {
+    const nacl = (await import('tweetnacl')).default;
+    const bs58 = (await import('bs58')).default;
+    
     const messageBytes = new TextEncoder().encode(message);
     const signatureBytes = bs58.decode(signature);
     const publicKeyBytes = bs58.decode(wallet);
+    
     return nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
-  } catch {
+  } catch (error) {
+    console.error('Signature verification error:', error);
     return false;
   }
 }
@@ -67,7 +35,6 @@ async function isWhaleMember(wallet: string): Promise<boolean> {
   return !!data;
 }
 
-// GET messages
 export async function GET(request: NextRequest) {
   const wallet = request.nextUrl.searchParams.get('wallet');
   const signature = request.nextUrl.searchParams.get('signature');
@@ -83,7 +50,7 @@ export async function GET(request: NextRequest) {
   }
 
   const message = `WhaleChat:${wallet}:${timestamp}`;
-  if (!verifyWalletSignature(wallet, message, signature)) {
+  if (!(await verifySignature(wallet, message, signature))) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 
@@ -99,20 +66,13 @@ export async function GET(request: NextRequest) {
       .limit(limit);
 
     if (error) throw error;
-
-    const decryptedMessages = (data || []).map(msg => ({
-      ...msg,
-      message: decrypt(msg.message)
-    })).reverse();
-
-    return NextResponse.json({ messages: decryptedMessages });
+    return NextResponse.json({ messages: (data || []).reverse() });
   } catch (error) {
     console.error('Error fetching messages:', error);
     return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 });
   }
 }
 
-// POST new message
 export async function POST(request: NextRequest) {
   try {
     const { wallet, nickname, message, signature, timestamp } = await request.json();
@@ -126,7 +86,7 @@ export async function POST(request: NextRequest) {
     }
 
     const signMessage = `WhaleChat:${wallet}:${timestamp}`;
-    if (!verifyWalletSignature(wallet, signMessage, signature)) {
+    if (!(await verifySignature(wallet, signMessage, signature))) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
 
@@ -141,24 +101,19 @@ export async function POST(request: NextRequest) {
     }
 
     const cleanMessage = message.trim().slice(0, 500);
-    const encryptedMessage = encrypt(cleanMessage);
 
     const { data, error } = await supabase
       .from('whale_club_messages')
       .insert({
         wallet_address: wallet,
         nickname: nickname || user.nickname,
-        message: encryptedMessage
+        message: cleanMessage
       })
       .select()
       .single();
 
     if (error) throw error;
-
-    return NextResponse.json({ 
-      success: true, 
-      message: { ...data, message: cleanMessage }
-    });
+    return NextResponse.json({ success: true, message: data });
   } catch (error) {
     console.error('Error posting message:', error);
     return NextResponse.json({ error: 'Failed to post message' }, { status: 500 });
