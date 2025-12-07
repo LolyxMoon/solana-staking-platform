@@ -22,6 +22,7 @@
     "@solana/wallet-adapter-react-ui": "^0.9.35",
     "@solana/wallet-adapter-wallets": "^0.19.28",
     "@solana/web3.js": "^1.95.3",
+    "@supabase/supabase-js": "^2.86.2",
     "bn.js": "^5.2.2",
     "bs58": "^6.0.0",
     "date-fns": "^4.1.0",
