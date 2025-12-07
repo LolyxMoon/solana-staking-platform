@@ -4,7 +4,7 @@ import nacl from "tweetnacl";
 import bs58 from "bs58";
 
 // Your admin wallet - only this wallet can trigger distribution
-const ADMIN_WALLET = "9zS3TWXEWQnYU2xFSMB7wvv7JuBJpcPtxw9kaf1STzvR";
+const ADMIN_WALLET = "ecfvkqWdJiYJRyUtWvuYpPWP5faf9GBcA1K6TaDW7wS";
 
 export async function POST(request: NextRequest) {
   try {

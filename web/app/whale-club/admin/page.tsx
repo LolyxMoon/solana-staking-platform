@@ -5,7 +5,7 @@ import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import bs58 from "bs58";
 
-const ADMIN_WALLET = "9zS3TWXEWQnYU2xFSMB7wvv7JuBJpcPtxw9kaf1STzvR";
+const ADMIN_WALLET = "ecfvkqWdJiYJRyUtWvuYpPWP5faf9GBcA1K6TaDW7wS";
 const REWARD_WALLET = new PublicKey("JutoRW8bYVaPpZQXUYouEUaMN24u6PxzLryCLuJZsL9");
 
 interface DistributionEntry {
