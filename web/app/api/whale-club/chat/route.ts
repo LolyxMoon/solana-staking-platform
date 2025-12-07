@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+function getSupabase() {
+  const { createClient } = require('@supabase/supabase-js');
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  );
+}
 
-function base58Decode(str: string): Buffer {
+function base58Decode(str: string): Uint8Array {
   const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
   const bytes: number[] = [];
   for (let i = 0; i < str.length; i++) {
@@ -30,25 +31,16 @@ function base58Decode(str: string): Buffer {
   for (let i = 0; i < str.length && str[i] === '1'; i++) {
     bytes.push(0);
   }
-  return Buffer.from(bytes.reverse());
+  return new Uint8Array(bytes.reverse());
 }
 
 function verifySignature(wallet: string, message: string, signature: string): boolean {
   try {
-    const messageBytes = Buffer.from(message, 'utf8');
+    const nacl = require('tweetnacl');
+    const messageBytes = new TextEncoder().encode(message);
     const signatureBytes = base58Decode(signature);
     const publicKeyBytes = base58Decode(wallet);
-    
-    const publicKey = crypto.createPublicKey({
-      key: Buffer.concat([
-        Buffer.from('302a300506032b6570032100', 'hex'),
-        publicKeyBytes
-      ]),
-      format: 'der',
-      type: 'spki'
-    });
-    
-    return crypto.verify(null, messageBytes, publicKey, signatureBytes);
+    return nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
   } catch (error) {
     console.error('Signature verification error:', error);
     return false;
@@ -60,6 +52,7 @@ function isSignatureValid(timestamp: number): boolean {
 }
 
 async function isWhaleMember(wallet: string): Promise<boolean> {
+  const supabase = getSupabase();
   const { data } = await supabase
     .from('whale_club_users')
     .select('wallet_address')
@@ -92,6 +85,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const supabase = getSupabase();
     const { data, error } = await supabase
       .from('whale_club_messages')
       .select('id, wallet_address, nickname, message, created_at')
@@ -123,6 +117,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
 
+    const supabase = getSupabase();
     const { data: user } = await supabase
       .from('whale_club_users')
       .select('wallet_address, nickname')
