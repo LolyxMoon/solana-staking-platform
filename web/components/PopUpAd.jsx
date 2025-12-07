@@ -129,8 +129,11 @@ export default function PopUpAd() {
             <div className="mb-6">
               <p className="text-xs text-gray-500 mb-2">Contract Address</p>
               <div className="flex items-center gap-2 bg-white/[0.03] border border-white/[0.08] rounded-lg p-3">
-                <span className="font-mono text-sm text-gray-300 flex-1">
-                  {popUpData.contract_address.slice(0, 4)}...{popUpData.contract_address.slice(-4)}
+                <span className="font-mono text-xs text-gray-300 flex-1 hidden md:block">
+                  {popUpData.contract_address}
+                </span>
+                <span className="font-mono text-xs text-gray-300 flex-1 md:hidden">
+                  {popUpData.contract_address.slice(0, 8)}...{popUpData.contract_address.slice(-8)}
                 </span>
                 <button
                   onClick={() => {
@@ -138,7 +141,7 @@ export default function PopUpAd() {
                     setCopied(true);
                     setTimeout(() => setCopied(false), 2000);
                   }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.1] rounded-md transition-all text-xs font-medium"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.1] rounded-md transition-all text-xs font-medium shrink-0"
                 >
                   {copied ? (
                     <>
