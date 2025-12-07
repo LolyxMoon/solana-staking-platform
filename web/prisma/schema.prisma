@@ -227,3 +227,35 @@ model PlatformConfig {
 
   @@map("platform_config")
 }
+
+model WhaleClubUser {
+  id                    String    @id @default(cuid())
+  
+  // Wallet
+  walletAddress         String    @unique @map("wallet_address")
+  
+  // Twitter
+  twitterId             String?   @unique @map("twitter_id")
+  twitterUsername       String?   @map("twitter_username")
+  twitterAccessToken    String?   @map("twitter_access_token")
+  twitterRefreshToken   String?   @map("twitter_refresh_token")
+  twitterTokenExpiry    DateTime? @map("twitter_token_expiry")
+  
+  // Points
+  totalPoints           Int       @default(0) @map("total_points")
+  likesCount            Int       @default(0) @map("likes_count")
+  retweetsCount         Int       @default(0) @map("retweets_count")
+  quotesCount           Int       @default(0) @map("quotes_count")
+  
+  // Tracking
+  lastSyncedAt          DateTime? @map("last_synced_at")
+  lastSyncedTweetId     String?   @map("last_synced_tweet_id")
+  
+  // Timestamps
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  
+  @@index([totalPoints(sort: Desc)], map: "whale_club_points_idx")
+  @@index([twitterId], map: "whale_club_twitter_idx")
+  @@map("whale_club_users")
+}
