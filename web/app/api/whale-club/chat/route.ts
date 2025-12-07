@@ -1,21 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import nacl from 'tweetnacl';
-import bs58 from 'bs58';
+import { PublicKey } from '@solana/web3.js';
+import { sign } from 'tweetnacl';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
 );
 
+function base58Decode(str: string): Uint8Array {
+  const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  const bytes: number[] = [];
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    const index = ALPHABET.indexOf(char);
+    if (index === -1) throw new Error('Invalid base58 character');
+    let carry = index;
+    for (let j = 0; j < bytes.length; j++) {
+      carry += bytes[j] * 58;
+      bytes[j] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+  for (let i = 0; i < str.length && str[i] === '1'; i++) {
+    bytes.push(0);
+  }
+  return new Uint8Array(bytes.reverse());
+}
+
 function verifySignature(wallet: string, message: string, signature: string): boolean {
   try {
     const messageBytes = new TextEncoder().encode(message);
-    const signatureBytes = bs58.decode(signature);
-    const publicKeyBytes = bs58.decode(wallet);
-    return nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
+    const signatureBytes = base58Decode(signature);
+    const publicKeyBytes = new PublicKey(wallet).toBytes();
+    return sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
   } catch (error) {
     console.error('Signature verification error:', error);
     return false;
