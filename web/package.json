@@ -39,9 +39,7 @@
     "sonner": "^2.0.7",
     "swr": "2.2.5",
     "tweetnacl": "^1.0.3",
-    "zustand": "4.5.2",
-    "tweetnacl": "^1.0.3",
-    "bs58": "^5.0.0",
+    "zustand": "4.5.2"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.10",
