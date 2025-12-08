@@ -90,10 +90,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${APP_URL}/whale-club?error=callback_failed`);
   }
 }
-```
-
----
-
-Also check that `TWITTER_REDIRECT_URI` in Vercel matches exactly:
-```
-https://stakepoint.app/api/twitter/callback
