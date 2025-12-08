@@ -1,94 +1,98 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Connection, PublicKey } from '@solana/web3.js';
-import { getAssociatedTokenAddress } from '@solana/spl-token';
 
 export const dynamic = 'force-dynamic';
 
 const ADMIN_WALLET = 'ecfvkqWdJiYJRyUtWvuYpPWP5faf9GBcA1K6TaDW7wS';
-const SPT_MINT = new PublicKey('6uUU2z5GBasaxnkcqiQVHa2SXL68mAXDsq1zYN5Qxrm7');
-const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
-const MIN_HOLDING = 10_000_000;
-const SPT_DECIMALS = 9;
 
-function getSupabase() {
-  const { createClient } = require('@supabase/supabase-js');
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY!
-  );
+async function supabaseGet(table: string, query: string) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  const response = await fetch(`${url}/rest/v1/${table}?${query}`, {
+    headers: { 'apikey': key!, 'Authorization': `Bearer ${key}` },
+  });
+  return response.json();
 }
 
-async function checkTokenBalance(connection: Connection, wallet: string): Promise<number> {
-  try {
-    const walletPubkey = new PublicKey(wallet);
-    const ata = await getAssociatedTokenAddress(SPT_MINT, walletPubkey, false, TOKEN_2022_PROGRAM_ID);
-    const accountInfo = await connection.getAccountInfo(ata);
-    
-    if (accountInfo) {
-      const data = accountInfo.data;
-      const amountBytes = data.slice(64, 72);
-      const amount = Number(new DataView(amountBytes.buffer, amountBytes.byteOffset, 8).getBigUint64(0, true));
-      return amount / Math.pow(10, SPT_DECIMALS);
-    }
-    return 0;
-  } catch {
-    return 0;
-  }
+async function supabaseUpdate(table: string, query: string, data: any) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  await fetch(`${url}/rest/v1/${table}?${query}`, {
+    method: 'PATCH',
+    headers: {
+      'apikey': key!,
+      'Authorization': `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal',
+    },
+    body: JSON.stringify(data),
+  });
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { wallet, signature, timestamp } = await request.json();
+    const { adminWallet, action, signedTransaction, timestamp } = await request.json();
 
-    // Verify admin
-    if (wallet !== ADMIN_WALLET) {
+    // Verify admin wallet
+    if (adminWallet !== ADMIN_WALLET) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    // Verify signature (same as before)
-    // ... signature verification code ...
-
-    const supabase = getSupabase();
-    const connection = new Connection(process.env.NEXT_PUBLIC_RPC_URL || 'https://api.mainnet-beta.solana.com');
-
-    // Get all users with points
-    const { data: users, error } = await supabase
-      .from('whale_club_users')
-      .select('wallet_address, total_points, twitter_username, nickname')
-      .gt('total_points', 0)
-      .order('total_points', { ascending: false });
-
-    if (error) throw error;
-
-    // Check each user's current balance
-    const eligibleUsers = [];
-    const ineligibleUsers = [];
-
-    for (const user of users || []) {
-      const balance = await checkTokenBalance(connection, user.wallet_address);
-      
-      if (balance >= MIN_HOLDING) {
-        eligibleUsers.push({
-          ...user,
-          currentBalance: balance,
-        });
-      } else {
-        ineligibleUsers.push({
-          ...user,
-          currentBalance: balance,
-          reason: `Only holds ${balance.toLocaleString()} SPT`,
-        });
-      }
+    // Verify timestamp is recent (within 5 minutes)
+    if (!timestamp || Date.now() - timestamp > 5 * 60 * 1000) {
+      return NextResponse.json({ error: 'Request expired' }, { status: 400 });
     }
 
-    return NextResponse.json({
-      eligible: eligibleUsers,
-      ineligible: ineligibleUsers,
-      totalEligible: eligibleUsers.length,
-      totalIneligible: ineligibleUsers.length,
-    });
+    // Verify signed transaction exists
+    if (!signedTransaction) {
+      return NextResponse.json({ error: 'Signature required' }, { status: 400 });
+    }
+
+    if (action === 'snapshot') {
+      // Get all users with points (exclude stakepointapp holder)
+      const users = await supabaseGet(
+        'whale_club_users',
+        `twitter_username=neq.stakepointapp&select=wallet_address,twitter_username,nickname,total_points,likes_count,retweets_count,quotes_count&order=total_points.desc`
+      );
+
+      const totalPoints = users.reduce((sum: number, u: any) => sum + (u.total_points || 0), 0);
+
+      const distribution = users
+        .filter((u: any) => u.total_points > 0)
+        .map((u: any) => ({
+          walletAddress: u.wallet_address,
+          twitterUsername: u.twitter_username,
+          nickname: u.nickname,
+          totalPoints: u.total_points || 0,
+          likesCount: u.likes_count || 0,
+          retweetsCount: u.retweets_count || 0,
+          quotesCount: u.quotes_count || 0,
+          sharePercent: totalPoints > 0 ? ((u.total_points / totalPoints) * 100).toFixed(2) : '0',
+        }));
+
+      return NextResponse.json({
+        totalPoints,
+        userCount: distribution.length,
+        distribution,
+      });
+    }
+
+    if (action === 'reset') {
+      // Reset all points (exclude stakepointapp holder)
+      await supabaseUpdate('whale_club_users', `twitter_username=neq.stakepointapp`, {
+        total_points: 0,
+        likes_count: 0,
+        retweets_count: 0,
+        quotes_count: 0,
+        last_synced_at: null,
+        updated_at: new Date().toISOString(),
+      });
+
+      return NextResponse.json({ success: true, message: 'All points reset' });
+    }
+
+    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   } catch (error) {
     console.error('Distribute error:', error);
-    return NextResponse.json({ error: 'Failed to process' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }

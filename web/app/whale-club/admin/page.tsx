@@ -2,8 +2,7 @@
 import { useState, useEffect } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import bs58 from "bs58";
+import { PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram } from "@solana/web3.js";
 
 const ADMIN_WALLET = "ecfvkqWdJiYJRyUtWvuYpPWP5faf9GBcA1K6TaDW7wS";
 const REWARD_WALLET = new PublicKey("JutoRW8bYVaPpZQXUYouEUaMN24u6PxzLryCLuJZsL9");
@@ -29,7 +28,7 @@ interface SyncUpdate {
 }
 
 export default function WhaleClubAdmin() {
-  const { publicKey, connected, signMessage } = useWallet();
+  const { publicKey, connected, signTransaction } = useWallet();
   const { connection } = useConnection();
   const [isLoading, setIsLoading] = useState(false);
   const [rewardPoolBalance, setRewardPoolBalance] = useState<number>(0);
@@ -68,7 +67,7 @@ export default function WhaleClubAdmin() {
   }, [connection]);
 
   const handleAction = async (action: "snapshot" | "reset") => {
-    if (!publicKey || !signMessage) {
+    if (!publicKey || !signTransaction || !connection) {
       setMessage("Wallet not connected");
       return;
     }
@@ -78,10 +77,22 @@ export default function WhaleClubAdmin() {
 
     try {
       const timestamp = Date.now();
-      const msgText = `WhaleClub Admin: ${action} at ${timestamp}`;
-      const encodedMessage = new TextEncoder().encode(msgText);
-      const signature = await signMessage(encodedMessage);
-      const signatureBase58 = bs58.encode(signature);
+
+      // Create a 0 SOL transaction to self (works with Ledger)
+      const transaction = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey: publicKey,
+          lamports: 0,
+        })
+      );
+      
+      const { blockhash } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+
+      const signedTransaction = await signTransaction(transaction);
+      const serialized = Buffer.from(signedTransaction.serialize()).toString('base64');
 
       const response = await fetch("/api/whale-club/admin/distribute", {
         method: "POST",
@@ -89,8 +100,8 @@ export default function WhaleClubAdmin() {
         body: JSON.stringify({
           adminWallet: publicKey.toString(),
           action,
-          signature: signatureBase58,
-          message: msgText,
+          signedTransaction: serialized,
+          timestamp,
         }),
       });
 
@@ -128,7 +139,6 @@ export default function WhaleClubAdmin() {
       return;
     }
 
-    // Parse tweet IDs from input
     const tweetIds = tweetIdsInput
       .split(/[\n,\s]+/)
       .map(id => id.trim())
@@ -326,7 +336,7 @@ export default function WhaleClubAdmin() {
             {isLoading && (
               <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-6 text-center">
                 <div className="w-6 h-6 border-2 border-[#fb57ff] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                <p className="text-gray-400">Processing... Sign the message in your wallet</p>
+                <p className="text-gray-400">Processing... Sign the transaction in your wallet</p>
               </div>
             )}
 
