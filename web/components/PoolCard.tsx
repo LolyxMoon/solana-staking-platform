@@ -478,7 +478,7 @@ export default function PoolCard(props: PoolCardProps) {
         const timeoutId = setTimeout(() => controller.abort(), 10000);
 
         const res = await fetch(
-          `https://api.dexscreener.com/tokens/solana/${effectiveMintAddress}`,
+          `https://api.dexscreener.com/latest/dex/tokens/${effectiveMintAddress}`,
           { signal: controller.signal, cache: 'no-store' }
         );
 
