@@ -162,21 +162,24 @@ const WhaleClub: React.FC = () => {
     if (!publicKey || syncing) return;
     setSyncing(true);
     try {
-      const response = await fetch('/api/whale-club/sync', {
+        const response = await fetch('/api/whale-club/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ wallet: publicKey.toString() }),
-      });
-      if (response.ok) {
+        });
+        const data = await response.json();
+        if (response.status === 429) {
+        alert(`Sync available in ${data.daysRemaining} days`);
+        } else if (response.ok) {
         await fetchUserData();
         await fetchLeaderboard();
-      }
+        }
     } catch (error) {
-      console.error('Error syncing:', error);
+        console.error('Error syncing:', error);
     } finally {
-      setSyncing(false);
+        setSyncing(false);
     }
-  };
+    };
 
   const saveNickname = async () => {
     if (!publicKey) return;
