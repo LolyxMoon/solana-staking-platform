@@ -596,6 +596,7 @@ const WhaleClub: React.FC = () => {
                         <button onClick={sendMessage} disabled={!newMessage.trim() || sendingMessage} className="p-2 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed" style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}><Send className="w-5 h-5" /></button>
                       </div>
                     </div>
+                  </>
                 )}
               </div>
             )}
