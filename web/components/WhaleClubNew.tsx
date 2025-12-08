@@ -4,8 +4,7 @@ import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
-import { RefreshCw, Trophy, Twitter, Wallet, Star, MessageCircle, Send, Edit2, Check, X, Lock } from 'lucide-react';
-import bs58 from 'bs58';
+import { Trophy, Twitter, Wallet, Star, MessageCircle, Send, Edit2, Check, X, Lock } from 'lucide-react';
 
 const SPT_MINT = new PublicKey('6uUU2z5GBasaxnkcqiQVHa2SXL68mAXDsq1zYN5Qxrm7');
 const MIN_HOLDING = 10_000_000;
@@ -14,8 +13,7 @@ const REWARD_WALLET = new PublicKey('JutoRW8bYVaPpZQXUYouEUaMN24u6PxzLryCLuJZsL9
 
 interface UserData {
   wallet: string;
-  twitterHandle: string | null;
-  twitterId: string | null;
+  twitterUsername: string | null;
   nickname: string | null;
   points: number;
   totalLikes: number;
@@ -44,17 +42,17 @@ interface ChatMessage {
 type TabType = 'dashboard' | 'chat';
 
 const WhaleClub: React.FC = () => {
-  const { publicKey, connected, signMessage } = useWallet();
+  const { publicKey, connected, signTransaction } = useWallet();
   const { connection } = useConnection();
   
-  const [tokenBalance, setTokenBalance] = useState<number>(0);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
+  const [stakedBalance, setStakedBalance] = useState<number>(0);
+  const [totalBalance, setTotalBalance] = useState<number>(0);
   const [isQualified, setIsQualified] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [rewardPoolBalance, setRewardPoolBalance] = useState<number>(0);
-  const [twitterConnected, setTwitterConnected] = useState<boolean>(false);
-  const [syncing, setSyncing] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   
   // Nickname
@@ -63,6 +61,13 @@ const WhaleClub: React.FC = () => {
   const [nicknameInput, setNicknameInput] = useState('');
   const [nicknameSaving, setNicknameSaving] = useState(false);
   const [nicknameError, setNicknameError] = useState('');
+  
+  // Twitter Username
+  const [twitterUsername, setTwitterUsername] = useState<string>('');
+  const [editingTwitter, setEditingTwitter] = useState(false);
+  const [twitterInput, setTwitterInput] = useState('');
+  const [twitterSaving, setTwitterSaving] = useState(false);
+  const [twitterError, setTwitterError] = useState('');
   
   // Chat
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -75,8 +80,9 @@ const WhaleClub: React.FC = () => {
   const [chatSession, setChatSession] = useState<{ token: string; expiresAt: string } | null>(null);
   const [authenticating, setAuthenticating] = useState(false);
 
-  const checkTokenBalance = useCallback(async () => {
-    if (!publicKey || !connection) return;
+  // Check wallet token balance
+  const checkWalletBalance = useCallback(async () => {
+    if (!publicKey || !connection) return 0;
     try {
       const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
       const ata = await getAssociatedTokenAddress(SPT_MINT, publicKey, false, TOKEN_2022_PROGRAM_ID);
@@ -85,19 +91,50 @@ const WhaleClub: React.FC = () => {
         const data = accountInfo.data;
         const amountBytes = data.slice(64, 72);
         const amount = Number(new DataView(amountBytes.buffer, amountBytes.byteOffset, 8).getBigUint64(0, true));
-        const balance = amount / Math.pow(10, SPT_DECIMALS);
-        setTokenBalance(balance);
-        setIsQualified(balance >= MIN_HOLDING);
-      } else {
-        setTokenBalance(0);
-        setIsQualified(false);
+        return amount / Math.pow(10, SPT_DECIMALS);
       }
-    } catch {
-      setTokenBalance(0);
-      setIsQualified(false);
+    } catch (e) {
+      console.error('Error checking wallet balance:', e);
     }
-    setIsLoading(false);
+    return 0;
   }, [publicKey, connection]);
+
+  // Check staked balance
+  const checkStakedBalance = useCallback(async () => {
+    if (!publicKey) return 0;
+    try {
+      const response = await fetch(`/api/stakes/user/${publicKey.toString()}`);
+      if (response.ok) {
+        const data = await response.json();
+        const sptStakes = data.stakes?.filter((s: any) => s.tokenMint === SPT_MINT.toString()) || [];
+        const sptStaked = sptStakes.reduce((sum: number, s: any) => sum + Number(s.stakedAmount) / 1e9, 0);
+        return sptStaked;
+      }
+    } catch (e) {
+      console.error('Error checking staked balance:', e);
+    }
+    return 0;
+  }, [publicKey]);
+
+  // Check both balances
+  const checkBalances = useCallback(async () => {
+    if (!publicKey || !connection) {
+      setIsLoading(false);
+      return;
+    }
+    
+    const [wallet, staked] = await Promise.all([
+      checkWalletBalance(),
+      checkStakedBalance()
+    ]);
+    
+    const total = wallet + staked;
+    setWalletBalance(wallet);
+    setStakedBalance(staked);
+    setTotalBalance(total);
+    setIsQualified(total >= MIN_HOLDING);
+    setIsLoading(false);
+  }, [publicKey, connection, checkWalletBalance, checkStakedBalance]);
 
   const fetchRewardPoolBalance = useCallback(async () => {
     if (!connection) return;
@@ -117,8 +154,7 @@ const WhaleClub: React.FC = () => {
         const data = await response.json();
         setUserData({
           wallet: data.walletAddress,
-          twitterHandle: data.twitterUsername,
-          twitterId: data.twitterId,
+          twitterUsername: data.twitterUsername,
           nickname: data.nickname,
           points: data.totalPoints,
           totalLikes: data.likesCount,
@@ -128,7 +164,7 @@ const WhaleClub: React.FC = () => {
           joinedAt: data.createdAt,
         });
         setNickname(data.nickname || '');
-        setTwitterConnected(!!data.twitterUsername);
+        setTwitterUsername(data.twitterUsername || '');
       }
     } catch (error) {
       console.error('Error fetching user data:', error);
@@ -152,34 +188,6 @@ const WhaleClub: React.FC = () => {
       console.error('Error fetching leaderboard:', error);
     }
   }, []);
-
-  const connectTwitter = () => {
-    if (!publicKey) return;
-    window.location.href = `/api/twitter/auth?wallet=${publicKey.toString()}`;
-  };
-
-  const syncTwitterActivity = async () => {
-    if (!publicKey || syncing) return;
-    setSyncing(true);
-    try {
-        const response = await fetch('/api/whale-club/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet: publicKey.toString() }),
-        });
-        const data = await response.json();
-        if (response.status === 429) {
-        alert(`Sync available in ${data.daysRemaining} days`);
-        } else if (response.ok) {
-        await fetchUserData();
-        await fetchLeaderboard();
-        }
-    } catch (error) {
-        console.error('Error syncing:', error);
-    } finally {
-        setSyncing(false);
-    }
-    };
 
   const saveNickname = async () => {
     if (!publicKey) return;
@@ -206,111 +214,129 @@ const WhaleClub: React.FC = () => {
     }
   };
 
+  const saveTwitterUsername = async () => {
+    if (!publicKey) return;
+    setTwitterSaving(true);
+    setTwitterError('');
+    try {
+      const response = await fetch('/api/whale-club/register-twitter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet: publicKey.toString(), twitterUsername: twitterInput }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setTwitterError(data.error || 'Failed to save');
+        return;
+      }
+      setTwitterUsername(data.twitterUsername || '');
+      setEditingTwitter(false);
+      await fetchUserData();
+    } catch {
+      setTwitterError('Failed to save Twitter username');
+    } finally {
+      setTwitterSaving(false);
+    }
+  };
+
   // ========== CHAT AUTH ==========
   const authenticateChat = async () => {
-    if (!publicKey || !connection) return null;
+    if (!publicKey || !connection || !signTransaction) return null;
     setAuthenticating(true);
     try {
-        const timestamp = Date.now();
-        
-        // Create a simple transaction (0 SOL to self)
-        const transaction = new Transaction().add(
+      const timestamp = Date.now();
+      
+      const transaction = new Transaction().add(
         SystemProgram.transfer({
-            fromPubkey: publicKey,
-            toPubkey: publicKey,
-            lamports: 0,
+          fromPubkey: publicKey,
+          toPubkey: publicKey,
+          lamports: 0,
         })
-        );
-        
-        // Get recent blockhash
-        const { blockhash } = await connection.getLatestBlockhash();
-        transaction.recentBlockhash = blockhash;
-        transaction.feePayer = publicKey;
+      );
+      
+      const { blockhash } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
 
-        // Get wallet to sign (works with Ledger!)
-        const wallet = (window as any).solana || (window as any).solflare;
-        if (!wallet) throw new Error('No wallet found');
-        
-        const signedTransaction = await wallet.signTransaction(transaction);
-        const serialized = signedTransaction.serialize().toString('base64');
+      const signedTransaction = await signTransaction(transaction);
+      const serialized = Buffer.from(signedTransaction.serialize()).toString('base64');
 
-        // Send to backend for verification
-        const response = await fetch('/api/whale-club/verify-wallet', {
+      const response = await fetch('/api/whale-club/verify-wallet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            wallet: publicKey.toString(),
-            signedTransaction: serialized,
-            timestamp,
+          wallet: publicKey.toString(),
+          signedTransaction: serialized,
+          timestamp,
         }),
-        });
+      });
 
-        if (!response.ok) {
+      if (!response.ok) {
         throw new Error('Verification failed');
-        }
+      }
 
-        const data = await response.json();
-        const session = { token: data.sessionToken, expiresAt: data.expiresAt };
-        setChatSession(session);
-        return session;
+      const data = await response.json();
+      const session = { token: data.sessionToken, expiresAt: data.expiresAt };
+      setChatSession(session);
+      return session;
     } catch (error) {
-        console.error('Failed to authenticate:', error);
-        return null;
+      console.error('Failed to authenticate:', error);
+      return null;
     } finally {
-        setAuthenticating(false);
+      setAuthenticating(false);
     }
-    };
+  };
 
   // ========== CHAT FUNCTIONS ==========
   const fetchMessages = async () => {
     if (!publicKey || !chatSession) return;
     setLoadingMessages(true);
     try {
-        const params = new URLSearchParams({
+      const params = new URLSearchParams({
         wallet: publicKey.toString(),
         session: chatSession.token,
         limit: '50'
-        });
-        const response = await fetch(`/api/whale-club/chat?${params}`);
-        if (response.ok) {
+      });
+      const response = await fetch(`/api/whale-club/chat?${params}`);
+      if (response.ok) {
         const data = await response.json();
         setMessages(data.messages || []);
-        } else if (response.status === 401) {
+      } else if (response.status === 401) {
         setChatSession(null);
-        }
+      }
     } catch (error) {
-        console.error('Error fetching messages:', error);
+      console.error('Error fetching messages:', error);
     } finally {
-        setLoadingMessages(false);
+      setLoadingMessages(false);
     }
-    };
+  };
 
-    const sendMessage = async () => {
+  const sendMessage = async () => {
     if (!publicKey || !newMessage.trim() || sendingMessage || !chatSession) return;
     setSendingMessage(true);
     try {
-        const response = await fetch('/api/whale-club/chat', {
+      const response = await fetch('/api/whale-club/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            wallet: publicKey.toString(),
-            nickname: nickname || null,
-            message: newMessage.trim(),
-            sessionToken: chatSession.token,
+          wallet: publicKey.toString(),
+          nickname: nickname || null,
+          message: newMessage.trim(),
+          sessionToken: chatSession.token,
         }),
-        });
-        if (response.ok) {
+      });
+      if (response.ok) {
         setNewMessage('');
         await fetchMessages();
-        } else if (response.status === 401) {
+      } else if (response.status === 401) {
         setChatSession(null);
-        }
+      }
     } catch (error) {
-        console.error('Error sending message:', error);
+      console.error('Error sending message:', error);
     } finally {
-        setSendingMessage(false);
+      setSendingMessage(false);
     }
-    };
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -318,12 +344,12 @@ const WhaleClub: React.FC = () => {
 
   useEffect(() => {
     if (connected && publicKey) {
-      checkTokenBalance();
+      checkBalances();
       fetchUserData();
     } else {
       setIsLoading(false);
     }
-  }, [connected, publicKey, checkTokenBalance, fetchUserData]);
+  }, [connected, publicKey, checkBalances, fetchUserData]);
 
   useEffect(() => {
     fetchRewardPoolBalance();
@@ -332,9 +358,9 @@ const WhaleClub: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'chat' && isQualified && chatSession) {
-        fetchMessages();
+      fetchMessages();
     }
-    }, [activeTab, isQualified, chatSession]);
+  }, [activeTab, isQualified, chatSession]);
 
   useEffect(() => { scrollToBottom(); }, [messages]);
 
@@ -368,7 +394,7 @@ const WhaleClub: React.FC = () => {
           <h1 className="text-3xl font-bold" style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
             Whale Club
           </h1>
-          <p className="text-gray-500 text-sm">Hold 10M+ SPT to unlock exclusive rewards</p>
+          <p className="text-gray-500 text-sm">Hold 10M+ SPT (wallet or staked) to unlock exclusive rewards</p>
         </div>
 
         {/* Reward Pool */}
@@ -391,6 +417,7 @@ const WhaleClub: React.FC = () => {
             <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-3 max-w-xs mx-auto">
               <p className="text-xs text-gray-500">MINIMUM REQUIRED</p>
               <p className="text-lg font-mono" style={{ color: '#fb57ff' }}>{formatNumber(MIN_HOLDING)} SPT</p>
+              <p className="text-xs text-gray-500 mt-1">Wallet + Staked combined</p>
             </div>
             <WalletMultiButton />
           </div>
@@ -404,16 +431,28 @@ const WhaleClub: React.FC = () => {
             </div>
             <div>
               <h2 className="text-xl font-semibold mb-1">Insufficient Holdings</h2>
-              <p className="text-gray-500 text-sm">You need at least {formatNumber(MIN_HOLDING)} SPT</p>
+              <p className="text-gray-500 text-sm">You need at least {formatNumber(MIN_HOLDING)} SPT (wallet + staked)</p>
             </div>
-            <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-3 max-w-xs mx-auto">
-              <div className="flex justify-between text-sm mb-2">
+            <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4 max-w-xs mx-auto space-y-2">
+              <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Required</span>
                 <span style={{ color: '#fb57ff' }}>{formatNumber(MIN_HOLDING)} SPT</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Your Balance</span>
-                <span className="text-red-400">{formatNumber(tokenBalance)} SPT</span>
+              <div className="border-t border-white/[0.05] pt-2 space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Wallet</span>
+                  <span className="text-gray-300">{formatNumber(walletBalance)} SPT</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Staked</span>
+                  <span className="text-gray-300">{formatNumber(stakedBalance)} SPT</span>
+                </div>
+              </div>
+              <div className="border-t border-white/[0.05] pt-2">
+                <div className="flex justify-between text-sm font-semibold">
+                  <span className="text-gray-400">Total</span>
+                  <span className="text-red-400">{formatNumber(totalBalance)} SPT</span>
+                </div>
               </div>
             </div>
             <WalletMultiButton />
@@ -450,6 +489,7 @@ const WhaleClub: React.FC = () => {
                 {/* Nickname & Twitter */}
                 <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-4 md:col-span-2">
                   <div className="flex flex-col sm:flex-row gap-4">
+                    {/* Nickname */}
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
                         <Edit2 className="w-4 h-4" style={{ color: '#fb57ff' }} />
@@ -469,25 +509,38 @@ const WhaleClub: React.FC = () => {
                       )}
                       {nicknameError && <p className="text-xs text-red-400 mt-1">{nicknameError}</p>}
                     </div>
+                    
+                    {/* Twitter Username */}
                     <div className="flex-1">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <Twitter className="w-4 h-4" style={{ color: '#1da1f2' }} />
-                          <span className="font-semibold text-sm">Twitter</span>
-                        </div>
-                        {twitterConnected && (
-                          <button onClick={syncTwitterActivity} disabled={syncing} className="flex items-center gap-1 px-2 py-1 text-xs rounded-lg transition-all disabled:opacity-50" style={{ background: 'rgba(29, 161, 242, 0.15)', color: '#1da1f2' }}>
-                            <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />Sync
-                          </button>
-                        )}
+                      <div className="flex items-center gap-2 mb-2">
+                        <Twitter className="w-4 h-4" style={{ color: '#1da1f2' }} />
+                        <span className="font-semibold text-sm">Twitter</span>
                       </div>
-                      {twitterConnected && userData ? (
-                        <span className="text-gray-300">@{userData.twitterHandle}</span>
+                      {editingTwitter ? (
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 flex items-center bg-white/[0.05] border border-white/[0.1] rounded-lg overflow-hidden">
+                            <span className="pl-3 text-gray-500">@</span>
+                            <input type="text" value={twitterInput} onChange={(e) => setTwitterInput(e.target.value.replace('@', ''))} placeholder="username" maxLength={15} className="flex-1 px-2 py-2 bg-transparent text-sm focus:outline-none" />
+                          </div>
+                          <button onClick={saveTwitterUsername} disabled={twitterSaving} className="p-2 rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 disabled:opacity-50"><Check className="w-4 h-4" /></button>
+                          <button onClick={() => { setEditingTwitter(false); setTwitterError(''); }} className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30"><X className="w-4 h-4" /></button>
+                        </div>
                       ) : (
-                        <button onClick={connectTwitter} className="px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all hover:opacity-90" style={{ background: 'linear-gradient(135deg, #1da1f2, #0d8ecf)' }}>
-                          <Twitter className="w-4 h-4" />Connect
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {twitterUsername ? (
+                            <>
+                              <span className="text-gray-300">@{twitterUsername}</span>
+                              <button onClick={() => { setEditingTwitter(true); setTwitterInput(twitterUsername); }} className="text-xs px-2 py-1 rounded-lg hover:bg-white/[0.05]" style={{ color: '#1da1f2' }}>Edit</button>
+                            </>
+                          ) : (
+                            <button onClick={() => { setEditingTwitter(true); setTwitterInput(''); }} className="px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all hover:opacity-90" style={{ background: 'linear-gradient(135deg, #1da1f2, #0d8ecf)' }}>
+                              <Twitter className="w-4 h-4" />Add Username
+                            </button>
+                          )}
+                        </div>
                       )}
+                      {twitterError && <p className="text-xs text-red-400 mt-1">{twitterError}</p>}
+                      {twitterUsername && <p className="text-xs text-gray-500 mt-1">Points sync weekly when you engage with @StakePointApp</p>}
                     </div>
                   </div>
                 </div>
@@ -509,14 +562,25 @@ const WhaleClub: React.FC = () => {
                 {/* Holdings */}
                 <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-4">
                   <div className="flex items-center gap-2 mb-3"><span>💎</span><span className="font-semibold text-sm">Holdings</span></div>
-                  <p className="text-3xl font-bold font-mono text-green-400 mb-3">{formatNumber(tokenBalance)}</p>
-                  <p className="text-xs text-gray-500 mb-2">SPT Tokens</p>
+                  <p className="text-3xl font-bold font-mono text-green-400 mb-1">{formatNumber(totalBalance)}</p>
+                  <p className="text-xs text-gray-500 mb-3">SPT Tokens (Total)</p>
+                  <div className="space-y-1 mb-3">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">Wallet</span>
+                      <span className="text-gray-400">{formatNumber(walletBalance)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">Staked</span>
+                      <span className="text-gray-400">{formatNumber(stakedBalance)}</span>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e' }}><span>✓</span><span>Whale Status Active</span></div>
                 </div>
 
                 {/* Scoring */}
                 <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-4 md:col-span-2">
                   <p className="text-xs font-semibold mb-2" style={{ color: '#fb57ff' }}>HOW POINTS WORK</p>
+                  <p className="text-xs text-gray-500 mb-3">Register your Twitter username and engage with @StakePointApp tweets to earn points</p>
                   <div className="flex flex-wrap gap-4 text-sm">
                     <div className="flex items-center gap-2"><span className="text-gray-400">Like</span><span className="font-mono" style={{ color: '#fb57ff' }}>+1 pt</span></div>
                     <div className="flex items-center gap-2"><span className="text-gray-400">Retweet</span><span className="font-mono" style={{ color: '#fb57ff' }}>+3 pts</span></div>
@@ -554,7 +618,7 @@ const WhaleClub: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <MessageCircle className="w-4 h-4" style={{ color: '#fb57ff' }} />
                     <span className="font-semibold text-sm">Whale Chat</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-400">🔒 Encrypted</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-400">🔒 Verified</span>
                   </div>
                   <span className="text-xs text-gray-500">{messages.length} messages</span>
                 </div>
@@ -562,7 +626,7 @@ const WhaleClub: React.FC = () => {
                 {!chatSession ? (
                   <div className="h-[420px] flex flex-col items-center justify-center p-6 text-center">
                     <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ background: 'rgba(251, 87, 255, 0.1)' }}>🔐</div>
-                    <h3 className="font-semibold mb-2">Encrypted Chat</h3>
+                    <h3 className="font-semibold mb-2">Whale Chat Access</h3>
                     <p className="text-sm text-gray-500 mb-4">Sign a transaction to verify your wallet (no SOL sent)</p>
                     <button onClick={authenticateChat} disabled={authenticating} className="px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all disabled:opacity-50" style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}>
                       {authenticating ? (<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Verifying...</>) : (<>🔓 Unlock Chat</>)}
