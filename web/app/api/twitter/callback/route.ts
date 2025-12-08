@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://stakepoint.app';
+
+function getSupabase() {
+  const { createClient } = require('@supabase/supabase-js');
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  );
+}
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
@@ -17,12 +24,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Decode state to get wallet and code verifier
     const { wallet, codeVerifier } = JSON.parse(
       Buffer.from(state, "base64url").toString()
     );
 
-    // Exchange code for tokens
     const tokenResponse = await fetch("https://api.twitter.com/2/oauth2/token", {
       method: "POST",
       headers: {
@@ -47,7 +52,6 @@ export async function GET(request: NextRequest) {
 
     const tokens = await tokenResponse.json();
 
-    // Get user info from Twitter
     const userResponse = await fetch("https://api.twitter.com/2/users/me", {
       headers: {
         Authorization: `Bearer ${tokens.access_token}`,
@@ -59,30 +63,28 @@ export async function GET(request: NextRequest) {
     }
 
     const userData = await userResponse.json();
-
-    // Calculate token expiry
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
 
-    // Upsert user in database
-    await prisma.whaleClubUser.upsert({
-      where: { walletAddress: wallet },
-      update: {
-        twitterId: userData.data.id,
-        twitterUsername: userData.data.username,
-        twitterAccessToken: tokens.access_token,
-        twitterRefreshToken: tokens.refresh_token,
-        twitterTokenExpiry: expiresAt,
-        updatedAt: new Date(),
-      },
-      create: {
-        walletAddress: wallet,
-        twitterId: userData.data.id,
-        twitterUsername: userData.data.username,
-        twitterAccessToken: tokens.access_token,
-        twitterRefreshToken: tokens.refresh_token,
-        twitterTokenExpiry: expiresAt,
-      },
-    });
+    const supabase = getSupabase();
+    
+    const { error: upsertError } = await supabase
+      .from('whale_club_users')
+      .upsert({
+        wallet_address: wallet,
+        twitter_id: userData.data.id,
+        twitter_username: userData.data.username,
+        twitter_access_token: tokens.access_token,
+        twitter_refresh_token: tokens.refresh_token,
+        twitter_token_expiry: expiresAt.toISOString(),
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'wallet_address',
+      });
+
+    if (upsertError) {
+      console.error("Database error:", upsertError);
+      return NextResponse.redirect(`${APP_URL}/whale-club?error=database_error`);
+    }
 
     return NextResponse.redirect(`${APP_URL}/whale-club?success=true`);
   } catch (error) {
