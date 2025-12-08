@@ -33,10 +33,12 @@ export default function WhaleClubAdmin() {
   const [isLoading, setIsLoading] = useState(false);
   const [rewardPoolBalance, setRewardPoolBalance] = useState<number>(0);
   const [snapshot, setSnapshot] = useState<{
-    totalPoints: number;
-    userCount: number;
-    distribution: DistributionEntry[];
-  } | null>(null);
+  totalPoints: number;
+  userCount: number;
+  distribution: DistributionEntry[];
+  excluded?: any[];
+  excludedCount?: number;
+} | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   
   // Twitter Sync
@@ -404,7 +406,24 @@ export default function WhaleClubAdmin() {
                       ))}
                     </tbody>
                   </table>
+                </div>]
+
+                {/* Excluded Users */}
+                {snapshot.excluded && snapshot.excluded.length > 0 && (
+                <div className="mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                    <p className="font-semibold text-red-400 mb-2">
+                    ⚠️ {snapshot.excludedCount} Users Excluded (No Longer Hold 10M+ SPT)
+                    </p>
+                    <div className="space-y-2">
+                    {snapshot.excluded.map((user: any) => (
+                        <div key={user.walletAddress} className="flex justify-between items-center text-sm bg-black/30 rounded px-3 py-2">
+                        <span>@{user.twitterUsername}</span>
+                        <span className="text-red-400">{user.reason}</span>
+                        </div>
+                    ))}
+                    </div>
                 </div>
+                )}
 
                 {/* Total Check */}
                 <div className="mt-4 p-3 bg-green-500/10 border border-green-500/20 rounded-lg flex justify-between items-center">
