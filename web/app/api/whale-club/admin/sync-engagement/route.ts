@@ -28,6 +28,45 @@ async function supabaseUpdate(table: string, query: string, data: any) {
   });
 }
 
+async function refreshTwitterToken(refreshToken: string): Promise<string | null> {
+  try {
+    const clientId = process.env.TWITTER_CLIENT_ID;
+    const clientSecret = process.env.TWITTER_CLIENT_SECRET;
+    
+    const response = await fetch('https://api.twitter.com/2/oauth2/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: clientId!,
+      }),
+    });
+
+    const data = await response.json();
+    console.log('Token refresh response:', response.status);
+
+    if (data.access_token) {
+      // Update token in database
+      await supabaseUpdate('whale_club_users', `twitter_username=eq.stakepointapp`, {
+        twitter_access_token: data.access_token,
+        twitter_refresh_token: data.refresh_token || refreshToken,
+        twitter_token_expiry: new Date(Date.now() + data.expires_in * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+      return data.access_token;
+    }
+    
+    console.error('Token refresh failed:', data);
+    return null;
+  } catch (e) {
+    console.error('Error refreshing token:', e);
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { wallet, tweetIds } = await request.json();
@@ -48,10 +87,27 @@ export async function POST(request: NextRequest) {
     // Get StakePoint OAuth token for likes endpoint
     const stakePointUser = await supabaseGet(
       'whale_club_users',
-      `twitter_username=eq.stakepointapp&select=twitter_access_token`
+      `twitter_username=eq.stakepointapp&select=twitter_access_token,twitter_refresh_token,twitter_token_expiry`
     );
-    const userAccessToken = stakePointUser?.[0]?.twitter_access_token;
+    
+    let userAccessToken = stakePointUser?.[0]?.twitter_access_token;
+    const refreshToken = stakePointUser?.[0]?.twitter_refresh_token;
+    const tokenExpiry = stakePointUser?.[0]?.twitter_token_expiry;
+    
     console.log('StakePoint OAuth token found:', !!userAccessToken);
+    console.log('Token expiry:', tokenExpiry);
+
+    // Check if token is expired or about to expire (within 5 minutes)
+    if (tokenExpiry && new Date(tokenExpiry) < new Date(Date.now() + 5 * 60 * 1000)) {
+      console.log('Token expired or expiring soon, refreshing...');
+      if (refreshToken) {
+        const newToken = await refreshTwitterToken(refreshToken);
+        if (newToken) {
+          userAccessToken = newToken;
+          console.log('Token refreshed successfully');
+        }
+      }
+    }
 
     const users = await supabaseGet('whale_club_users', 'twitter_username=not.is.null&select=wallet_address,twitter_username');
     
@@ -75,10 +131,23 @@ export async function POST(request: NextRequest) {
       // Get likes using User OAuth token
       if (userAccessToken) {
         try {
-          const likesResponse = await fetch(
+          let likesResponse = await fetch(
             `https://api.twitter.com/2/tweets/${tweetId}/liking_users?user.fields=username`,
             { headers: { Authorization: `Bearer ${userAccessToken}` } }
           );
+
+          // If 401, try refreshing token
+          if (likesResponse.status === 401 && refreshToken) {
+            console.log('Got 401, attempting token refresh...');
+            const newToken = await refreshTwitterToken(refreshToken);
+            if (newToken) {
+              userAccessToken = newToken;
+              likesResponse = await fetch(
+                `https://api.twitter.com/2/tweets/${tweetId}/liking_users?user.fields=username`,
+                { headers: { Authorization: `Bearer ${userAccessToken}` } }
+              );
+            }
+          }
 
           const likesText = await likesResponse.text();
           console.log(`Likes response status: ${likesResponse.status}`);
