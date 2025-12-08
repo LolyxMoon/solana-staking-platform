@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('whale_club_messages')
-      .select('id, wallet_address, nickname, message, created_at')
+      .select('id, wallet_address, nickname, message, created_at, reply_to_id, reply_to_preview')
       .order('created_at', { ascending: false })
       .limit(limit);
 
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { wallet, nickname, message, sessionToken } = await request.json();
+    const { wallet, nickname, message, sessionToken, replyToId } = await request.json();
 
     if (!wallet || !message?.trim() || !sessionToken) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -69,12 +69,28 @@ export async function POST(request: NextRequest) {
     const cleanMessage = message.trim().slice(0, 500);
     const supabase = getSupabase();
 
+    // Get reply preview if replying
+    let replyPreview = null;
+    if (replyToId) {
+      const { data: replyMsg } = await supabase
+        .from('whale_club_messages')
+        .select('nickname, message')
+        .eq('id', replyToId)
+        .single();
+      
+      if (replyMsg) {
+        replyPreview = `${replyMsg.nickname || 'Anon'}: ${replyMsg.message.slice(0, 50)}${replyMsg.message.length > 50 ? '...' : ''}`;
+      }
+    }
+
     const { data, error } = await supabase
       .from('whale_club_messages')
       .insert({
         wallet_address: wallet,
         nickname: nickname,
-        message: cleanMessage
+        message: cleanMessage,
+        reply_to_id: replyToId || null,
+        reply_to_preview: replyPreview,
       })
       .select()
       .single();

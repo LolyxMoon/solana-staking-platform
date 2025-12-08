@@ -4,7 +4,7 @@ import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
-import { Trophy, Twitter, Wallet, Star, MessageCircle, Send, Edit2, Check, X, Lock } from 'lucide-react';
+import { Trophy, Twitter, Wallet, Star, MessageCircle, Send, Edit2, Check, X, Lock, Reply, CornerDownRight } from 'lucide-react';
 
 const SPT_MINT = new PublicKey('6uUU2z5GBasaxnkcqiQVHa2SXL68mAXDsq1zYN5Qxrm7');
 const MIN_HOLDING = 10_000_000;
@@ -37,6 +37,8 @@ interface ChatMessage {
   nickname: string | null;
   message: string;
   created_at: string;
+  reply_to_id: string | null;
+  reply_to_preview: string | null;
 }
 
 type TabType = 'dashboard' | 'chat';
@@ -75,6 +77,10 @@ const WhaleClub: React.FC = () => {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  
+  // Reply
+  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   
   // Chat Auth
   const [chatSession, setChatSession] = useState<{ token: string; expiresAt: string } | null>(null);
@@ -323,10 +329,12 @@ const WhaleClub: React.FC = () => {
           nickname: nickname || null,
           message: newMessage.trim(),
           sessionToken: chatSession.token,
+          replyToId: replyingTo?.id || null,
         }),
       });
       if (response.ok) {
         setNewMessage('');
+        setReplyingTo(null);
         await fetchMessages();
       } else if (response.status === 401) {
         setChatSession(null);
@@ -336,6 +344,15 @@ const WhaleClub: React.FC = () => {
     } finally {
       setSendingMessage(false);
     }
+  };
+
+  const handleReply = (msg: ChatMessage) => {
+    setReplyingTo(msg);
+    inputRef.current?.focus();
+  };
+
+  const cancelReply = () => {
+    setReplyingTo(null);
   };
 
   const scrollToBottom = () => {
@@ -644,12 +661,34 @@ const WhaleClub: React.FC = () => {
                           const isOwn = msg.wallet_address === publicKey?.toString();
                           return (
                             <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
-                              <div className="max-w-[75%]">
+                              <div className="max-w-[75%] group">
                                 <div className="flex items-center gap-2 mb-1">
                                   <span className="text-xs font-medium" style={{ color: isOwn ? '#fb57ff' : '#9ca3af' }}>{getDisplayName(msg.wallet_address, msg.nickname)}</span>
                                   <span className="text-[10px] text-gray-600">{formatTime(msg.created_at)}</span>
+                                  {!isOwn && (
+                                    <button 
+                                      onClick={() => handleReply(msg)} 
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-white/[0.1]"
+                                      title="Reply"
+                                    >
+                                      <Reply className="w-3 h-3 text-gray-500" />
+                                    </button>
+                                  )}
                                 </div>
-                                <div className={`px-3 py-2 rounded-xl text-sm ${isOwn ? 'rounded-br-sm' : 'bg-white/[0.05] rounded-bl-sm'}`} style={isOwn ? { background: 'linear-gradient(45deg, #1a1a2e, #fb57ff33)' } : {}}>{msg.message}</div>
+                                {/* Reply Preview */}
+                                {msg.reply_to_preview && (
+                                  <div className="flex items-center gap-1 mb-1 text-[10px] text-gray-500 bg-white/[0.03] rounded px-2 py-1">
+                                    <CornerDownRight className="w-3 h-3" />
+                                    <span className="truncate">{msg.reply_to_preview}</span>
+                                  </div>
+                                )}
+                                <div 
+                                  className={`px-3 py-2 rounded-xl text-sm cursor-pointer hover:brightness-110 transition-all ${isOwn ? 'rounded-br-sm' : 'bg-white/[0.05] rounded-bl-sm'}`} 
+                                  style={isOwn ? { background: 'linear-gradient(45deg, #1a1a2e, #fb57ff33)' } : {}}
+                                  onClick={() => !isOwn && handleReply(msg)}
+                                >
+                                  {msg.message}
+                                </div>
                               </div>
                             </div>
                           );
@@ -657,9 +696,35 @@ const WhaleClub: React.FC = () => {
                       )}
                       <div ref={messagesEndRef} />
                     </div>
+                    
+                    {/* Input Area */}
                     <div className="px-4 py-3 border-t border-white/[0.05]">
+                      {/* Reply Banner */}
+                      {replyingTo && (
+                        <div className="flex items-center justify-between mb-2 px-3 py-2 bg-white/[0.05] rounded-lg text-xs">
+                          <div className="flex items-center gap-2 text-gray-400 truncate">
+                            <Reply className="w-3 h-3" style={{ color: '#fb57ff' }} />
+                            <span>Replying to</span>
+                            <span className="font-medium text-gray-300">{getDisplayName(replyingTo.wallet_address, replyingTo.nickname)}</span>
+                            <span className="text-gray-500 truncate">"{replyingTo.message.slice(0, 30)}{replyingTo.message.length > 30 ? '...' : ''}"</span>
+                          </div>
+                          <button onClick={cancelReply} className="p-1 hover:bg-white/[0.1] rounded">
+                            <X className="w-3 h-3 text-gray-500" />
+                          </button>
+                        </div>
+                      )}
                       <div className="flex items-center gap-2">
-                        <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()} placeholder="Type a message..." maxLength={500} className="flex-1 px-4 py-2 bg-white/[0.05] border border-white/[0.05] rounded-xl text-sm focus:outline-none" style={{ borderColor: 'rgba(251, 87, 255, 0.2)' }} />
+                        <input 
+                          ref={inputRef}
+                          type="text" 
+                          value={newMessage} 
+                          onChange={(e) => setNewMessage(e.target.value)} 
+                          onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()} 
+                          placeholder={replyingTo ? "Type your reply..." : "Type a message..."} 
+                          maxLength={500} 
+                          className="flex-1 px-4 py-2 bg-white/[0.05] border border-white/[0.05] rounded-xl text-sm focus:outline-none" 
+                          style={{ borderColor: replyingTo ? 'rgba(251, 87, 255, 0.4)' : 'rgba(251, 87, 255, 0.2)' }} 
+                        />
                         <button onClick={sendMessage} disabled={!newMessage.trim() || sendingMessage} className="p-2 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed" style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}><Send className="w-5 h-5" /></button>
                       </div>
                     </div>
