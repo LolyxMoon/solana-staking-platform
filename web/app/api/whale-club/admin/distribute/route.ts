@@ -34,6 +34,18 @@ async function supabaseUpdate(table: string, query: string, data: any) {
   });
 }
 
+async function supabaseDelete(table: string, query: string) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  await fetch(`${url}/rest/v1/${table}?${query}`, {
+    method: 'DELETE',
+    headers: {
+      'apikey': key!,
+      'Authorization': `Bearer ${key}`,
+    },
+  });
+}
+
 async function getWalletBalance(connection: Connection, wallet: string): Promise<number> {
   try {
     const walletPubkey = new PublicKey(wallet);
@@ -105,7 +117,12 @@ export async function POST(request: NextRequest) {
       );
 
       const eligibleUsers = usersWithBalances.filter((u: any) => u.isEligible && u.total_points > 0);
-      const ineligibleUsers = usersWithBalances.filter((u: any) => !u.isEligible && u.total_points > 0);
+      const ineligibleUsers = usersWithBalances.filter((u: any) => !u.isEligible);
+
+      // Delete ineligible users from database
+      for (const user of ineligibleUsers) {
+        await supabaseDelete('whale_club_users', `wallet_address=eq.${user.wallet_address}`);
+      }
 
       const totalPoints = eligibleUsers.reduce((sum: number, u: any) => sum + (u.total_points || 0), 0);
 
@@ -123,20 +140,19 @@ export async function POST(request: NextRequest) {
         totalBalance: Math.floor(u.totalBalance),
       }));
 
-      const excluded = ineligibleUsers.map((u: any) => ({
+      const removed = ineligibleUsers.map((u: any) => ({
         walletAddress: u.wallet_address,
         twitterUsername: u.twitter_username,
         totalPoints: u.total_points || 0,
         totalBalance: Math.floor(u.totalBalance),
-        reason: `Only holds ${Math.floor(u.totalBalance).toLocaleString()} SPT`,
       }));
 
       return NextResponse.json({
         totalPoints,
         userCount: distribution.length,
         distribution,
-        excluded,
-        excludedCount: excluded.length,
+        removed,
+        removedCount: removed.length,
       });
     }
 

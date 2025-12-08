@@ -36,8 +36,8 @@ export default function WhaleClubAdmin() {
   totalPoints: number;
   userCount: number;
   distribution: DistributionEntry[];
-  excluded?: any[];
-  excludedCount?: number;
+  removed?: any[];
+  removedCount?: number;
 } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   
@@ -408,17 +408,19 @@ export default function WhaleClubAdmin() {
                   </table>
                 </div>]
 
-                {/* Excluded Users */}
-                {snapshot.excluded && snapshot.excluded.length > 0 && (
+                {/* Removed Users */}
+                {snapshot.removed && snapshot.removed.length > 0 && (
                 <div className="mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
                     <p className="font-semibold text-red-400 mb-2">
-                    ⚠️ {snapshot.excludedCount} Users Excluded (No Longer Hold 10M+ SPT)
+                    🗑️ {snapshot.removedCount} Users Removed (Sold Below 10M SPT)
                     </p>
                     <div className="space-y-2">
-                    {snapshot.excluded.map((user: any) => (
+                    {snapshot.removed.map((user: any) => (
                         <div key={user.walletAddress} className="flex justify-between items-center text-sm bg-black/30 rounded px-3 py-2">
-                        <span>@{user.twitterUsername}</span>
-                        <span className="text-red-400">{user.reason}</span>
+                        <span>@{user.twitterUsername || 'Anonymous'}</span>
+                        <span className="text-red-400">
+                            Had {user.totalPoints} pts, holds {user.totalBalance.toLocaleString()} SPT
+                        </span>
                         </div>
                     ))}
                     </div>
