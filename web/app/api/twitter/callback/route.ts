@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://stakepoint.app';
+
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
   const error = request.nextUrl.searchParams.get("error");
 
   if (error) {
-    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/whale-club?error=${error}`);
+    return NextResponse.redirect(`${APP_URL}/whale-club?error=${error}`);
   }
 
   if (!code || !state) {
-    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/whale-club?error=missing_params`);
+    return NextResponse.redirect(`${APP_URL}/whale-club?error=missing_params`);
   }
 
   try {
@@ -32,7 +34,7 @@ export async function GET(request: NextRequest) {
       body: new URLSearchParams({
         code,
         grant_type: "authorization_code",
-        redirect_uri: process.env.TWITTER_REDIRECT_URI!,
+        redirect_uri: process.env.TWITTER_REDIRECT_URI || `${APP_URL}/api/twitter/callback`,
         code_verifier: codeVerifier,
       }),
     });
@@ -40,7 +42,7 @@ export async function GET(request: NextRequest) {
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.text();
       console.error("Token exchange failed:", errorData);
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/whale-club?error=token_exchange_failed`);
+      return NextResponse.redirect(`${APP_URL}/whale-club?error=token_exchange_failed`);
     }
 
     const tokens = await tokenResponse.json();
@@ -53,7 +55,7 @@ export async function GET(request: NextRequest) {
     });
 
     if (!userResponse.ok) {
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/whale-club?error=user_fetch_failed`);
+      return NextResponse.redirect(`${APP_URL}/whale-club?error=user_fetch_failed`);
     }
 
     const userData = await userResponse.json();
@@ -82,9 +84,16 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/whale-club?success=true`);
+    return NextResponse.redirect(`${APP_URL}/whale-club?success=true`);
   } catch (error) {
     console.error("Callback error:", error);
-    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/whale-club?error=callback_failed`);
+    return NextResponse.redirect(`${APP_URL}/whale-club?error=callback_failed`);
   }
 }
+```
+
+---
+
+Also check that `TWITTER_REDIRECT_URI` in Vercel matches exactly:
+```
+https://stakepoint.app/api/twitter/callback
