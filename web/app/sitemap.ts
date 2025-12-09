@@ -24,6 +24,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 1.0,
     },
     {
+      url: `${baseUrl}/lp-pools`,
+      lastModified: currentDate,
+      changeFrequency: 'hourly',
+      priority: 0.9,
+    },
+    {
       url: `${baseUrl}/locks`,
       lastModified: currentDate,
       changeFrequency: 'daily',
@@ -33,6 +39,24 @@ export default function sitemap(): MetadataRoute.Sitemap {
       url: `${baseUrl}/swap`,
       lastModified: currentDate,
       changeFrequency: 'daily',
+      priority: 0.8,
+    },
+    {
+      url: `${baseUrl}/whale-club`,
+      lastModified: currentDate,
+      changeFrequency: 'weekly',
+      priority: 0.7,
+    },
+    {
+      url: `${baseUrl}/roadmap`,
+      lastModified: currentDate,
+      changeFrequency: 'monthly',
+      priority: 0.7,
+    },
+    {
+      url: `${baseUrl}/whitepaper`,
+      lastModified: currentDate,
+      changeFrequency: 'monthly',
       priority: 0.8,
     },
     {
@@ -55,4 +79,3 @@ export default function sitemap(): MetadataRoute.Sitemap {
     },
   ];
 }
-
