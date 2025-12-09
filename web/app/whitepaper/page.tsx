@@ -171,11 +171,11 @@ export default function WhitepaperPage() {
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
                   {[
-                    { label: "Built On", value: "Solana", icon: Globe },
-                    { label: "Launch", value: "2024", icon: Rocket },
+                     { label: "Built On", value: "Solana", icon: Globe },
+                    { label: "Launch", value: "Dec 2025", icon: Rocket },
                     { label: "Products", value: "6+", icon: Layers },
                     { label: "Focus", value: "DeFi", icon: TrendingUp },
-                  ].map((stat, idx) => (
+                    ].map((stat, idx) => (
                     <div
                       key={idx}
                       className="p-4 bg-white/[0.02] border border-white/[0.05] rounded-lg text-center"
@@ -628,16 +628,13 @@ export default function WhitepaperPage() {
                 <div
                   className="p-6 bg-white/[0.02] border border-white/[0.05] rounded-xl mt-6"
                 >
-                  <p className="text-center text-gray-500 mb-6">
-                    Token details to be announced. Join our community for updates.
-                  </p>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {[
-                      { label: "Token Name", value: "TBA" },
-                      { label: "Total Supply", value: "TBA" },
-                      { label: "Network", value: "Solana" },
-                      { label: "Type", value: "SPL Token" },
+                        { label: "Token Name", value: "StakePoint" },
+                        { label: "Total Supply", value: "1.33B" },
+                        { label: "Network", value: "Solana" },
+                        { label: "Type", value: "Token2022" },
                     ].map((item, idx) => (
                       <div key={idx} className="text-center">
                         <p className="text-lg font-bold text-white">{item.value}</p>
