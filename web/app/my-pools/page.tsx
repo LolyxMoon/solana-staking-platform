@@ -21,6 +21,7 @@ import {
   EyeOff
 } from 'lucide-react';
 import { useAdminProgram } from '@/hooks/useAdminProgram';
+import { useStakingProgram } from '@/hooks/useStakingProgram';
 import { useToast } from '@/components/ToastContainer';
 import { useSound } from '@/hooks/useSound';
 
@@ -63,6 +64,8 @@ export default function MyPoolsPage() {
     getVaultInfo,
   } = useAdminProgram();
 
+  const { getPoolRate } = useStakingProgram();
+
   const [myPools, setMyPools] = useState<Pool[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedPoolId, setExpandedPoolId] = useState<string | null>(null);
@@ -103,14 +106,27 @@ export default function MyPoolsPage() {
         try {
           const projectInfo = await getProjectInfo(tokenMint, pool.poolId ?? 0);
           const onChainAdmin = projectInfo.admin?.toString();
-          
+
           // Check if connected wallet is the admin
           if (onChainAdmin === publicKey.toString()) {
-            poolsWithAdmin.push({
-              ...pool,
-              onChainAdmin,
-              totalStaked: projectInfo.totalStaked?.toString() || '0',
-            });
+        // Get rate like PoolCard does
+        let onChainApy = pool.apy || 0;
+        try {
+          const rateResult = await getPoolRate(tokenMint, pool.poolId ?? 0);
+          if (rateResult?.rate !== undefined) {
+            onChainApy = rateResult.rate;
+          }
+        } catch (e) {
+          // Use database fallback
+        }
+
+        poolsWithAdmin.push({
+          ...pool,
+          onChainAdmin,
+          totalStaked: projectInfo.totalStaked?.toString() || '0',
+          apy: onChainApy,
+        });
+      }
           }
         } catch (err) {
           // Pool might not be initialized yet, skip
