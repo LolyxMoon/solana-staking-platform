@@ -1127,7 +1127,7 @@ export default function PoolCard(props: PoolCardProps) {
           <div className="bg-white/[0.02] p-2 rounded-lg border border-white/[0.05]">
             <p className="text-gray-500 text-[9px] sm:text-[10px] md:text-xs mb-0.5 leading-tight">Your Stake</p>
             <p className="text-white font-semibold text-[11px] sm:text-xs md:text-sm leading-tight truncate">
-              {connected ? `${displayStakedAmount.toFixed(2)} ${symbol}` : "-"}
+              {connected ? `${displayStakedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${symbol}` : "-"}
             </p>
           </div>
           
