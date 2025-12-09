@@ -498,3 +498,4 @@ Let's see who's leading the pack! 🚀
       console.error('❌ Failed to send lock alert:', error);
     }
   }
+}
