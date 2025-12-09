@@ -44,7 +44,7 @@ interface ChatMessage {
 type TabType = 'dashboard' | 'chat';
 
 const WhaleClub: React.FC = () => {
-  const { publicKey, connected, signTransaction, signMessage } = useWallet();
+  const { publicKey, connected, sendTransaction } = useWallet();
   const { connection } = useConnection();
   
   const [walletBalance, setWalletBalance] = useState<number>(0);
@@ -247,7 +247,7 @@ const WhaleClub: React.FC = () => {
 
     // ========== CHAT AUTH ==========
     const authenticateChat = async () => {
-        if (!publicKey || !connection || !signTransaction) return null;
+        if (!publicKey || !connection || !sendTransaction) return null;
         setAuthenticating(true);
         
         try {
@@ -263,7 +263,7 @@ const WhaleClub: React.FC = () => {
             ComputeBudgetProgram.setComputeUnitLimit({ units: 5000 }),
             ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }),
             {
-            keys: [],
+            keys: [{ pubkey: publicKey, isSigner: true, isWritable: false }],
             programId: MEMO_PROGRAM_ID,
             data: Buffer.from(authMessage, 'utf-8'),
             },
@@ -276,10 +276,9 @@ const WhaleClub: React.FC = () => {
         }).compileToV0Message();
         
         const transaction = new VersionedTransaction(messageV0);
-        const signedTransaction = await signTransaction(transaction);
         
-        // Actually send the transaction
-        const txSignature = await connection.sendRawTransaction(signedTransaction.serialize(), {
+        // Use sendTransaction (signAndSend) - the safe method Phantom recommends
+        const txSignature = await sendTransaction(transaction, connection, {
             skipPreflight: false,
             preflightCommitment: 'confirmed',
         });
