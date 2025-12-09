@@ -127,7 +127,7 @@ export default function PopUpAd() {
 
           {popUpData.contract_address && (
             <div className="mb-6">
-              <p className="text-xs text-gray-500 mb-2">Contract Address</p>
+              <p className="text-xs text-gray-500 mb-2">StakePoint Contract Address</p>
               <div className="flex items-center gap-2 bg-white/[0.03] border border-white/[0.08] rounded-lg p-3">
                 <span className="font-mono text-xs text-gray-300 flex-1 hidden md:block">
                   {popUpData.contract_address}
