@@ -157,39 +157,35 @@ export default function CreatePoolModal({ onClose, onSuccess }: CreatePoolModalP
             processed++;
             setStatusMessage(`Fetching metadata... (${processed}/${allAccounts.length})`);
             
-            // Fetch token info from BirdEye, fallback to DexScreener
+            // Fetch token info from DexScreener
             try {
-              const response = await fetch(`/api/birdeye/token-info?address=${mint}`);
-              const result = await response.json();
+              const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
               
-              // Use fallback if API returns error
-              let tokenInfo = result.fallback || result;
+              let tokenInfo: any = {
+                symbol: mint.slice(0, 4) + '...' + mint.slice(-4),
+                name: 'Unknown',
+                logoURI: null,
+                price: null,
+                liquidity: null,
+                marketCap: null,
+              };
               
-              // If BirdEye returned unknown, try DexScreener
-              if (!tokenInfo.symbol || tokenInfo.symbol === "UNKNOWN" || tokenInfo.name === "Unknown") {
-                console.log(`⚠️ BirdEye returned unknown for ${mint}, trying DexScreener...`);
-                try {
-                  const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
-                  if (dexRes.ok) {
-                    const dexData = await dexRes.json();
-                    const bestPair = dexData.pairs?.sort((a: any, b: any) => 
-                      (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
-                    )[0];
-                    
-                    if (bestPair?.baseToken) {
-                      tokenInfo = {
-                        symbol: bestPair.baseToken.symbol || tokenInfo.symbol,
-                        name: bestPair.baseToken.name || tokenInfo.name,
-                        logoURI: bestPair.info?.imageUrl || tokenInfo.logoURI,
-                        price: parseFloat(bestPair.priceUsd) || tokenInfo.price,
-                        liquidity: bestPair.liquidity?.usd || tokenInfo.liquidity,
-                        marketCap: bestPair.marketCap || tokenInfo.marketCap,
-                      };
-                      console.log(`✅ DexScreener found:`, tokenInfo.symbol);
-                    }
-                  }
-                } catch (dexErr) {
-                  console.log(`⚠️ DexScreener also failed for ${mint}`);
+              if (dexRes.ok) {
+                const dexData = await dexRes.json();
+                const bestPair = dexData.pairs?.sort((a: any, b: any) => 
+                  (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
+                )[0];
+                
+                if (bestPair?.baseToken) {
+                  tokenInfo = {
+                    symbol: bestPair.baseToken.symbol,
+                    name: bestPair.baseToken.name,
+                    logoURI: bestPair.info?.imageUrl || null,
+                    price: parseFloat(bestPair.priceUsd) || null,
+                    liquidity: bestPair.liquidity?.usd || null,
+                    marketCap: bestPair.marketCap || null,
+                  };
+                  console.log(`✅ DexScreener found:`, tokenInfo.symbol);
                 }
               }
               
@@ -197,7 +193,7 @@ export default function CreatePoolModal({ onClose, onSuccess }: CreatePoolModalP
                 mint,
                 balance,
                 decimals: tokenAmount.decimals,
-                symbol: tokenInfo.symbol || "UNKNOWN",
+                symbol: tokenInfo.symbol || mint.slice(0, 4) + '...' + mint.slice(-4),
                 name: tokenInfo.name || "Unknown",
                 logoURI: tokenInfo.logoURI,
                 programId: account.programIdKey,
@@ -206,7 +202,7 @@ export default function CreatePoolModal({ onClose, onSuccess }: CreatePoolModalP
                 marketCap: tokenInfo.marketCap,
               });
               
-              console.log(`✅ Added token:`, tokenInfo.symbol || "UNKNOWN");
+              console.log(`✅ Added token:`, tokenInfo.symbol);
             } catch (err) {
               console.error(`❌ Failed to fetch info for ${mint}:`, err);
               // Still add token but without metadata
@@ -215,7 +211,7 @@ export default function CreatePoolModal({ onClose, onSuccess }: CreatePoolModalP
                 balance,
                 decimals: tokenAmount.decimals,
                 programId: account.programIdKey,
-                symbol: "UNKNOWN",
+                symbol: mint.slice(0, 4) + '...' + mint.slice(-4),
                 name: "Unknown",
               });
             }
