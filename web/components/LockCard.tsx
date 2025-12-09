@@ -68,20 +68,26 @@ export default function LockCard({ lock }: LockCardProps) {
         {/* Header with logo and status */}
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
-            {lock.logo ? (
-              <img
-                src={lock.logo}
-                alt={lock.symbol}
-                className="w-12 h-12 rounded-full"
-                onError={(e) => {
-                  e.currentTarget.style.display = "none";
-                }}
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#fb57ff] to-purple-600 flex items-center justify-center">
-                <Lock className="w-6 h-6 text-white" />
+            <div className="relative">
+              {lock.logo ? (
+                <img
+                  src={lock.logo}
+                  alt={lock.symbol}
+                  className="w-12 h-12 rounded-full"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                    (e.currentTarget.nextElementSibling as HTMLElement)?.classList.remove("hidden");
+                  }}
+                />
+              ) : null}
+              <div className={`w-12 h-12 rounded-full bg-gradient-to-br from-[#fb57ff] to-purple-600 flex items-center justify-center ${lock.logo ? "hidden" : ""}`}>
+                {lock.symbol?.includes("LP") || lock.name?.toLowerCase().includes("lp") ? (
+                  <span className="text-white font-bold text-sm">LP</span>
+                ) : (
+                  <Lock className="w-6 h-6 text-white" />
+                )}
               </div>
-            )}
+            </div>
             <div>
               <h3 className="text-lg font-semibold text-white group-hover:text-[#fb57ff] transition-colors">
                 {lock.name}
