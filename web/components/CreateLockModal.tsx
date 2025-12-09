@@ -128,9 +128,7 @@ export default function CreateLockModal({
 
       for (const account of allAccounts) {
         try {
-          // Check if account has the expected structure
           if (!account?.account?.data?.parsed?.info) {
-            console.warn("Skipping account with unexpected structure:", account);
             continue;
           }
 
@@ -138,42 +136,63 @@ export default function CreateLockModal({
           const mint = account.account.data.parsed.info.mint;
           const balance = tokenAmount?.uiAmount || 0;
 
-          if (balance >= 0) {
+          if (balance > 0) {
             processed++;
-            setStatusMessage(`Fetching metadata... (${processed}/${allAccounts.length})`);
-            
-            // Fetch token info from BirdEye
+            setStatusMessage(`Fetching metadata... (${processed}/${allAccounts.filter(a => (a.account.data.parsed.info.tokenAmount?.uiAmount || 0) > 0).length})`);
+
+            // Use DexScreener API
             try {
-              const response = await fetch(`/api/birdeye/token-info?address=${mint}`);
-              const result = await response.json();
-              
-              // Use fallback if API returns error
-              const tokenInfo = result.fallback || result;
-              
-              tokens.push({
-                mint,
-                balance,
-                decimals: tokenAmount.decimals,
-                symbol: tokenInfo.symbol || "UNKNOWN",
-                name: tokenInfo.name || "Unknown",
-                logoURI: tokenInfo.logoURI,
-                programId: account.programIdKey,
-                price: tokenInfo.price,
-                liquidity: tokenInfo.liquidity,
-                marketCap: tokenInfo.marketCap,
-              });
-              
-              console.log(`✅ Added token:`, tokenInfo.symbol || "UNKNOWN", `(${account.programId})`);
+              const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+              const data = await response.json();
+
+              if (data.pairs && data.pairs.length > 0) {
+                // Find the Solana pair with highest liquidity
+                const solanaPairs = data.pairs.filter((p: any) => p.chainId === "solana");
+                const bestPair = solanaPairs.sort((a: any, b: any) => 
+                  (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
+                )[0] || data.pairs[0];
+
+                // Get token info from the pair
+                const tokenInfo = bestPair.baseToken.address.toLowerCase() === mint.toLowerCase() 
+                  ? bestPair.baseToken 
+                  : bestPair.quoteToken;
+
+                tokens.push({
+                  mint,
+                  balance,
+                  decimals: tokenAmount.decimals,
+                  symbol: tokenInfo.symbol || "UNKNOWN",
+                  name: tokenInfo.name || "Unknown Token",
+                  logoURI: bestPair.info?.imageUrl || undefined,
+                  programId: account.programIdKey,
+                  price: parseFloat(bestPair.priceUsd) || undefined,
+                  liquidity: bestPair.liquidity?.usd || undefined,
+                  marketCap: bestPair.marketCap || undefined,
+                });
+                console.log(`✅ DexScreener: ${tokenInfo.symbol}`);
+              } else {
+                // No pairs found - token might be new or have no liquidity
+                tokens.push({
+                  mint,
+                  balance,
+                  decimals: tokenAmount.decimals,
+                  symbol: `${mint.slice(0, 4)}...${mint.slice(-4)}`,
+                  name: "Unknown Token",
+                  logoURI: undefined,
+                  programId: account.programIdKey,
+                });
+                console.log(`⚠️ No DexScreener data for: ${mint}`);
+              }
             } catch (err) {
-              console.error(`❌ Failed to fetch info for ${mint}:`, err);
-              // Still add token but without metadata
+              console.error(`❌ DexScreener error for ${mint}:`, err);
               tokens.push({
                 mint,
                 balance,
                 decimals: tokenAmount.decimals,
+                symbol: `${mint.slice(0, 4)}...${mint.slice(-4)}`,
+                name: "Unknown Token",
+                logoURI: undefined,
                 programId: account.programIdKey,
-                symbol: "UNKNOWN",
-                name: "Unknown",
               });
             }
           }
@@ -184,16 +203,12 @@ export default function CreateLockModal({
 
       console.log("🎉 Total tokens loaded:", tokens.length);
 
-      // Sort by balance first, then liquidity/market cap
+      // Sort by balance value (price * balance), then by balance
       tokens.sort((a, b) => {
-        // First sort by balance (tokens with balance on top)
-        if (a.balance > 0 && b.balance === 0) return -1;
-        if (a.balance === 0 && b.balance > 0) return 1;
-        
-        // Then by liquidity/market cap
-        const aValue = a.liquidity || a.marketCap || 0;
-        const bValue = b.liquidity || b.marketCap || 0;
-        return bValue - aValue;
+        const aValue = (a.price || 0) * a.balance;
+        const bValue = (b.price || 0) * b.balance;
+        if (bValue !== aValue) return bValue - aValue;
+        return b.balance - a.balance;
       });
 
       setUserTokens(tokens);
