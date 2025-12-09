@@ -211,55 +211,44 @@ export function useStakingProgram() {
     });
 
     try {
-      let tx: string;
+      // ✅ ALWAYS build transaction manually and use sendTransaction (Phantom secure API)
+      const transaction = new Transaction();
+      
+      // Add compute budget
+      const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({
+        units: 400000,
+      });
+      transaction.add(computeBudgetIx);
 
+      // If fee collector ATA doesn't exist, create it first
       if (needsInit) {
-        // Create transaction with ATA initialization and stake
-        console.log("🔧 Creating fee collector ATA and staking...");
-        
-        const transaction = new Transaction();
-        
-        // Add compute budget for complex transaction
-        const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({
-          units: 400000,
-        });
-        transaction.add(computeBudgetIx);
-        
-        // Add create ATA instruction
+        console.log("🔧 Adding fee collector ATA creation instruction...");
         const createATAIx = createAssociatedTokenAccountInstruction(
-          publicKey, // payer
-          feeCollectorTokenAccount, // ata address
-          feeCollector, // owner
-          tokenMintPubkey, // mint
-          tokenProgramId,  // ✅ Use detected token program
+          publicKey,
+          feeCollectorTokenAccount,
+          feeCollector,
+          tokenMintPubkey,
+          tokenProgramId,
           ASSOCIATED_TOKEN_PROGRAM_ID
         );
         transaction.add(createATAIx);
-        
-        // Add stake instruction
-        console.log("🔧 Building deposit instruction with accounts:", Object.keys(accounts));
-        const stakeIx = await program.methods
-          .deposit(tokenMintPubkey, new BN(poolId), amountBN)
-          .accountsPartial(accounts)
-          .remainingAccounts(remainingAccounts)
-          .instruction();
-        transaction.add(stakeIx);
-        
-        // Send and confirm transaction
-        tx = await sendTransaction(transaction, connection, {
-          skipPreflight: false,
-        });
-        
-        console.log("✅ ATA created and stake executed:", tx);
-      } else {
-        // Execute stake transaction normally
-        console.log("🔧 Building deposit instruction (direct RPC) with accounts:", Object.keys(accounts));
-        tx = await program.methods
-          .deposit(tokenMintPubkey, new BN(poolId), amountBN)
-          .accountsPartial(accounts)
-          .remainingAccounts(remainingAccounts)
-          .rpc({ skipPreflight: false, commitment: 'confirmed' });
-              }
+      }
+      
+      // Add stake instruction
+      console.log("🔧 Building deposit instruction...");
+      const stakeIx = await program.methods
+        .deposit(tokenMintPubkey, new BN(poolId), amountBN)
+        .accountsPartial(accounts)
+        .remainingAccounts(remainingAccounts)
+        .instruction();
+      transaction.add(stakeIx);
+      
+      // ✅ ALWAYS use sendTransaction (avoids Phantom malicious warning)
+      const tx = await sendTransaction(transaction, connection, {
+        skipPreflight: false,
+      });
+      
+      console.log("✅ Transaction signature:", tx);
 
       console.log("✅ Transaction signature:", tx);
       
