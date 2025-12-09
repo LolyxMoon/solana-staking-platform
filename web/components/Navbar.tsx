@@ -107,6 +107,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
             )}
           </button>
         </div>
+      </div>
 
       {/* Right Side - Social, Dashboard & Wallet */}
       <div className="flex items-center gap-2">
