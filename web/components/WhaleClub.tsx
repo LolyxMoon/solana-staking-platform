@@ -44,7 +44,7 @@ interface ChatMessage {
 type TabType = 'dashboard' | 'chat';
 
 const WhaleClub: React.FC = () => {
-  const { publicKey, connected, sendTransaction } = useWallet();
+  const { publicKey, connected, signTransaction } = useWallet();
   const { connection } = useConnection();
   
   const [walletBalance, setWalletBalance] = useState<number>(0);
@@ -246,76 +246,53 @@ const WhaleClub: React.FC = () => {
   };
 
     // ========== CHAT AUTH ==========
-    const authenticateChat = async () => {
-        if (!publicKey || !connection || !sendTransaction) return null;
-        setAuthenticating(true);
-        
-        try {
-        const timestamp = Date.now();
-        const { TransactionMessage, VersionedTransaction, ComputeBudgetProgram } = await import('@solana/web3.js');
-        
-        const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
-        const authMessage = `StakePoint:${timestamp}`;
-        
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-        
-        const instructions = [
-            ComputeBudgetProgram.setComputeUnitLimit({ units: 5000 }),
-            ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }),
-            {
-            keys: [{ pubkey: publicKey, isSigner: true, isWritable: false }],
-            programId: MEMO_PROGRAM_ID,
-            data: Buffer.from(authMessage, 'utf-8'),
-            },
-        ];
-        
-        const messageV0 = new TransactionMessage({
-            payerKey: publicKey,
-            recentBlockhash: blockhash,
-            instructions,
-        }).compileToV0Message();
-        
-        const transaction = new VersionedTransaction(messageV0);
-        
-        // Use sendTransaction (signAndSend) - the safe method Phantom recommends
-        const txSignature = await sendTransaction(transaction, connection, {
-            skipPreflight: false,
-            preflightCommitment: 'confirmed',
-        });
-        
-        // Wait for confirmation
-        await connection.confirmTransaction({
-            signature: txSignature,
-            blockhash,
-            lastValidBlockHeight,
-        }, 'confirmed');
+  const authenticateChat = async () => {
+    if (!publicKey || !connection || !signTransaction) return null;
+    setAuthenticating(true);
+    try {
+      const timestamp = Date.now();
+      const { Transaction, SystemProgram } = await import('@solana/web3.js');
+      
+      const transaction = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey: publicKey,
+          lamports: 0,
+        })
+      );
+      
+      const { blockhash } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
 
-        // Verify with backend
-        const response = await fetch('/api/whale-club/verify-wallet', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-            wallet: publicKey.toString(),
-            txSignature,
-            timestamp,
-            }),
-        });
+      const signedTransaction = await signTransaction(transaction);
+      const serialized = Buffer.from(signedTransaction.serialize()).toString('base64');
 
-        if (!response.ok) {
-            throw new Error('Verification failed');
-        }
+      const response = await fetch('/api/whale-club/verify-wallet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wallet: publicKey.toString(),
+          signedTransaction: serialized,
+          timestamp,
+        }),
+      });
 
-        const data = await response.json();
-        const session = { token: data.sessionToken, expiresAt: data.expiresAt };
-        setChatSession(session);
-        return session;
-        } catch (error) {
-        console.error('Failed to authenticate:', error);
-        return null;
-        } finally {
-        setAuthenticating(false);
-        }
-    };
+      if (!response.ok) {
+        throw new Error('Verification failed');
+      }
+
+      const data = await response.json();
+      const session = { token: data.sessionToken, expiresAt: data.expiresAt };
+      setChatSession(session);
+      return session;
+    } catch (error) {
+      console.error('Failed to authenticate:', error);
+      return null;
+    } finally {
+      setAuthenticating(false);
+    }
+  };
 
   // ========== CHAT FUNCTIONS ==========
   const fetchMessages = async () => {
