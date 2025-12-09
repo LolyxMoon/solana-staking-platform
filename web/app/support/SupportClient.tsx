@@ -108,10 +108,10 @@ export default function SupportClient() {
                   <div className="flex-1">
                     <p className="text-xs text-gray-500 mb-1">Email Address</p>
                     <a 
-                      href="mailto:support@stakepoint.app" 
+                      href="mailto:contact@stakepoint.app" 
                       className="text-white font-semibold hover:text-[#fb57ff] transition-colors text-lg"
                     >
-                      support@stakepoint.app
+                      contact@stakepoint.app
                     </a>
                   </div>
                   <button
