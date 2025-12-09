@@ -109,24 +109,23 @@ export default function MyPoolsPage() {
 
           // Check if connected wallet is the admin
           if (onChainAdmin === publicKey.toString()) {
-        // Get rate like PoolCard does
-        let onChainApy = pool.apy || 0;
-        try {
-          const rateResult = await getPoolRate(tokenMint, pool.poolId ?? 0);
-          if (rateResult?.rate !== undefined) {
-            onChainApy = rateResult.rate;
-          }
-        } catch (e) {
-          // Use database fallback
-        }
+            // Get rate like PoolCard does
+            let onChainApy = pool.apy || 0;
+            try {
+              const rateResult = await getPoolRate(tokenMint, pool.poolId ?? 0);
+              if (rateResult?.rate !== undefined) {
+                onChainApy = rateResult.rate;
+              }
+            } catch (e) {
+              // Use database fallback
+            }
 
-        poolsWithAdmin.push({
-          ...pool,
-          onChainAdmin,
-          totalStaked: projectInfo.totalStaked?.toString() || '0',
-          apy: onChainApy,
-        });
-      }
+            poolsWithAdmin.push({
+              ...pool,
+              onChainAdmin,
+              totalStaked: projectInfo.totalStaked?.toString() || '0',
+              apy: onChainApy,
+            });
           }
         } catch (err) {
           // Pool might not be initialized yet, skip
