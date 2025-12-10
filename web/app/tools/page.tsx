@@ -1,29 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { Sparkles, Flame, Wrench, ArrowRight } from "lucide-react";
+import { Sparkles, BarChart3, Wrench, Send } from "lucide-react";
 
 const tools = [
   {
-    id: "wallet-cleanup",
-    name: "Wallet Cleanup",
+    title: "Wallet Cleanup",
     description: "Burn dust tokens and close empty accounts to reclaim SOL rent",
-    icon: Sparkles,
     href: "/tools/wallet-cleanup",
-    gradient: "from-[#fb57ff] to-purple-600",
-    features: ["Burn tokens under $1", "Close empty accounts", "Reclaim ~0.002 SOL per account"],
+    icon: Sparkles,
+    tags: ["Burn tokens under $1", "Close empty accounts", "Reclaim ~0.002 SOL per account"],
+    available: true,
   },
-  // Future tools can be added here
-  // {
-  //   id: "airdrop-tool",
-  //   name: "Airdrop Tool",
-  //   description: "Send tokens to multiple wallets at once",
-  //   icon: Send,
-  //   href: "/tools/airdrop",
-  //   gradient: "from-blue-500 to-cyan-500",
-  //   features: ["Bulk send tokens", "CSV upload", "Transaction batching"],
-  //   comingSoon: true,
-  // },
+  {
+    title: "Wallet Analyzer",
+    description: "Portfolio breakdown, PnL tracking, and wallet insights",
+    href: "/tools/wallet-analyzer",
+    icon: BarChart3,
+    tags: ["Portfolio value", "PnL tracking", "24h changes"],
+    available: true,
+  },
+  {
+    title: "Airdrop Tool",
+    description: "Send tokens to multiple wallets in batches",
+    href: "/tools/airdrop",
+    icon: Send,
+    tags: ["Batch transfers", "CSV upload", "Multi-recipient"],
+    available: false,
+  },
 ];
 
 export default function ToolsPage() {
@@ -43,48 +47,69 @@ export default function ToolsPage() {
       </div>
 
       {/* Tools Grid */}
-      <div className="grid gap-6">
+      <div className="space-y-4">
         {tools.map((tool) => (
-          <Link
-            key={tool.id}
-            href={tool.href}
-            className="group block p-6 rounded-2xl bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 transition-all"
-          >
-            <div className="flex items-start gap-4">
-              <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${tool.gradient} flex items-center justify-center flex-shrink-0`}>
-                <tool.icon className="w-7 h-7 text-white" />
-              </div>
-              
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <h2 className="text-xl font-bold text-white group-hover:text-[#fb57ff] transition-colors">
-                    {tool.name}
-                  </h2>
-                  <ArrowRight className="w-5 h-5 text-gray-600 group-hover:text-[#fb57ff] group-hover:translate-x-1 transition-all" />
+          tool.available ? (
+            <Link
+              key={tool.title}
+              href={tool.href}
+              className="block p-6 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 transition-all group"
+            >
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#fb57ff]/20 to-purple-600/20 flex items-center justify-center group-hover:from-[#fb57ff]/30 group-hover:to-purple-600/30 transition-all">
+                  <tool.icon className="w-6 h-6" style={{ color: '#fb57ff' }} />
                 </div>
-                <p className="text-gray-400 mb-4">{tool.description}</p>
-                
-                <div className="flex flex-wrap gap-2">
-                  {tool.features.map((feature, idx) => (
-                    <span 
-                      key={idx}
-                      className="px-3 py-1 rounded-full bg-white/[0.03] border border-white/[0.05] text-xs text-gray-400"
-                    >
-                      {feature}
-                    </span>
-                  ))}
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-white group-hover:text-[#fb57ff] transition-colors">
+                      {tool.title}
+                    </h2>
+                    <span className="text-gray-500 group-hover:text-[#fb57ff] transition-colors">→</span>
+                  </div>
+                  <p className="text-gray-400 text-sm mt-1">{tool.description}</p>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {tool.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="px-2 py-1 rounded-md bg-white/[0.03] border border-white/[0.05] text-xs text-gray-400"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </Link>
+          ) : (
+            <div
+              key={tool.title}
+              className="block p-6 rounded-xl bg-white/[0.01] border border-white/[0.03] border-dashed opacity-60"
+            >
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl bg-white/[0.02] flex items-center justify-center">
+                  <tool.icon className="w-6 h-6 text-gray-600" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-gray-500">{tool.title}</h2>
+                    <span className="px-2 py-0.5 rounded text-xs bg-white/[0.05] text-gray-500">Coming Soon</span>
+                  </div>
+                  <p className="text-gray-600 text-sm mt-1">{tool.description}</p>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {tool.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="px-2 py-1 rounded-md bg-white/[0.02] border border-white/[0.03] text-xs text-gray-600"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
-          </Link>
+          )
         ))}
-      </div>
-
-      {/* Coming Soon Placeholder */}
-      <div className="mt-8 p-6 rounded-2xl bg-white/[0.01] border border-dashed border-white/[0.05] text-center">
-        <Wrench className="w-8 h-8 text-gray-700 mx-auto mb-3" />
-        <p className="text-gray-500 text-sm">More tools coming soon...</p>
-        <p className="text-gray-600 text-xs mt-1">Airdrop tool, wallet analyzer, and more</p>
       </div>
     </div>
   );
