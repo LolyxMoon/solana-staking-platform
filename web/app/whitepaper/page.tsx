@@ -104,8 +104,8 @@ export default function WhitepaperPage() {
       <div className="relative max-w-6xl mx-auto px-6 py-12 lg:py-16">
         <div className="lg:grid lg:grid-cols-[240px_1fr] lg:gap-8">
           {/* Sidebar Navigation */}
-          <aside className="hidden lg:block">
-            <div className="sticky top-24 space-y-1">
+          <aside className="hidden lg:block relative">
+            <div className="fixed top-24 w-[220px] space-y-1">
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3 px-3">
                 Contents
               </p>
