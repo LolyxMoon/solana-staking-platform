@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Sparkles, BarChart3, Wrench, Send } from "lucide-react";
+import { Sparkles, BarChart3, Wrench, Send, Camera } from "lucide-react";
 
 const tools = [
   {
@@ -26,6 +26,14 @@ const tools = [
     href: "/tools/airdrop",
     icon: Send,
     tags: ["Batch transfers", "CSV upload", "Multi-recipient"],
+    available: true,
+  },
+  {
+    title: "Holder Snapshot",
+    description: "Get a list of all token holders with balances",
+    href: "/tools/snapshot",
+    icon: Camera,
+    tags: ["Holder list", "Export CSV", "Token analytics"],
     available: true,
   },
 ];
