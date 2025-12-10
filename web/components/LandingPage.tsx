@@ -292,7 +292,7 @@ export default function LandingPage() {
     },
     {
       icon: TrendingUp,
-      title: "High APY Returns",
+      title: "High APR Returns",
       description:
         "Earn competitive returns on your tokens. Lock for higher yields or stay flexible with unlocked pools.",
       gradient: "from-purple-600 to-pink-600",
@@ -317,7 +317,7 @@ export default function LandingPage() {
     { label: "Total Value Locked", value: platformStats.totalValueLocked, icon: Lock },
     { label: "Active Stakers", value: platformStats.activeStakers, icon: Users },
     { label: "Pools Available", value: platformStats.poolsAvailable, icon: BarChart3 },
-    { label: "Average APY", value: platformStats.averageReturn, icon: Award },
+    { label: "Average APR", value: platformStats.averageReturn, icon: Award },
   ];
 
   return (
@@ -354,15 +354,14 @@ export default function LandingPage() {
                 </button>
 
                 <button
-                  onClick={() => router.push("/pools")}
+                  onClick={() => router.push("/swap")}
                   className="flex items-center justify-center gap-2 px-6 py-2.5 bg-white/[0.05] border border-white/[0.05] rounded-lg hover:bg-white/[0.08] transition-all font-semibold text-sm"
                   onMouseEnter={(e) => e.currentTarget.style.borderColor = 'rgba(251, 87, 255, 0.3)'}
                   onMouseLeave={(e) => e.currentTarget.style.borderColor = ''}
                 >
-                  <BarChart3 className="w-4 h-4" />
-                  Browse Pools
+                  <Zap className="w-4 h-4" />
+                  Start Swapping
                 </button>
-              </div>
 
               <div className="flex flex-wrap gap-8 justify-center lg:justify-start pt-4">
                 {stats.slice(0, 2).map((stat, idx) => (
@@ -756,7 +755,7 @@ export default function LandingPage() {
 
             <div className="text-center">
               <p className="text-xs text-gray-600">
-                We review all applications and respond within 48 hours
+                Please get im touch before creating a pool if you would like marketing support!
               </p>
             </div>
           </div>
