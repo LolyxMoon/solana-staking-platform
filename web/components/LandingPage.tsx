@@ -322,7 +322,7 @@ export default function LandingPage() {
 
   return (
     <>
-      <PopUpAd /> {/* ✅ ADD ONLY THIS LINE */}
+      <PopUpAd />
       <div className="min-h-screen bg-[#060609] relative">
         {/* Hero Section */}
       <section className="relative overflow-hidden bg-[#060609]">
