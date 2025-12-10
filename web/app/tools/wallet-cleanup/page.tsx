@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
-import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
+import { PublicKey, Transaction, ComputeBudgetProgram } from "@solana/web3.js";
 import { 
   TOKEN_PROGRAM_ID, 
   TOKEN_2022_PROGRAM_ID,
@@ -10,15 +10,11 @@ import {
   createCloseAccountInstruction,
 } from "@solana/spl-token";
 import { 
-  Trash2, 
   Flame, 
   RefreshCw, 
   CheckCircle2, 
-  AlertCircle,
   Loader2,
   Wallet,
-  DollarSign,
-  Filter,
   CheckSquare,
   Square,
   Sparkles
@@ -39,11 +35,11 @@ interface TokenAccount {
   selected: boolean;
 }
 
-const RENT_PER_ACCOUNT = 0.00203; // SOL
-const ACCOUNTS_PER_TX = 6; // Safe batch size
+const RENT_PER_ACCOUNT = 0.00203;
+const ACCOUNTS_PER_TX = 5;
 
 export default function WalletCleanupPage() {
-  const { publicKey, signAllTransactions } = useWallet();
+  const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
   
   const [tokenAccounts, setTokenAccounts] = useState<TokenAccount[]>([]);
@@ -52,10 +48,7 @@ export default function WalletCleanupPage() {
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [statusMessage, setStatusMessage] = useState("");
   const [filter, setFilter] = useState<"all" | "empty" | "under1" | "under5" | "under10">("all");
-  const [successCount, setSuccessCount] = useState(0);
-  const [errorCount, setErrorCount] = useState(0);
 
-  // Fetch all token accounts
   const fetchTokenAccounts = async () => {
     if (!publicKey) return;
     
@@ -63,13 +56,11 @@ export default function WalletCleanupPage() {
     setStatusMessage("Scanning wallet...");
     
     try {
-      // Fetch SPL tokens
       const splAccounts = await connection.getParsedTokenAccountsByOwner(
         publicKey,
         { programId: TOKEN_PROGRAM_ID }
       );
       
-      // Fetch Token-2022 tokens
       const token2022Accounts = await connection.getParsedTokenAccountsByOwner(
         publicKey,
         { programId: TOKEN_2022_PROGRAM_ID }
@@ -91,7 +82,6 @@ export default function WalletCleanupPage() {
         const balance = parsed.tokenAmount.uiAmount || 0;
         const decimals = parsed.tokenAmount.decimals;
         
-        // Fetch token info from DexScreener
         let symbol = mint.slice(0, 4) + "..." + mint.slice(-4);
         let name = "Unknown Token";
         let logoURI: string | null = null;
@@ -113,7 +103,7 @@ export default function WalletCleanupPage() {
             }
           }
         } catch (err) {
-          // Silent fail - use defaults
+          // Silent fail
         }
         
         accounts.push({
@@ -136,7 +126,6 @@ export default function WalletCleanupPage() {
         }
       }
       
-      // Sort by value (lowest first, empty at top)
       accounts.sort((a, b) => {
         if (a.balance === 0 && b.balance > 0) return -1;
         if (a.balance > 0 && b.balance === 0) return 1;
@@ -159,7 +148,6 @@ export default function WalletCleanupPage() {
     }
   }, [publicKey]);
 
-  // Filter accounts based on selection
   const filteredAccounts = useMemo(() => {
     return tokenAccounts.filter(acc => {
       switch (filter) {
@@ -172,7 +160,6 @@ export default function WalletCleanupPage() {
     });
   }, [tokenAccounts, filter]);
 
-  // Calculate stats
   const stats = useMemo(() => {
     const selected = tokenAccounts.filter(a => a.selected);
     const totalReclaimable = tokenAccounts.length * RENT_PER_ACCOUNT;
@@ -190,14 +177,12 @@ export default function WalletCleanupPage() {
     };
   }, [tokenAccounts]);
 
-  // Toggle selection
   const toggleSelect = (pubkey: PublicKey) => {
     setTokenAccounts(prev => prev.map(acc => 
       acc.pubkey.equals(pubkey) ? { ...acc, selected: !acc.selected } : acc
     ));
   };
 
-  // Select all filtered
   const selectAllFiltered = () => {
     const filteredPubkeys = new Set(filteredAccounts.map(a => a.pubkey.toString()));
     setTokenAccounts(prev => prev.map(acc => ({
@@ -206,12 +191,10 @@ export default function WalletCleanupPage() {
     })));
   };
 
-  // Deselect all
   const deselectAll = () => {
     setTokenAccounts(prev => prev.map(acc => ({ ...acc, selected: false })));
   };
 
-  // Quick select by filter
   const quickSelect = (type: "empty" | "under1" | "under5" | "under10") => {
     setTokenAccounts(prev => prev.map(acc => {
       let shouldSelect = false;
@@ -225,43 +208,50 @@ export default function WalletCleanupPage() {
     }));
   };
 
-  // Burn and close selected accounts
   const burnAndClose = async () => {
-    if (!publicKey || !signAllTransactions) return;
+    if (!publicKey || !sendTransaction) return;
     
     const selected = tokenAccounts.filter(a => a.selected);
     if (selected.length === 0) return;
     
     setCleaning(true);
-    setSuccessCount(0);
-    setErrorCount(0);
     setProgress({ current: 0, total: selected.length });
     
-    try {
-      // Split into batches
-      const batches: TokenAccount[][] = [];
-      for (let i = 0; i < selected.length; i += ACCOUNTS_PER_TX) {
-        batches.push(selected.slice(i, i + ACCOUNTS_PER_TX));
-      }
+    // Split into batches
+    const batches: TokenAccount[][] = [];
+    for (let i = 0; i < selected.length; i += ACCOUNTS_PER_TX) {
+      batches.push(selected.slice(i, i + ACCOUNTS_PER_TX));
+    }
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
+    // Process each batch with sendTransaction (Phantom-friendly)
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
       
-      setStatusMessage(`Creating ${batches.length} transaction(s)...`);
-      
-      const transactions: Transaction[] = [];
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-      
-      for (const batch of batches) {
-        const tx = new Transaction();
-        tx.recentBlockhash = blockhash;
-        tx.feePayer = publicKey;
+      try {
+        setStatusMessage(`Processing batch ${i + 1}/${batches.length}...`);
+        
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+        
+        const transaction = new Transaction();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = publicKey;
+        
+        // Add compute budget instructions first (Phantom requirement)
+        transaction.add(
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 100000 }),
+          ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 })
+        );
         
         for (const account of batch) {
-          // If has balance, burn first
           if (account.balance > 0) {
             const burnAmount = BigInt(
               Math.floor(account.balance * Math.pow(10, account.decimals))
             );
             
-            tx.add(
+            transaction.add(
               createBurnInstruction(
                 account.pubkey,
                 new PublicKey(account.mint),
@@ -273,72 +263,56 @@ export default function WalletCleanupPage() {
             );
           }
           
-          // Close account
-          tx.add(
+          transaction.add(
             createCloseAccountInstruction(
               account.pubkey,
-              publicKey, // destination for rent
-              publicKey, // authority
+              publicKey,
+              publicKey,
               [],
               account.programId
             )
           );
         }
         
-        transactions.push(tx);
-      }
-      
-      setStatusMessage("Please approve the transaction(s) in your wallet...");
-      
-      // Sign all transactions
-      const signedTxs = await signAllTransactions(transactions);
-      
-      // Send transactions
-      let successCount = 0;
-      let errorCount = 0;
-      
-      for (let i = 0; i < signedTxs.length; i++) {
-        setStatusMessage(`Sending transaction ${i + 1}/${signedTxs.length}...`);
+        setStatusMessage(`Approve batch ${i + 1}/${batches.length} in wallet...`);
         
-        try {
-          const signature = await connection.sendRawTransaction(signedTxs[i].serialize());
-          await connection.confirmTransaction({
-            signature,
-            blockhash,
-            lastValidBlockHeight,
-          });
-          
-          successCount += batches[i].length;
-          setProgress({ current: successCount, total: selected.length });
-        } catch (err) {
-          console.error(`Transaction ${i + 1} failed:`, err);
-          errorCount += batches[i].length;
+        // Use sendTransaction - wallet handles signing internally (no malicious warning)
+        const signature = await sendTransaction(transaction, connection, {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+        
+        setStatusMessage(`Confirming batch ${i + 1}/${batches.length}...`);
+        
+        await connection.confirmTransaction({
+          signature,
+          blockhash,
+          lastValidBlockHeight,
+        }, 'confirmed');
+        
+        successCount += batch.length;
+        setProgress({ current: successCount + errorCount, total: selected.length });
+        
+      } catch (err: any) {
+        console.error(`Batch ${i + 1} failed:`, err);
+        errorCount += batch.length;
+        setProgress({ current: successCount + errorCount, total: selected.length });
+        
+        if (err.message?.includes("User rejected")) {
+          setStatusMessage("Cancelled by user");
+          break;
         }
       }
-      
-      setSuccessCount(successCount);
-      setErrorCount(errorCount);
-      setStatusMessage(
-        successCount > 0 
-          ? `✅ Cleaned ${successCount} account(s)! Reclaimed ~${(successCount * RENT_PER_ACCOUNT).toFixed(4)} SOL`
-          : "❌ No accounts were cleaned"
-      );
-      
-      // Refresh list
-      setTimeout(() => {
-        fetchTokenAccounts();
-      }, 2000);
-      
-    } catch (error: any) {
-      console.error("Error cleaning accounts:", error);
-      if (error.message?.includes("User rejected")) {
-        setStatusMessage("Transaction cancelled by user");
-      } else {
-        setStatusMessage(`Error: ${error.message || "Failed to clean accounts"}`);
-      }
-    } finally {
-      setCleaning(false);
     }
+    
+    if (successCount > 0) {
+      setStatusMessage(`✅ Cleaned ${successCount} account(s)! Reclaimed ~${(successCount * RENT_PER_ACCOUNT).toFixed(4)} SOL`);
+    } else if (errorCount > 0) {
+      setStatusMessage("❌ Failed to clean accounts");
+    }
+    
+    setTimeout(() => fetchTokenAccounts(), 2000);
+    setCleaning(false);
   };
 
   if (!publicKey) {
@@ -392,47 +366,25 @@ export default function WalletCleanupPage() {
 
       {/* Quick Select Buttons */}
       <div className="flex flex-wrap gap-2 mb-4">
-        <button
-          onClick={() => quickSelect("empty")}
-          className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 text-sm font-medium text-gray-300 hover:text-white transition-all"
-        >
+        <button onClick={() => quickSelect("empty")} className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 text-sm font-medium text-gray-300 hover:text-white transition-all">
           Select Empty
         </button>
-        <button
-          onClick={() => quickSelect("under1")}
-          className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 text-sm font-medium text-gray-300 hover:text-white transition-all"
-        >
+        <button onClick={() => quickSelect("under1")} className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 text-sm font-medium text-gray-300 hover:text-white transition-all">
           Select Under $1
         </button>
-        <button
-          onClick={() => quickSelect("under5")}
-          className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 text-sm font-medium text-gray-300 hover:text-white transition-all"
-        >
+        <button onClick={() => quickSelect("under5")} className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 text-sm font-medium text-gray-300 hover:text-white transition-all">
           Select Under $5
         </button>
-        <button
-          onClick={() => quickSelect("under10")}
-          className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 text-sm font-medium text-gray-300 hover:text-white transition-all"
-        >
+        <button onClick={() => quickSelect("under10")} className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 text-sm font-medium text-gray-300 hover:text-white transition-all">
           Select Under $10
         </button>
-        <button
-          onClick={selectAllFiltered}
-          className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 text-sm font-medium text-gray-300 hover:text-white transition-all"
-        >
+        <button onClick={selectAllFiltered} className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 text-sm font-medium text-gray-300 hover:text-white transition-all">
           Select All
         </button>
-        <button
-          onClick={deselectAll}
-          className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-red-500/30 text-sm font-medium text-gray-300 hover:text-red-400 transition-all"
-        >
+        <button onClick={deselectAll} className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-red-500/30 text-sm font-medium text-gray-300 hover:text-red-400 transition-all">
           Deselect All
         </button>
-        <button
-          onClick={fetchTokenAccounts}
-          disabled={loading}
-          className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 text-sm font-medium text-gray-300 hover:text-white transition-all ml-auto"
-        >
+        <button onClick={fetchTokenAccounts} disabled={loading} className="px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 text-sm font-medium text-gray-300 hover:text-white transition-all ml-auto">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
@@ -475,7 +427,7 @@ export default function WalletCleanupPage() {
                   style={{ width: `${(progress.current / progress.total) * 100}%` }}
                 />
               </div>
-              <p className="text-xs text-gray-400 mt-1">{progress.current} / {progress.total} accounts</p>
+              <p className="text-xs text-gray-400 mt-1">{progress.current} / {progress.total}</p>
             </div>
           )}
         </div>
@@ -506,7 +458,6 @@ export default function WalletCleanupPage() {
                   : "bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.1]"
               }`}
             >
-              {/* Checkbox */}
               <div className="flex-shrink-0">
                 {account.selected ? (
                   <CheckSquare className="w-5 h-5" style={{ color: '#fb57ff' }} />
@@ -515,22 +466,17 @@ export default function WalletCleanupPage() {
                 )}
               </div>
 
-              {/* Token Info */}
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 {account.logoURI ? (
                   <img 
                     src={account.logoURI} 
                     alt={account.symbol}
                     className="w-10 h-10 rounded-full"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
                   />
                 ) : (
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center">
-                    <span className="text-xs font-bold text-gray-400">
-                      {account.symbol.slice(0, 2)}
-                    </span>
+                    <span className="text-xs font-bold text-gray-400">{account.symbol.slice(0, 2)}</span>
                   </div>
                 )}
                 <div className="min-w-0">
@@ -539,7 +485,6 @@ export default function WalletCleanupPage() {
                 </div>
               </div>
 
-              {/* Balance */}
               <div className="text-right flex-shrink-0">
                 <p className="font-medium text-white">
                   {account.balance === 0 ? (
@@ -553,7 +498,6 @@ export default function WalletCleanupPage() {
                 </p>
               </div>
 
-              {/* Rent */}
               <div className="text-right flex-shrink-0 w-20">
                 <p className="text-xs text-gray-500">Rent</p>
                 <p className="text-sm font-medium" style={{ color: '#fb57ff' }}>
@@ -570,12 +514,8 @@ export default function WalletCleanupPage() {
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-[#060609]/95 backdrop-blur-sm border-t border-white/[0.05] lg:left-64">
           <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
             <div>
-              <p className="text-white font-semibold">
-                {stats.selected} account(s) selected
-              </p>
-              <p className="text-sm text-gray-400">
-                Reclaim ~{stats.selectedReclaimable.toFixed(4)} SOL
-              </p>
+              <p className="text-white font-semibold">{stats.selected} account(s) selected</p>
+              <p className="text-sm text-gray-400">Reclaim ~{stats.selectedReclaimable.toFixed(4)} SOL</p>
             </div>
             <button
               onClick={burnAndClose}
@@ -599,7 +539,6 @@ export default function WalletCleanupPage() {
         </div>
       )}
 
-      {/* Add padding at bottom when action bar is visible */}
       {stats.selected > 0 && <div className="h-24" />}
     </div>
   );
