@@ -2,12 +2,30 @@
 
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Copy, LogOut, Wallet } from 'lucide-react';
 
 export default function WalletConnect() {
   const { publicKey, disconnect, connected } = useWallet();
   const [showMenu, setShowMenu] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Wait for client-side hydration
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Don't render anything until mounted to prevent hydration mismatch
+  if (!mounted) {
+    return (
+      <div 
+        className="px-3 py-2 lg:px-4 lg:py-2 rounded-lg text-white text-sm font-medium"
+        style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}
+      >
+        <Wallet className="w-5 h-5 lg:w-3.5 lg:h-3.5" />
+      </div>
+    );
+  }
 
   // If not connected, show the connect button with gradient style
   if (!connected || !publicKey) {
