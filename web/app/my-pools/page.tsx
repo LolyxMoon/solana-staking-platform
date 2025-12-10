@@ -18,7 +18,8 @@ import {
   Lock,
   Unlock,
   Eye,
-  EyeOff
+  EyeOff,
+  Users
 } from 'lucide-react';
 import { useAdminProgram } from '@/hooks/useAdminProgram';
 import { useStakingProgram } from '@/hooks/useStakingProgram';
@@ -41,6 +42,9 @@ interface Pool {
   isPaused?: boolean;
   poolAddress?: string;
   transferTaxBps?: number;
+  referralEnabled?: boolean;
+  referralWallet?: string;
+  referralSplitPercent?: number;
   // On-chain data
   onChainAdmin?: string;
   totalStaked?: string;
@@ -62,6 +66,7 @@ export default function MyPoolsPage() {
     depositRewards,
     getProjectInfo,
     getVaultInfo,
+    setProjectReferrer,
   } = useAdminProgram();
 
   const { getPoolRate } = useStakingProgram();
@@ -79,6 +84,16 @@ export default function MyPoolsPage() {
   const [depositAmount, setDepositAmount] = useState<number>(1000);
   const [isDepositing, setIsDepositing] = useState(false);
   const [userTokenBalance, setUserTokenBalance] = useState<string | null>(null);
+
+  // Referral modal state
+  const [referralModal, setReferralModal] = useState<{
+    isOpen: boolean;
+    pool: Pool | null;
+  }>({ isOpen: false, pool: null });
+  const [referralEnabled, setReferralEnabled] = useState(false);
+  const [referralWallet, setReferralWallet] = useState('');
+  const [referralSplit, setReferralSplit] = useState(50);
+  const [isUpdatingReferral, setIsUpdatingReferral] = useState(false);
 
   // Fetch pools where connected wallet is admin
   const fetchMyPools = useCallback(async () => {
@@ -125,6 +140,12 @@ export default function MyPoolsPage() {
               onChainAdmin,
               totalStaked: projectInfo.totalStaked?.toString() || '0',
               apy: onChainApy,
+              // Get referrer info from on-chain data
+              referralWallet: projectInfo.referrer?.toString() || pool.referralWallet,
+              referralSplitPercent: projectInfo.referrerSplitBps 
+                ? Number(projectInfo.referrerSplitBps) / 100 
+                : pool.referralSplitPercent,
+              referralEnabled: !!projectInfo.referrer || pool.referralEnabled,
             });
           }
         } catch (err) {
@@ -183,30 +204,30 @@ export default function MyPoolsPage() {
   };
 
   // Check user's token balance for deposit
-const checkTokenBalance = async (tokenMint: string) => {
-  if (!publicKey) return;
-  
-  try {
-    const tokenMintPubkey = new PublicKey(tokenMint);
+  const checkTokenBalance = async (tokenMint: string) => {
+    if (!publicKey) return;
     
-    // Use getParsedTokenAccountsByOwner with mint filter - works for both SPL and Token-2022
-    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-      publicKey,
-      { mint: tokenMintPubkey }
-    );
-    
-    if (tokenAccounts.value.length > 0) {
-      const parsed = tokenAccounts.value[0].account.data.parsed.info;
-      const balance = parsed.tokenAmount.uiAmount || 0;
-      setUserTokenBalance(balance.toLocaleString(undefined, { maximumFractionDigits: 4 }));
-    } else {
+    try {
+      const tokenMintPubkey = new PublicKey(tokenMint);
+      
+      // Use getParsedTokenAccountsByOwner with mint filter - works for both SPL and Token-2022
+      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+        publicKey,
+        { mint: tokenMintPubkey }
+      );
+      
+      if (tokenAccounts.value.length > 0) {
+        const parsed = tokenAccounts.value[0].account.data.parsed.info;
+        const balance = parsed.tokenAmount.uiAmount || 0;
+        setUserTokenBalance(balance.toLocaleString(undefined, { maximumFractionDigits: 4 }));
+      } else {
+        setUserTokenBalance('0');
+      }
+    } catch (error) {
+      console.error('Error checking balance:', error);
       setUserTokenBalance('0');
     }
-  } catch (error) {
-    console.error('Error checking balance:', error);
-    setUserTokenBalance('0');
-  }
-};
+  };
 
   // Open deposit modal
   const openDepositModal = (pool: Pool) => {
@@ -216,6 +237,14 @@ const checkTokenBalance = async (tokenMint: string) => {
     }
     setDepositModal({ isOpen: true, pool });
     setDepositAmount(1000);
+  };
+
+  // Open referral modal
+  const openReferralModal = (pool: Pool) => {
+    setReferralEnabled(pool.referralEnabled || false);
+    setReferralWallet(pool.referralWallet || '');
+    setReferralSplit(pool.referralSplitPercent || 50);
+    setReferralModal({ isOpen: true, pool });
   };
 
   // Handle deposit rewards
@@ -250,12 +279,12 @@ const checkTokenBalance = async (tokenMint: string) => {
 
       const decimals = mintInfo.value.data.parsed.info.decimals;
 
-        // Handle BigInt properly to avoid overflow with large numbers
-        const depositStr = depositAmount.toString();
-        const [whole, fraction = ''] = depositStr.split('.');
-        const paddedFraction = fraction.padEnd(decimals, '0').slice(0, decimals);
-        const amountString = whole + paddedFraction;
-        const amountInLamports = BigInt(amountString);
+      // Handle BigInt properly to avoid overflow with large numbers
+      const depositStr = depositAmount.toString();
+      const [whole, fraction = ''] = depositStr.split('.');
+      const paddedFraction = fraction.padEnd(decimals, '0').slice(0, decimals);
+      const amountString = whole + paddedFraction;
+      const amountInLamports = BigInt(amountString);
 
       console.log(`💰 Depositing ${depositAmount} tokens (${amountInLamports} raw units)`);
 
@@ -289,6 +318,81 @@ const checkTokenBalance = async (tokenMint: string) => {
       }
     } finally {
       setIsDepositing(false);
+    }
+  };
+
+  // Handle update referral
+  const handleUpdateReferral = async () => {
+    const pool = referralModal.pool;
+    if (!publicKey || !pool) {
+      showError('Wallet not connected or pool not selected');
+      return;
+    }
+
+    const tokenMint = pool.tokenMint || pool.mintAddress;
+    if (!tokenMint) {
+      showError('Token mint not found');
+      return;
+    }
+
+    if (referralEnabled && !referralWallet) {
+      showError('Please enter a referral wallet address');
+      return;
+    }
+
+    // Validate referral wallet address if enabled
+    if (referralEnabled) {
+      try {
+        new PublicKey(referralWallet);
+      } catch {
+        showError('Invalid referral wallet address');
+        return;
+      }
+    }
+
+    setIsUpdatingReferral(true);
+
+    try {
+      showInfo('📝 Sending transaction...');
+
+      if (referralEnabled) {
+        await setProjectReferrer(tokenMint, pool.poolId ?? 0, referralWallet, referralSplit * 100);
+      } else {
+        await setProjectReferrer(tokenMint, pool.poolId ?? 0, null, 0);
+      }
+
+      // Update database
+      await fetch(`/api/admin/pools`, {
+        method: "PATCH",
+        headers: { 
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          id: pool.id,
+          referralEnabled,
+          referralWallet: referralEnabled ? referralWallet : null,
+          referralSplitPercent: referralEnabled ? referralSplit : null
+        }),
+      });
+
+      playSound('success');
+      showSuccess('✅ Referral settings updated!');
+
+      // Close modal and refresh
+      setReferralModal({ isOpen: false, pool: null });
+      fetchMyPools();
+
+    } catch (error: any) {
+      console.error('Update referral error:', error);
+      playSound('error');
+
+      if (error.message?.includes('User rejected')) {
+        showError('❌ Transaction cancelled');
+      } else {
+        showError(`❌ Failed: ${error.message}`);
+      }
+    } finally {
+      setIsUpdatingReferral(false);
     }
   };
 
@@ -416,6 +520,16 @@ const checkTokenBalance = async (tokenMint: string) => {
                     </div>
 
                     <div className="flex items-center gap-6">
+                      {/* Referral Status */}
+                      {pool.referralEnabled && (
+                        <div className="text-right">
+                          <p className="text-sm text-gray-400">Referral</p>
+                          <p className="font-semibold text-green-400">
+                            ✅ {pool.referralSplitPercent}%
+                          </p>
+                        </div>
+                      )}
+
                       {/* Status */}
                       <div className="text-right">
                         <p className="text-sm text-gray-400">Status</p>
@@ -472,6 +586,28 @@ const checkTokenBalance = async (tokenMint: string) => {
                         </p>
                       </div>
                     </div>
+
+                    {/* Referral Info (if enabled) */}
+                    {pool.referralEnabled && pool.referralWallet && (
+                      <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Users className="w-4 h-4" style={{ color: '#fb57ff' }} />
+                          <span className="text-sm font-semibold text-white">Referral Settings</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <p className="text-gray-400">Referral Wallet</p>
+                            <p className="font-mono text-xs text-white">
+                              {pool.referralWallet.slice(0, 8)}...{pool.referralWallet.slice(-8)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-400">Fee Split</p>
+                            <p className="text-white">{pool.referralSplitPercent}%</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Vault Balances */}
                     {expandedData[pool.id]?.vaultInfo && (
@@ -544,6 +680,18 @@ const checkTokenBalance = async (tokenMint: string) => {
                       >
                         <Plus className="w-4 h-4" />
                         Add Rewards
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openReferralModal(pool);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors"
+                        style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}
+                      >
+                        <Users className="w-4 h-4" />
+                        Referral
                       </button>
 
                       <button
@@ -646,6 +794,123 @@ const checkTokenBalance = async (tokenMint: string) => {
                   setUserTokenBalance(null);
                 }}
                 disabled={isDepositing}
+                className="px-4 py-3 bg-white/[0.05] hover:bg-white/[0.08] rounded-lg transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Referral Modal */}
+      {referralModal.isOpen && referralModal.pool && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/70 z-50 p-4">
+          <div className="bg-[#0a0a0f] border border-white/[0.05] p-6 rounded-xl shadow-lg w-full max-w-md">
+            <h2 className="text-xl font-bold mb-4 text-white flex items-center gap-2">
+              <Users className="w-5 h-5" style={{ color: '#fb57ff' }} />
+              Referral Settings - {referralModal.pool.name}
+            </h2>
+
+            {isUpdatingReferral && (
+              <div className="mb-4 p-3 bg-white/[0.02] border border-white/[0.05] rounded text-gray-300 text-sm">
+                ⏳ Processing transaction... Please check your wallet.
+              </div>
+            )}
+
+            <div className="space-y-4 mb-6">
+              {/* Enable/Disable Toggle */}
+              <label className="flex items-center gap-3 cursor-pointer p-3 bg-white/[0.02] rounded-lg border border-white/[0.05] hover:bg-white/[0.04] transition-colors">
+                <input
+                  type="checkbox"
+                  checked={referralEnabled}
+                  onChange={(e) => setReferralEnabled(e.target.checked)}
+                  disabled={isUpdatingReferral}
+                  className="w-5 h-5 rounded"
+                />
+                <div>
+                  <span className="text-white font-medium">Enable Referral Program</span>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Split platform fees with a referrer wallet
+                  </p>
+                </div>
+              </label>
+
+              {referralEnabled && (
+                <>
+                  {/* Referral Wallet */}
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Referral Wallet Address</label>
+                    <input
+                      type="text"
+                      value={referralWallet}
+                      onChange={(e) => setReferralWallet(e.target.value)}
+                      disabled={isUpdatingReferral}
+                      className="w-full p-3 rounded-lg bg-white/[0.02] text-white border border-white/[0.05] focus:border-[#fb57ff] focus:outline-none disabled:opacity-50 font-mono text-sm"
+                      placeholder="Enter Solana wallet address"
+                    />
+                  </div>
+
+                  {/* Split Percentage */}
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">
+                      Fee Split to Referrer: {referralSplit}%
+                    </label>
+                    <input
+                      type="range"
+                      min="1"
+                      max="100"
+                      value={referralSplit}
+                      onChange={(e) => setReferralSplit(Number(e.target.value))}
+                      disabled={isUpdatingReferral}
+                      className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+                      style={{ 
+                        background: `linear-gradient(to right, #fb57ff 0%, #fb57ff ${referralSplit}%, rgba(255,255,255,0.1) ${referralSplit}%, rgba(255,255,255,0.1) 100%)` 
+                      }}
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <span>1%</span>
+                      <span>50%</span>
+                      <span>100%</span>
+                    </div>
+                  </div>
+
+                  {/* Info Box */}
+                  <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+                    <p className="text-blue-300 text-sm">
+                      ℹ️ The referrer will receive <strong>{referralSplit}%</strong> of the platform's SOL fees from this pool. 
+                      The remaining <strong>{100 - referralSplit}%</strong> goes to the platform fee collector.
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {!referralEnabled && referralModal.pool.referralEnabled && (
+                <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
+                  <p className="text-yellow-300 text-sm">
+                    ⚠️ Disabling will remove the current referrer from receiving fee splits.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleUpdateReferral}
+                disabled={isUpdatingReferral || (referralEnabled && !referralWallet)}
+                className="flex-1 px-4 py-3 rounded-lg font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}
+              >
+                {isUpdatingReferral ? '⏳ Updating...' : 'Update Referral'}
+              </button>
+              <button
+                onClick={() => {
+                  setReferralModal({ isOpen: false, pool: null });
+                  setReferralEnabled(false);
+                  setReferralWallet('');
+                  setReferralSplit(50);
+                }}
+                disabled={isUpdatingReferral}
                 className="px-4 py-3 bg-white/[0.05] hover:bg-white/[0.08] rounded-lg transition-colors disabled:opacity-50"
               >
                 Cancel
