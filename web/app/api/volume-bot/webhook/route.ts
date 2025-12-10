@@ -17,15 +17,22 @@ function parsePrivateKey(key: string): Uint8Array {
 
 const BOT_TOKEN = process.env.VOLUME_BOT_TOKEN!;
 const ALLOWED_USER_IDS = process.env.VOLUME_BOT_ALLOWED_IDS?.split(',').map(id => parseInt(id.trim())) || [];
-const RPC_URL = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_URL!;
+const RPC_URL = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT!;
 const CRON_SECRET = process.env.VOLUME_BOT_CRON_SECRET || 'your-secret-key';
 
 function getSupabase() {
   const { createClient } = require('@supabase/supabase-js');
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY!
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  
+  console.log('Supabase URL:', url ? url.slice(0, 30) + '...' : 'MISSING');
+  console.log('Supabase Key:', key ? 'SET' : 'MISSING');
+  
+  if (!url || !key) {
+    throw new Error(`Missing Supabase config: URL=${!!url}, KEY=${!!key}`);
+  }
+  
+  return createClient(url, key);
 }
 
 async function sendMessage(chatId: number, text: string, parseMode: 'HTML' | 'Markdown' = 'HTML') {
