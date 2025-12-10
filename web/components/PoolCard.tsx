@@ -1323,7 +1323,7 @@ export default function PoolCard(props: PoolCardProps) {
                   <div className="relative">
                     <input
                       type="number"
-                      value={amount}
+                      value={amount || ''}
                       onChange={(e) => setAmount(Number(e.target.value))}
                       className="w-full p-2.5 sm:p-3 pr-12 sm:pr-16 rounded-lg bg-white/[0.02] text-white border border-white/[0.05] focus:border-[#fb57ff] focus:outline-none text-base sm:text-lg font-semibold"
                       placeholder="0.00"
