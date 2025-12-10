@@ -2,11 +2,6 @@ import { prisma } from "@/lib/prisma";
 import LocksClient from "./LocksClient";
 import type { Metadata } from "next";
 
-export const metadata: Metadata = {
-  title: "Token Locks",
-  description: "Lock your tokens for a specified duration and track unlock progress",
-};
-
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 

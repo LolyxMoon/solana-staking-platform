@@ -5,6 +5,7 @@ import { Lock, Plus, Search, Filter } from "lucide-react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import LockCard from "@/components/LockCard";
 import CreateLockModal from "@/components/CreateLockModal";
+import LocksStructuredData from "@/components/LocksStructuredData";
 
 interface Lock {
   id: string;
@@ -97,6 +98,8 @@ export default function LocksClient({ locks: initialLocks }: LocksClientProps) {
 
   return (
     <>
+      <LocksStructuredData />
+      
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -211,4 +214,3 @@ export default function LocksClient({ locks: initialLocks }: LocksClientProps) {
     </>
   );
 }
-
