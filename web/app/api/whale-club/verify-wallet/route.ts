@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Transaction, PublicKey, Connection } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
-import nacl from 'tweetnacl';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,59 +66,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Verification expired' }, { status: 401 });
     }
 
-    // Validate wallet address
-    let walletPubkey: PublicKey;
-    try {
-      walletPubkey = new PublicKey(wallet);
-    } catch {
-      return NextResponse.json({ error: 'Invalid wallet address' }, { status: 400 });
+    // Deserialize and verify the transaction signature
+    const txBytes = Buffer.from(signedTransaction, 'base64');
+    const transaction = Transaction.from(txBytes);
+    
+    // Verify the transaction is signed by the wallet
+    const walletPubkey = new PublicKey(wallet);
+    const isValid = transaction.verifySignatures();
+    
+    if (!isValid) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
 
-    // Deserialize the transaction
-    let transaction: Transaction;
-    try {
-      const txBytes = Buffer.from(signedTransaction, 'base64');
-      transaction = Transaction.from(txBytes);
-    } catch (err) {
-      console.error('Failed to deserialize transaction:', err);
-      return NextResponse.json({ error: 'Invalid transaction format' }, { status: 401 });
-    }
-
-    // Check if transaction has signatures
-    if (!transaction.signatures || transaction.signatures.length === 0) {
-      return NextResponse.json({ error: 'Transaction not signed' }, { status: 401 });
-    }
-
-    // Find the signature from the wallet
-    const walletSig = transaction.signatures.find(
-      (sig) => sig.publicKey && sig.publicKey.equals(walletPubkey)
-    );
-
-    if (!walletSig) {
-      return NextResponse.json({ error: 'Wallet signature not found in transaction' }, { status: 401 });
-    }
-
-    if (!walletSig.signature) {
-      return NextResponse.json({ error: 'Signature is empty' }, { status: 401 });
-    }
-
-    // Manually verify the signature using nacl
-    try {
-      const message = transaction.serializeMessage();
-      const signature = walletSig.signature;
-      
-      const isValid = nacl.sign.detached.verify(
-        message,
-        signature,
-        walletPubkey.toBytes()
-      );
-
-      if (!isValid) {
-        return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
-      }
-    } catch (err) {
-      console.error('Signature verification error:', err);
-      return NextResponse.json({ error: 'Signature verification failed' }, { status: 401 });
+    // Check if the signer matches the wallet
+    const signerPubkey = transaction.signatures[0]?.publicKey;
+    if (!signerPubkey || !signerPubkey.equals(walletPubkey)) {
+      return NextResponse.json({ error: 'Signer mismatch' }, { status: 401 });
     }
 
     // Verify user holds 10M+ SPT
@@ -128,14 +90,9 @@ export async function POST(request: NextRequest) {
     const stakedBalance = await getStakedBalance(wallet);
     const totalBalance = walletBalance + stakedBalance;
 
-    console.log(`Whale verification for ${wallet}: wallet=${walletBalance}, staked=${stakedBalance}, total=${totalBalance}`);
-
     if (totalBalance < MIN_HOLDING) {
       return NextResponse.json({ 
-        error: `Insufficient SPT. You have ${Math.floor(totalBalance).toLocaleString()}, need ${MIN_HOLDING.toLocaleString()}`,
-        walletBalance: Math.floor(walletBalance),
-        stakedBalance: Math.floor(stakedBalance),
-        totalBalance: Math.floor(totalBalance),
+        error: `Insufficient SPT. You have ${Math.floor(totalBalance).toLocaleString()}, need ${MIN_HOLDING.toLocaleString()}` 
       }, { status: 403 });
     }
 
@@ -167,10 +124,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       success: true, 
       sessionToken,
-      expiresAt: expiresAt.toISOString(),
-      walletBalance: Math.floor(walletBalance),
-      stakedBalance: Math.floor(stakedBalance),
-      totalBalance: Math.floor(totalBalance),
+      expiresAt: expiresAt.toISOString()
     });
   } catch (error) {
     console.error('Verification error:', error);
