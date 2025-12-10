@@ -74,13 +74,24 @@ async function executeSwap(
   try {
     // Get quote
     const quoteUrl = `${JUPITER_QUOTE_API}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
-    const quoteRes = await fetch(quoteUrl);
+    console.log('Jupiter quote URL:', quoteUrl);
+    
+    const quoteRes = await fetch(quoteUrl, {
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+    
+    console.log('Quote response status:', quoteRes.status);
     
     if (!quoteRes.ok) {
-      return { success: false, error: 'Quote failed' };
+      const errorText = await quoteRes.text();
+      console.error('Quote error:', errorText);
+      return { success: false, error: `Quote failed: ${quoteRes.status} - ${errorText}` };
     }
     
     const quote = await quoteRes.json();
+    console.log('Quote received:', JSON.stringify(quote).slice(0, 200));
     
     if (!quote || quote.error) {
       return { success: false, error: quote?.error || 'No route found' };
@@ -89,7 +100,10 @@ async function executeSwap(
     // Get swap transaction
     const swapRes = await fetch(JUPITER_SWAP_API, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
       body: JSON.stringify({
         quoteResponse: quote,
         userPublicKey: wallet.publicKey.toString(),
@@ -99,14 +113,19 @@ async function executeSwap(
       }),
     });
 
+    console.log('Swap response status:', swapRes.status);
+
     if (!swapRes.ok) {
-      return { success: false, error: 'Swap request failed' };
+      const errorText = await swapRes.text();
+      console.error('Swap error:', errorText);
+      return { success: false, error: `Swap request failed: ${swapRes.status}` };
     }
 
     const swapData = await swapRes.json();
     
     if (!swapData.swapTransaction) {
-      return { success: false, error: 'No swap transaction returned' };
+      console.error('No swap transaction:', swapData);
+      return { success: false, error: swapData.error || 'No swap transaction returned' };
     }
 
     // Deserialize and sign
@@ -120,6 +139,8 @@ async function executeSwap(
       maxRetries: 2,
     });
 
+    console.log('Transaction sent:', signature);
+
     // Confirm
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
     await connection.confirmTransaction({
@@ -130,6 +151,7 @@ async function executeSwap(
 
     return { success: true, signature };
   } catch (error: any) {
+    console.error('Swap execution error:', error);
     return { success: false, error: error.message || 'Swap failed' };
   }
 }
