@@ -147,6 +147,8 @@ export async function POST(request: NextRequest) {
       case '/wallets': {
         const count = Math.min(Math.max(parseInt(args[0]) || 3, 1), 10);
         
+        console.log(`Generating ${count} wallets...`);
+        
         const wallets: { address: string; privateKey: string }[] = [];
         for (let i = 0; i < count; i++) {
           const kp = Keypair.generate();
@@ -156,15 +158,27 @@ export async function POST(request: NextRequest) {
           });
         }
 
+        console.log('Wallets generated:', wallets.map(w => w.address));
+
         // Clear old wallets and insert new
-        await supabase.from('volume_bot_wallets').delete().eq('bot_id', 'main');
+        const { error: deleteError } = await supabase.from('volume_bot_wallets').delete().eq('bot_id', 'main');
+        if (deleteError) {
+          console.error('Delete error:', deleteError);
+          await sendMessage(chatId, `❌ Failed to clear old wallets: ${deleteError.message}`);
+          break;
+        }
         
         for (const w of wallets) {
-          await supabase.from('volume_bot_wallets').insert({
+          const { error: insertError } = await supabase.from('volume_bot_wallets').insert({
             bot_id: 'main',
             wallet_address: w.address,
-            private_key_encrypted: w.privateKey, // In production, encrypt this!
+            private_key_encrypted: w.privateKey,
           });
+          if (insertError) {
+            console.error('Insert error:', insertError);
+            await sendMessage(chatId, `❌ Failed to save wallet: ${insertError.message}`);
+            break;
+          }
         }
 
         const walletList = wallets.map((w, i) => `${i + 1}. <code>${w.address}</code>`).join('\n');
