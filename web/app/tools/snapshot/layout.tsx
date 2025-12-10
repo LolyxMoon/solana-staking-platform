@@ -1,38 +1,26 @@
-import type { Metadata } from "next";
+import { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Solana Holder Snapshot | Token Holder List & Analytics",
-  description: "Free Solana holder snapshot tool. Get a complete list of all token holders with balances and percentages. Export to CSV for airdrops. Perfect for token analytics and community insights.",
+  title: "Holder Snapshot | Get Complete Token Holder List | StakePoint",
+  description:
+    "Take accurate snapshots of all SPL token holders on Solana. Export holder lists for airdrops, analyze distribution, track whale concentration. Powered by Helius API.",
   keywords: [
     "Solana holder snapshot",
     "token holder list",
+    "airdrop snapshot tool",
+    "holder distribution analysis",
     "SPL token holders",
+    "whale tracking Solana",
+    "token concentration",
+    "bulk airdrop list",
     "Solana token analytics",
-    "holder distribution",
-    "token holder export",
-    "airdrop snapshot",
-    "Solana holder checker",
-    "token holder CSV",
-    "wallet snapshot Solana",
-    "holder percentage",
-    "top holders Solana",
-    "token distribution analysis",
-    "Solana token scanner"
+    "holder export CSV",
   ],
   openGraph: {
-    title: "Solana Holder Snapshot | Token Holder Analytics",
-    description: "Free tool to snapshot all token holders on Solana. Get wallet addresses, balances, and percentages. Export for airdrops.",
-    url: "https://stakepoint.app/tools/snapshot",
-    siteName: "StakePoint",
+    title: "Holder Snapshot - Complete Token Holder Analysis",
+    description:
+      "Get accurate snapshots of all token holders. Export for airdrops, analyze whale concentration, track distribution.",
     type: "website",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Solana Holder Snapshot Tool",
-    description: "Get a complete list of all token holders with balances. Export to CSV for airdrops. Free to use.",
-  },
-  alternates: {
-    canonical: "https://stakepoint.app/tools/snapshot",
   },
 };
 
