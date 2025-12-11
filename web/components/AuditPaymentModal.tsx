@@ -5,7 +5,6 @@ import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { 
   PublicKey, 
   Transaction, 
-  VersionedTransaction,
   LAMPORTS_PER_SOL 
 } from "@solana/web3.js";
 import { 
@@ -14,8 +13,10 @@ import {
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { X, Loader2, Flame, ArrowRight, Check } from "lucide-react";
+import { getJupiterQuote, executeJupiterSwap } from "@/lib/jupiter-swap";
 
 const SPT_MINT = new PublicKey("5U2b4wNBfpgpYMGS4w8F7Pfoe6Rf5qfCWmfMKqvpump");
+const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 interface AuditPaymentModalProps {
   isOpen: boolean;
@@ -30,7 +31,7 @@ export default function AuditPaymentModal({
   onSuccess,
   solAmount,
 }: AuditPaymentModalProps) {
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
   
   const [step, setStep] = useState<"quote" | "swap" | "burn" | "complete">("quote");
@@ -51,18 +52,24 @@ export default function AuditPaymentModal({
     setLoading(true);
     setError(null);
     try {
-      const lamports = solAmount * LAMPORTS_PER_SOL;
-      const res = await fetch(
-        `https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${SPT_MINT.toString()}&amount=${lamports}&slippageBps=300`
+      const lamports = Math.floor(solAmount * LAMPORTS_PER_SOL);
+      
+      const quote = await getJupiterQuote(
+        SOL_MINT,
+        SPT_MINT.toString(),
+        lamports,
+        300, // 3% slippage
       );
       
-      if (!res.ok) throw new Error("Failed to get quote");
+      if (!quote || !quote.outAmount) {
+        throw new Error("Failed to get quote");
+      }
       
-      const quote = await res.json();
-      const sptOut = Number(quote.outAmount) / 1e6; // Assuming 6 decimals
+      const sptOut = Number(quote.outAmount) / 1e6; // SPT has 6 decimals
       setSptAmount(sptOut);
       setStep("quote");
     } catch (err: any) {
+      console.error("Quote error:", err);
       setError(err.message || "Failed to get quote");
     } finally {
       setLoading(false);
@@ -70,7 +77,7 @@ export default function AuditPaymentModal({
   };
 
   const executeSwapAndBurn = async () => {
-    if (!publicKey || !signTransaction || !sptAmount) return;
+    if (!publicKey || !sendTransaction || !sptAmount) return;
     
     setLoading(true);
     setError(null);
@@ -79,51 +86,32 @@ export default function AuditPaymentModal({
       // Step 1: Swap SOL -> SPT
       setStep("swap");
       
-      const lamports = solAmount * LAMPORTS_PER_SOL;
+      const lamports = Math.floor(solAmount * LAMPORTS_PER_SOL);
       
-      // Get fresh quote
-      const quoteRes = await fetch(
-        `https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${SPT_MINT.toString()}&amount=${lamports}&slippageBps=300`
+      console.log("🔄 Swapping SOL -> SPT...");
+      
+      const swapSig = await executeJupiterSwap(
+        connection,
+        publicKey,
+        SOL_MINT,
+        SPT_MINT.toString(),
+        lamports,
+        300, // 3% slippage
+        sendTransaction,
       );
       
-      if (!quoteRes.ok) throw new Error("Quote failed");
-      const quote = await quoteRes.json();
+      if (!swapSig) {
+        throw new Error("Swap failed - no signature returned");
+      }
       
-      // Get swap transaction
-      const swapRes = await fetch("https://quote-api.jup.ag/v6/swap", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          quoteResponse: quote,
-          userPublicKey: publicKey.toString(),
-          wrapAndUnwrapSol: true,
-          dynamicComputeUnitLimit: true,
-          prioritizationFeeLamports: "auto",
-        }),
-      });
-      
-      if (!swapRes.ok) throw new Error("Swap request failed");
-      const swapData = await swapRes.json();
-      
-      // Sign and send swap
-      const swapTxBuf = Buffer.from(swapData.swapTransaction, "base64");
-      const swapTx = VersionedTransaction.deserialize(swapTxBuf);
-      const signedSwapTx = await signTransaction(swapTx);
-      
-      const swapSig = await connection.sendRawTransaction(signedSwapTx.serialize(), {
-        skipPreflight: true,
-        maxRetries: 3,
-      });
-      
-      await connection.confirmTransaction(swapSig, "confirmed");
       setSwapSignature(swapSig);
       console.log("✅ Swap complete:", swapSig);
       
       // Step 2: Burn SPT tokens
       setStep("burn");
       
-      // Wait a moment for balance to update
-      await new Promise(r => setTimeout(r, 2000));
+      // Wait for balance to update
+      await new Promise(r => setTimeout(r, 3000));
       
       // Get actual SPT balance
       const sptAta = getAssociatedTokenAddressSync(
@@ -143,11 +131,12 @@ export default function AuditPaymentModal({
       }
       
       const sptBalance = Number(tokenAccounts.value[0].account.data.parsed.info.tokenAmount.amount);
-      const sptDecimals = tokenAccounts.value[0].account.data.parsed.info.tokenAmount.decimals;
       
       if (sptBalance <= 0) {
         throw new Error("Insufficient SPT balance to burn");
       }
+      
+      console.log("🔥 Burning", sptBalance, "SPT tokens...");
       
       // Create burn instruction
       const burnIx = createBurnInstruction(
@@ -165,10 +154,7 @@ export default function AuditPaymentModal({
       burnTx.recentBlockhash = blockhash;
       burnTx.feePayer = publicKey;
       
-      const signedBurnTx = await signTransaction(burnTx);
-      const burnSig = await connection.sendRawTransaction(signedBurnTx.serialize(), {
-        skipPreflight: false,
-      });
+      const burnSig = await sendTransaction(burnTx, connection);
       
       await connection.confirmTransaction({
         signature: burnSig,
