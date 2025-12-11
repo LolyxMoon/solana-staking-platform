@@ -157,7 +157,10 @@ export default function PoolCard(props: PoolCardProps) {
 
   const [projectData, setProjectData] = useState<any>(null);
   const [stakeData, setStakeData] = useState<any>(null);
-  
+
+  // Derive pool end time from blockchain data
+  const blockchainPoolEndTime = projectData?.poolEndTime?.toNumber?.() || projectData?.poolEndTime || null;
+
   const [reflectionBalance, setReflectionBalance] = useState<number>(0);
   const [reflectionLoading, setReflectionLoading] = useState(false);
   const [tokenDecimals, setTokenDecimals] = useState<number>(9);
@@ -323,9 +326,11 @@ export default function PoolCard(props: PoolCardProps) {
   }, [lockPeriod, type, userStakeTimestamp, currentTime]);
 
   const poolEndInfo = useMemo(() => {
-    if (!poolEndTime) return { hasEnded: false, endsAt: null, remainingSeconds: 0, status: 'none' };
+    const endTime = blockchainPoolEndTime || poolEndTime;
     
-    const remainingSeconds = Math.max(0, poolEndTime - currentTime);
+    if (!endTime) return { hasEnded: false, endsAt: null, remainingSeconds: 0, status: 'none' as const };
+    
+    const remainingSeconds = Math.max(0, endTime - currentTime);
     const daysRemaining = remainingSeconds / 86400;
     
     let status: 'ended' | 'critical' | 'warning' | 'active' | 'none' = 'active';
@@ -335,12 +340,12 @@ export default function PoolCard(props: PoolCardProps) {
     
     return {
       hasEnded: remainingSeconds === 0,
-      endsAt: new Date(poolEndTime * 1000),
+      endsAt: new Date(endTime * 1000),
       remainingSeconds,
       status,
       daysRemaining,
     };
-  }, [poolEndTime, currentTime]);
+  }, [blockchainPoolEndTime, poolEndTime, currentTime]);
 
   const feeCalculation = useMemo(() => {
     if (!amount || amount <= 0) return { tokenFee: 0, solFee: flatSolFee, amountAfterFee: 0 };
@@ -1160,7 +1165,7 @@ export default function PoolCard(props: PoolCardProps) {
           </div>
         </div>
 
-        {poolEndTime && !poolEndInfo.hasEnded && (
+        {(blockchainPoolEndTime || poolEndTime) && !poolEndInfo.hasEnded && (
           <div className={`p-2 rounded-lg relative z-10 border ${
             poolEndInfo.status === 'critical' 
               ? 'bg-red-500/10 border-red-500/30' 
@@ -1215,10 +1220,16 @@ export default function PoolCard(props: PoolCardProps) {
           </div>
           <div className="flex items-center gap-2">
             {realtimeRewards > 0 && (
-              <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#fb57ff' }} />
+              <div className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: '#fb57ff' }}></span>
+                <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: '#fb57ff' }}></span>
+              </div>
             )}
             {reflectionBalance > 0 && (
-              <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#fb57ff' }} />
+              <div className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: '#fb57ff' }}></span>
+                <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: '#fb57ff' }}></span>
+              </div>
             )}
           </div>
         </button>
