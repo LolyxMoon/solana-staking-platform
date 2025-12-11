@@ -6,7 +6,6 @@ import {
   VersionedTransaction,
   LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
-import { getAssociatedTokenAddress, getAccount } from '@solana/spl-token';
 import bs58 from 'bs58';
 
 export const dynamic = 'force-dynamic';
@@ -101,6 +100,26 @@ async function sendTelegramMessage(text: string) {
 
 function randomBetween(min: number, max: number): number {
   return Math.random() * (max - min) + min;
+}
+
+// Get token balance using getParsedTokenAccountsByOwner - more reliable
+async function getTokenBalance(connection: Connection, wallet: PublicKey, tokenMint: string): Promise<number> {
+  try {
+    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+      wallet,
+      { mint: new PublicKey(tokenMint) }
+    );
+    
+    if (tokenAccounts.value.length === 0) {
+      return 0;
+    }
+    
+    const balance = tokenAccounts.value[0].account.data.parsed.info.tokenAmount.amount;
+    return Number(balance);
+  } catch (err) {
+    console.error('Error getting token balance:', err);
+    return 0;
+  }
 }
 
 async function executeSwap(
@@ -215,22 +234,17 @@ async function tradeWithWallet(
     const wallet = Keypair.fromSecretKey(parsePrivateKey(walletData.private_key_encrypted));
     const walletAddress = wallet.publicKey.toString();
 
-    // Check balances
+    // Check SOL balance
     const solBalance = await connection.getBalance(wallet.publicKey);
-    let tokenBalance = 0;
     
-    try {
-      const ata = await getAssociatedTokenAddress(
-        new PublicKey(config.token_mint),
-        wallet.publicKey
-      );
-      const tokenAcc = await getAccount(connection, ata);
-      tokenBalance = Number(tokenAcc.amount);
-    } catch {}
+    // Check token balance using reliable method
+    const tokenBalance = await getTokenBalance(connection, wallet.publicKey, config.token_mint);
+    
+    console.log(`Wallet ${walletAddress.slice(0,8)}: SOL=${solBalance/LAMPORTS_PER_SOL}, Token=${tokenBalance}`);
 
     const minSolLamports = config.min_sol_amount * LAMPORTS_PER_SOL;
     const canBuy = solBalance > minSolLamports + 0.005 * LAMPORTS_PER_SOL;
-    const canSell = tokenBalance > 0;
+    const canSell = tokenBalance > 1000; // Min 1000 raw units to avoid dust
 
     let tradeType: 'buy' | 'sell';
     
