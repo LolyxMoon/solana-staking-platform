@@ -28,56 +28,63 @@ interface TokenSafetyResult {
   riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 }
 
-// Fetch LP info from RugCheck API
-async function fetchRugCheckData(mint: string): Promise<{
-  lpInfo: { burned: number; locked: number; unlocked: number; } | null;
-  risks: string[];
-}> {
+// Try RugCheck API for LP data
+async function fetchRugCheckLP(mint: string): Promise<{ burned: number; locked: number; unlocked: number; } | null> {
   try {
-    const res = await fetch(`https://api.rugcheck.xyz/v1/tokens/${mint}/report/summary`, {
+    const res = await fetch(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, {
       headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(5000),
     });
     
-    if (!res.ok) {
-      return { lpInfo: null, risks: [] };
-    }
+    if (!res.ok) return null;
 
     const data = await res.json();
     
-    // Extract LP info from RugCheck
-    let lpInfo: { burned: number; locked: number; unlocked: number; } | null = null;
-    
-    // RugCheck provides LP locked percentage in markets
+    // Try to extract LP info from various possible locations
     if (data.markets && data.markets.length > 0) {
-      const mainMarket = data.markets[0];
-      const lpLockedPct = mainMarket.lp?.lpLockedPct || 0;
-      const lpBurnedPct = mainMarket.lp?.lpBurnedPct || 0;
-      const lpUnlockedPct = 100 - lpLockedPct - lpBurnedPct;
-      
-      lpInfo = {
-        burned: lpBurnedPct,
-        locked: lpLockedPct,
-        unlocked: Math.max(0, lpUnlockedPct),
+      for (const market of data.markets) {
+        // Check for lp object
+        if (market.lp) {
+          const lpLockedPct = market.lp.lpLockedPct ?? market.lp.lockedPct ?? 0;
+          const lpBurnedPct = market.lp.lpBurnedPct ?? market.lp.burnedPct ?? 0;
+          if (lpLockedPct > 0 || lpBurnedPct > 0) {
+            return {
+              burned: lpBurnedPct,
+              locked: lpLockedPct,
+              unlocked: Math.max(0, 100 - lpLockedPct - lpBurnedPct),
+            };
+          }
+        }
+        
+        // Check for direct fields
+        if (market.lpLockedPct !== undefined || market.lpBurnedPct !== undefined) {
+          return {
+            burned: market.lpBurnedPct || 0,
+            locked: market.lpLockedPct || 0,
+            unlocked: Math.max(0, 100 - (market.lpLockedPct || 0) - (market.lpBurnedPct || 0)),
+          };
+        }
+      }
+    }
+    
+    // Check top-level
+    if (data.lpLockedPct !== undefined || data.lpBurnedPct !== undefined) {
+      return {
+        burned: data.lpBurnedPct || 0,
+        locked: data.lpLockedPct || 0,
+        unlocked: Math.max(0, 100 - (data.lpLockedPct || 0) - (data.lpBurnedPct || 0)),
       };
     }
 
-    // Extract risks
-    const risks: string[] = [];
-    if (data.risks) {
-      for (const risk of data.risks) {
-        risks.push(risk.name || risk.description);
-      }
-    }
-
-    return { lpInfo, risks };
+    return null;
   } catch (err) {
-    console.error("RugCheck API error:", err);
-    return { lpInfo: null, risks: [] };
+    console.log("RugCheck fetch failed:", err);
+    return null;
   }
 }
 
-// Alternative: Fetch from DexScreener liquidity info
-async function fetchDexScreenerLP(mint: string): Promise<{
+// Fetch from DexScreener - get labels and metadata
+async function fetchDexScreenerData(mint: string): Promise<{
   lpInfo: { burned: number; locked: number; unlocked: number; } | null;
   name: string;
   symbol: string;
@@ -85,7 +92,10 @@ async function fetchDexScreenerLP(mint: string): Promise<{
   createdAt: Date | null;
 }> {
   try {
-    const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+    const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    
     if (!dexRes.ok) {
       return { lpInfo: null, name: "Unknown", symbol: "???", logoURI: null, createdAt: null };
     }
@@ -113,21 +123,39 @@ async function fetchDexScreenerLP(mint: string): Promise<{
       createdAt = new Date(bestPair.pairCreatedAt);
     }
 
-    // DexScreener doesn't directly provide LP burn info
-    // but some pairs have labels
+    // Check labels for LP info (DexScreener shows these in UI)
     let lpInfo: { burned: number; locked: number; unlocked: number; } | null = null;
     
-    if (bestPair?.labels) {
-      const labels = bestPair.labels as string[];
-      if (labels.includes('LP Burn') || labels.includes('LP Burned')) {
+    if (bestPair?.labels && Array.isArray(bestPair.labels)) {
+      const labels = bestPair.labels.map((l: string) => l.toLowerCase());
+      
+      // Check for burn indicators
+      const hasBurn = labels.some((l: string) => 
+        l.includes('burn') || l.includes('burned') || l.includes('🔥')
+      );
+      
+      // Check for lock indicators  
+      const hasLock = labels.some((l: string) => 
+        l.includes('lock') || l.includes('locked') || l.includes('🔒')
+      );
+      
+      if (hasBurn) {
         lpInfo = { burned: 100, locked: 0, unlocked: 0 };
-      } else if (labels.includes('LP Locked')) {
+      } else if (hasLock) {
         lpInfo = { burned: 0, locked: 100, unlocked: 0 };
       }
     }
 
+    // Also check info object for additional data
+    if (!lpInfo && bestPair?.info) {
+      const info = bestPair.info;
+      // Some pairs have socials/websites that might indicate LP status
+      // This is a fallback check
+    }
+
     return { lpInfo, name, symbol, logoURI, createdAt };
-  } catch {
+  } catch (err) {
+    console.log("DexScreener fetch failed:", err);
     return { lpInfo: null, name: "Unknown", symbol: "???", logoURI: null, createdAt: null };
   }
 }
@@ -170,9 +198,9 @@ export async function POST(req: Request) {
     const isToken2022 = mintInfo.value.owner.toString() === "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
     // 2. Fetch data from multiple sources in parallel
-    const [dexScreenerData, rugCheckData] = await Promise.all([
-      fetchDexScreenerLP(mint),
-      fetchRugCheckData(mint),
+    const [dexScreenerData, rugCheckLP] = await Promise.all([
+      fetchDexScreenerData(mint),
+      fetchRugCheckLP(mint),
     ]);
 
     let name = dexScreenerData.name;
@@ -180,8 +208,11 @@ export async function POST(req: Request) {
     let logoURI = dexScreenerData.logoURI;
     let createdAt = dexScreenerData.createdAt;
     
-    // Prefer RugCheck LP info, fallback to DexScreener
-    let lpInfo = rugCheckData.lpInfo || dexScreenerData.lpInfo;
+    // Use RugCheck LP data if available, otherwise DexScreener labels
+    let lpInfo = rugCheckLP || dexScreenerData.lpInfo;
+    
+    console.log("LP Info sources - RugCheck:", rugCheckLP, "DexScreener:", dexScreenerData.lpInfo);
+    console.log("Final lpInfo:", lpInfo);
 
     // 3. Get top holders using Helius
     let topHolders: { wallet: string; percentage: number; }[] = [];

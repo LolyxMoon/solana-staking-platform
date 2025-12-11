@@ -18,7 +18,8 @@ import {
   ExternalLink,
   Copy,
   Check,
-  Droplets
+  Droplets,
+  HelpCircle
 } from "lucide-react";
 
 interface TokenSafetyResult {
@@ -28,27 +29,17 @@ interface TokenSafetyResult {
   decimals: number;
   totalSupply: number;
   logoURI: string | null;
-  
-  // Safety checks
   mintAuthority: { status: "safe" | "warning" | "danger"; value: string | null; };
   freezeAuthority: { status: "safe" | "warning" | "danger"; value: string | null; };
   isToken2022: boolean;
   hasTransferTax: { status: "safe" | "warning"; taxBps: number | null; };
   metadataMutable: { status: "safe" | "warning"; mutable: boolean; };
-  
-  // Holder analysis
   topHolders: { wallet: string; percentage: number; }[];
   top10Concentration: number;
   holderCount: number;
-  
-  // LP info
   lpInfo: { burned: number; locked: number; unlocked: number; } | null;
-  
-  // Age
   createdAt: Date | null;
   ageInDays: number | null;
-  
-  // Overall score
   overallScore: number;
   riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 }
@@ -91,6 +82,8 @@ export default function TokenSafetyScanner() {
       }
 
       const data = await res.json();
+      console.log("Token safety result:", data.result);
+      console.log("LP Info:", data.result?.lpInfo);
       setResult(data.result);
     } catch (err: any) {
       setError(err.message || "Failed to analyze token");
@@ -138,6 +131,14 @@ export default function TokenSafetyScanner() {
     if (num >= 1_000_000) return (num / 1_000_000).toFixed(2) + "M";
     if (num >= 1_000) return (num / 1_000).toFixed(2) + "K";
     return num.toLocaleString();
+  };
+
+  // Get LP status for display
+  const getLPStatus = (lpInfo: { burned: number; locked: number; unlocked: number; } | null) => {
+    if (!lpInfo) return "unknown";
+    if (lpInfo.burned > 50 || lpInfo.locked > 50) return "safe";
+    if (lpInfo.burned + lpInfo.locked > 30) return "warning";
+    return "danger";
   };
 
   return (
@@ -257,11 +258,6 @@ export default function TokenSafetyScanner() {
               <p className={`text-sm font-semibold ${getStatusColor(result.mintAuthority.status)}`}>
                 {result.mintAuthority.value ? "Active" : "Revoked ✓"}
               </p>
-              {result.mintAuthority.value && (
-                <p className="text-xs text-gray-500 mt-1 font-mono truncate">
-                  {result.mintAuthority.value}
-                </p>
-              )}
             </div>
 
             {/* Freeze Authority */}
@@ -276,11 +272,6 @@ export default function TokenSafetyScanner() {
               <p className={`text-sm font-semibold ${getStatusColor(result.freezeAuthority.status)}`}>
                 {result.freezeAuthority.value ? "Active" : "Revoked ✓"}
               </p>
-              {result.freezeAuthority.value && (
-                <p className="text-xs text-gray-500 mt-1 font-mono truncate">
-                  {result.freezeAuthority.value}
-                </p>
-              )}
             </div>
 
             {/* Transfer Tax */}
@@ -294,20 +285,6 @@ export default function TokenSafetyScanner() {
               </div>
               <p className={`text-sm font-semibold ${getStatusColor(result.hasTransferTax.status)}`}>
                 {result.hasTransferTax.taxBps ? `${(result.hasTransferTax.taxBps / 100).toFixed(2)}%` : "None ✓"}
-              </p>
-            </div>
-
-            {/* Metadata */}
-            <div className="p-4 bg-white/[0.02] rounded-lg border border-white/[0.05]">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-gray-400" />
-                  <span className="text-sm text-gray-400">Metadata</span>
-                </div>
-                {getStatusIcon(result.metadataMutable.status)}
-              </div>
-              <p className={`text-sm font-semibold ${getStatusColor(result.metadataMutable.status)}`}>
-                {result.metadataMutable.mutable ? "Mutable" : "Immutable ✓"}
               </p>
             </div>
 
@@ -327,7 +304,7 @@ export default function TokenSafetyScanner() {
                 {result.top10Concentration.toFixed(1)}%
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {result.holderCount.toLocaleString()} total holders
+                {result.holderCount.toLocaleString()} holders
               </p>
             </div>
 
@@ -345,99 +322,118 @@ export default function TokenSafetyScanner() {
               }`}>
                 {result.ageInDays !== null ? `${result.ageInDays} days` : "Unknown"}
               </p>
-              {result.createdAt && (
-                <p className="text-xs text-gray-500 mt-1">
-                  {new Date(result.createdAt).toLocaleDateString()}
-                </p>
-              )}
+            </div>
+
+            {/* Metadata */}
+            <div className="p-4 bg-white/[0.02] rounded-lg border border-white/[0.05]">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-gray-400" />
+                  <span className="text-sm text-gray-400">Metadata</span>
+                </div>
+                {getStatusIcon(result.metadataMutable.status)}
+              </div>
+              <p className={`text-sm font-semibold ${getStatusColor(result.metadataMutable.status)}`}>
+                {result.metadataMutable.mutable ? "Mutable" : "Immutable ✓"}
+              </p>
             </div>
           </div>
 
-          {/* LP Status */}
-          {result.lpInfo && (
-            <div className="p-4 bg-white/[0.02] rounded-lg border border-white/[0.05]">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Droplets className="w-4 h-4 text-blue-400" />
-                  <h3 className="text-sm font-semibold text-gray-300">Liquidity Pool Status</h3>
-                </div>
-                {getStatusIcon(
-                  result.lpInfo.burned > 50 || result.lpInfo.locked > 50 ? "safe" :
-                  result.lpInfo.burned + result.lpInfo.locked > 30 ? "warning" : "danger"
-                )}
+          {/* LP Status - ALWAYS VISIBLE */}
+          <div className="p-4 bg-white/[0.02] rounded-lg border border-white/[0.05]">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Droplets className="w-4 h-4 text-blue-400" />
+                <h3 className="text-sm font-semibold text-gray-300">Liquidity Pool Status</h3>
               </div>
-              
-              {/* LP Bar */}
-              <div className="h-4 rounded-full overflow-hidden flex bg-white/[0.05] mb-3">
-                {result.lpInfo.burned > 0 && (
-                  <div 
-                    className="h-full bg-gradient-to-r from-orange-500 to-red-500"
-                    style={{ width: `${result.lpInfo.burned}%` }}
-                    title={`Burned: ${result.lpInfo.burned.toFixed(1)}%`}
-                  />
-                )}
-                {result.lpInfo.locked > 0 && (
-                  <div 
-                    className="h-full bg-gradient-to-r from-green-500 to-emerald-500"
-                    style={{ width: `${result.lpInfo.locked}%` }}
-                    title={`Locked: ${result.lpInfo.locked.toFixed(1)}%`}
-                  />
-                )}
-                {result.lpInfo.unlocked > 0 && (
-                  <div 
-                    className="h-full bg-gradient-to-r from-gray-500 to-gray-600"
-                    style={{ width: `${result.lpInfo.unlocked}%` }}
-                    title={`Unlocked: ${result.lpInfo.unlocked.toFixed(1)}%`}
-                  />
-                )}
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <div className="flex items-center justify-center gap-1 mb-1">
-                    <Flame className="w-3 h-3 text-orange-400" />
-                    <span className="text-xs text-gray-400">Burned</span>
-                  </div>
-                  <p className={`text-sm font-bold ${result.lpInfo.burned > 50 ? "text-green-400" : result.lpInfo.burned > 0 ? "text-orange-400" : "text-gray-500"}`}>
-                    {result.lpInfo.burned.toFixed(1)}%
-                  </p>
-                </div>
-                <div>
-                  <div className="flex items-center justify-center gap-1 mb-1">
-                    <Lock className="w-3 h-3 text-green-400" />
-                    <span className="text-xs text-gray-400">Locked</span>
-                  </div>
-                  <p className={`text-sm font-bold ${result.lpInfo.locked > 50 ? "text-green-400" : result.lpInfo.locked > 0 ? "text-yellow-400" : "text-gray-500"}`}>
-                    {result.lpInfo.locked.toFixed(1)}%
-                  </p>
-                </div>
-                <div>
-                  <div className="flex items-center justify-center gap-1 mb-1">
-                    <AlertTriangle className="w-3 h-3 text-red-400" />
-                    <span className="text-xs text-gray-400">Unlocked</span>
-                  </div>
-                  <p className={`text-sm font-bold ${result.lpInfo.unlocked > 50 ? "text-red-400" : result.lpInfo.unlocked > 20 ? "text-yellow-400" : "text-green-400"}`}>
-                    {result.lpInfo.unlocked.toFixed(1)}%
-                  </p>
-                </div>
-              </div>
-
-              {result.lpInfo.unlocked > 50 && (
-                <div className="mt-3 p-2 bg-red-500/10 border border-red-500/30 rounded-lg">
-                  <p className="text-xs text-red-400 text-center">
-                    ⚠️ High rug pull risk - majority of LP is unlocked
-                  </p>
-                </div>
-              )}
-              {result.lpInfo.burned > 90 && (
-                <div className="mt-3 p-2 bg-green-500/10 border border-green-500/30 rounded-lg">
-                  <p className="text-xs text-green-400 text-center">
-                    ✓ LP burned - cannot be rugged via liquidity removal
-                  </p>
-                </div>
+              {result.lpInfo ? (
+                getStatusIcon(getLPStatus(result.lpInfo))
+              ) : (
+                <HelpCircle className="w-5 h-5 text-gray-500" />
               )}
             </div>
-          )}
+            
+            {result.lpInfo ? (
+              <>
+                {/* LP Bar */}
+                <div className="h-4 rounded-full overflow-hidden flex bg-white/[0.05] mb-3">
+                  {result.lpInfo.burned > 0 && (
+                    <div 
+                      className="h-full bg-gradient-to-r from-orange-500 to-red-500"
+                      style={{ width: `${result.lpInfo.burned}%` }}
+                      title={`Burned: ${result.lpInfo.burned.toFixed(1)}%`}
+                    />
+                  )}
+                  {result.lpInfo.locked > 0 && (
+                    <div 
+                      className="h-full bg-gradient-to-r from-green-500 to-emerald-500"
+                      style={{ width: `${result.lpInfo.locked}%` }}
+                      title={`Locked: ${result.lpInfo.locked.toFixed(1)}%`}
+                    />
+                  )}
+                  {result.lpInfo.unlocked > 0 && (
+                    <div 
+                      className="h-full bg-gradient-to-r from-gray-500 to-gray-600"
+                      style={{ width: `${result.lpInfo.unlocked}%` }}
+                      title={`Unlocked: ${result.lpInfo.unlocked.toFixed(1)}%`}
+                    />
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <div className="flex items-center justify-center gap-1 mb-1">
+                      <Flame className="w-3 h-3 text-orange-400" />
+                      <span className="text-xs text-gray-400">Burned</span>
+                    </div>
+                    <p className={`text-sm font-bold ${result.lpInfo.burned > 50 ? "text-green-400" : result.lpInfo.burned > 0 ? "text-orange-400" : "text-gray-500"}`}>
+                      {result.lpInfo.burned.toFixed(1)}%
+                    </p>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-center gap-1 mb-1">
+                      <Lock className="w-3 h-3 text-green-400" />
+                      <span className="text-xs text-gray-400">Locked</span>
+                    </div>
+                    <p className={`text-sm font-bold ${result.lpInfo.locked > 50 ? "text-green-400" : result.lpInfo.locked > 0 ? "text-yellow-400" : "text-gray-500"}`}>
+                      {result.lpInfo.locked.toFixed(1)}%
+                    </p>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-center gap-1 mb-1">
+                      <AlertTriangle className="w-3 h-3 text-red-400" />
+                      <span className="text-xs text-gray-400">Unlocked</span>
+                    </div>
+                    <p className={`text-sm font-bold ${result.lpInfo.unlocked > 50 ? "text-red-400" : result.lpInfo.unlocked > 20 ? "text-yellow-400" : "text-green-400"}`}>
+                      {result.lpInfo.unlocked.toFixed(1)}%
+                    </p>
+                  </div>
+                </div>
+
+                {result.lpInfo.unlocked > 50 && (
+                  <div className="mt-3 p-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+                    <p className="text-xs text-red-400 text-center">
+                      ⚠️ High rug pull risk - majority of LP is unlocked
+                    </p>
+                  </div>
+                )}
+                {result.lpInfo.burned > 90 && (
+                  <div className="mt-3 p-2 bg-green-500/10 border border-green-500/30 rounded-lg">
+                    <p className="text-xs text-green-400 text-center">
+                      ✓ LP burned - cannot be rugged via liquidity removal
+                    </p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-3">
+                <p className="text-sm text-gray-500">LP data not available</p>
+                <p className="text-xs text-gray-600 mt-1">
+                  Check <a href={`https://dexscreener.com/solana/${result.mint}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">DexScreener</a> or <a href={`https://rugcheck.xyz/tokens/${result.mint}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">RugCheck</a> for LP status
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* Top Holders */}
           {result.topHolders.length > 0 && (
@@ -484,13 +480,13 @@ export default function TokenSafetyScanner() {
               DexScreener
             </a>
             <a
-              href={`https://solscan.io/token/${result.mint}`}
+              href={`https://rugcheck.xyz/tokens/${result.mint}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 px-4 py-3 bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.1] rounded-lg font-semibold text-center transition-all flex items-center justify-center gap-2"
             >
               <ExternalLink className="w-4 h-4" />
-              Solscan
+              RugCheck
             </a>
             <button
               onClick={copyMint}
