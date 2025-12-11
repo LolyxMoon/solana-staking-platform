@@ -6,12 +6,10 @@ import bs58 from 'bs58';
 export const dynamic = 'force-dynamic';
 
 function parsePrivateKey(key: string): Uint8Array {
-  // Handle byte array format: [168,24,11,77,...]
   if (key.startsWith('[')) {
     const bytes = JSON.parse(key);
     return new Uint8Array(bytes);
   }
-  // Handle base58 format
   return bs58.decode(key);
 }
 
@@ -20,13 +18,13 @@ const ALLOWED_USER_IDS = process.env.VOLUME_BOT_ALLOWED_IDS?.split(',').map(id =
 const RPC_URL = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT!;
 const CRON_SECRET = process.env.VOLUME_BOT_CRON_SECRET || 'your-secret-key';
 
+// Track pending confirmations
+const pendingConfirmations: Map<number, { action: string; data: any; expires: number }> = new Map();
+
 function getSupabase() {
   const { createClient } = require('@supabase/supabase-js');
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_KEY;
-  
-  console.log('Supabase URL:', url ? url.slice(0, 30) + '...' : 'MISSING');
-  console.log('Supabase Key:', key ? 'SET' : 'MISSING');
   
   if (!url || !key) {
     throw new Error(`Missing Supabase config: URL=${!!url}, KEY=${!!key}`);
@@ -89,12 +87,16 @@ export async function POST(request: NextRequest) {
 /balances - Check all wallet balances
 /stats - View trading stats
 
+<b>Recovery:</b>
+/drain - Sell all tokens in all wallets to SOL
+/withdraw - Send all SOL back to master
+
 <b>Info:</b>
 /export - Export wallet keys
+/errors - View recent errors
 /cron - Get cron URL
 
-<b>Current Cron Secret:</b>
-<code>${CRON_SECRET}</code>
+<b>⚠️ IMPORTANT:</b> Always /export before /wallets!
         `);
         break;
       }
@@ -113,7 +115,6 @@ export async function POST(request: NextRequest) {
           break;
         }
 
-        // Try to get token info from DexScreener
         let symbol = 'TOKEN';
         let decimals = 9;
         try {
@@ -123,7 +124,6 @@ export async function POST(request: NextRequest) {
             symbol = data.pairs[0].baseToken.symbol;
           }
           
-          // Get decimals from chain
           const mintInfo = await connection.getParsedAccountInfo(new PublicKey(mint));
           if (mintInfo.value?.data && typeof mintInfo.value.data === 'object') {
             decimals = (mintInfo.value.data as any).parsed?.info?.decimals || 9;
@@ -147,42 +147,202 @@ export async function POST(request: NextRequest) {
       case '/wallets': {
         const count = Math.min(Math.max(parseInt(args[0]) || 3, 1), 10);
         
-        console.log(`Generating ${count} wallets...`);
-        
-        const wallets: { address: string; privateKey: string }[] = [];
-        for (let i = 0; i < count; i++) {
-          const kp = Keypair.generate();
-          wallets.push({
-            address: kp.publicKey.toString(),
-            privateKey: bs58.encode(kp.secretKey),
-          });
-        }
+        // Check if wallets already exist with funds
+        const { data: existingWallets } = await supabase
+          .from('volume_bot_wallets')
+          .select('wallet_address, private_key_encrypted')
+          .eq('bot_id', 'main');
 
-        console.log('Wallets generated:', wallets.map(w => w.address));
+        if (existingWallets && existingWallets.length > 0) {
+          // Check balances
+          let totalSol = 0;
+          let totalTokens = 0;
+          const { data: config } = await supabase
+            .from('volume_bot_config')
+            .select('token_mint, token_decimals')
+            .eq('bot_id', 'main')
+            .single();
 
-        // Clear old wallets and insert new
-        const { error: deleteError } = await supabase.from('volume_bot_wallets').delete().eq('bot_id', 'main');
-        if (deleteError) {
-          console.error('Delete error:', deleteError);
-          await sendMessage(chatId, `❌ Failed to clear old wallets: ${deleteError.message}`);
-          break;
-        }
-        
-        for (const w of wallets) {
-          const { error: insertError } = await supabase.from('volume_bot_wallets').insert({
-            bot_id: 'main',
-            wallet_address: w.address,
-            private_key_encrypted: w.privateKey,
-          });
-          if (insertError) {
-            console.error('Insert error:', insertError);
-            await sendMessage(chatId, `❌ Failed to save wallet: ${insertError.message}`);
+          for (const w of existingWallets) {
+            try {
+              const pubkey = new PublicKey(w.wallet_address);
+              const solBal = await connection.getBalance(pubkey);
+              totalSol += solBal / LAMPORTS_PER_SOL;
+
+              if (config?.token_mint) {
+                try {
+                  const ata = await getAssociatedTokenAddress(new PublicKey(config.token_mint), pubkey);
+                  const tokenAcc = await getAccount(connection, ata);
+                  totalTokens += Number(tokenAcc.amount) / Math.pow(10, config.token_decimals || 9);
+                } catch {}
+              }
+            } catch {}
+          }
+
+          if (totalSol > 0.001 || totalTokens > 0) {
+            await sendMessage(chatId, `
+⚠️ <b>WARNING: Existing wallets have funds!</b>
+
+<b>Current wallets:</b> ${existingWallets.length}
+<b>Total SOL:</b> ${totalSol.toFixed(4)}
+<b>Total tokens:</b> ${totalTokens.toLocaleString()}
+
+Creating new wallets will <b>DELETE</b> these forever!
+
+<b>Options:</b>
+1. /export - Save current keys first
+2. /drain - Sell tokens to SOL first
+3. /withdraw - Send SOL to master first
+4. /wallets_confirm ${count} - Proceed anyway (DANGEROUS)
+            `);
             break;
           }
         }
 
-        const walletList = wallets.map((w, i) => `${i + 1}. <code>${w.address}</code>`).join('\n');
-        await sendMessage(chatId, `✅ Generated ${count} wallets!\n\n${walletList}\n\n⚠️ Use /fund <sol> to fund them`);
+        // Safe to create - no existing wallets or they're empty
+        await createNewWallets(supabase, chatId, count);
+        break;
+      }
+
+      case '/wallets_confirm': {
+        const count = Math.min(Math.max(parseInt(args[0]) || 3, 1), 10);
+        await createNewWallets(supabase, chatId, count);
+        break;
+      }
+
+      case '/drain': {
+        const { data: wallets } = await supabase
+          .from('volume_bot_wallets')
+          .select('wallet_address, private_key_encrypted')
+          .eq('bot_id', 'main');
+
+        const { data: config } = await supabase
+          .from('volume_bot_config')
+          .select('token_mint, token_decimals, slippage_bps')
+          .eq('bot_id', 'main')
+          .single();
+
+        if (!wallets || wallets.length === 0) {
+          await sendMessage(chatId, '❌ No wallets');
+          break;
+        }
+
+        if (!config?.token_mint) {
+          await sendMessage(chatId, '❌ No token configured');
+          break;
+        }
+
+        await sendMessage(chatId, `⏳ Draining tokens from ${wallets.length} wallets...`);
+
+        let drained = 0;
+        let totalTokens = 0;
+
+        for (const w of wallets) {
+          try {
+            const wallet = Keypair.fromSecretKey(parsePrivateKey(w.private_key_encrypted));
+            const ata = await getAssociatedTokenAddress(new PublicKey(config.token_mint), wallet.publicKey);
+            
+            let tokenBalance = 0;
+            try {
+              const tokenAcc = await getAccount(connection, ata);
+              tokenBalance = Number(tokenAcc.amount);
+            } catch {
+              continue; // No token account
+            }
+
+            if (tokenBalance === 0) continue;
+
+            // Sell all tokens
+            const params = new URLSearchParams({
+              inputMint: config.token_mint,
+              outputMint: 'So11111111111111111111111111111111111111112',
+              amount: tokenBalance.toString(),
+              taker: wallet.publicKey.toString(),
+              slippageBps: (config.slippage_bps || 1000).toString(),
+            });
+
+            const orderRes = await fetch(`https://lite-api.jup.ag/ultra/v1/order?${params}`, {
+              headers: { 'Accept': 'application/json' },
+            });
+
+            if (!orderRes.ok) continue;
+
+            const orderData = await orderRes.json();
+            if (!orderData.transaction) continue;
+
+            const { VersionedTransaction } = await import('@solana/web3.js');
+            const tx = VersionedTransaction.deserialize(Buffer.from(orderData.transaction, 'base64'));
+            tx.sign([wallet]);
+
+            await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true });
+            
+            drained++;
+            totalTokens += tokenBalance / Math.pow(10, config.token_decimals || 9);
+          } catch (err) {
+            console.error('Drain error:', err);
+          }
+        }
+
+        await sendMessage(chatId, `✅ Drained ${drained} wallets\n💰 ~${totalTokens.toLocaleString()} tokens sold`);
+        break;
+      }
+
+      case '/withdraw': {
+        const masterKey = process.env.VOLUME_BOT_MASTER_KEY;
+        if (!masterKey) {
+          await sendMessage(chatId, '❌ VOLUME_BOT_MASTER_KEY not set');
+          break;
+        }
+
+        const masterWallet = Keypair.fromSecretKey(parsePrivateKey(masterKey));
+
+        const { data: wallets } = await supabase
+          .from('volume_bot_wallets')
+          .select('wallet_address, private_key_encrypted')
+          .eq('bot_id', 'main');
+
+        if (!wallets || wallets.length === 0) {
+          await sendMessage(chatId, '❌ No wallets');
+          break;
+        }
+
+        await sendMessage(chatId, `⏳ Withdrawing SOL to master...`);
+
+        const { Transaction, SystemProgram } = await import('@solana/web3.js');
+        let withdrawn = 0;
+        let totalSol = 0;
+
+        for (const w of wallets) {
+          try {
+            const wallet = Keypair.fromSecretKey(parsePrivateKey(w.private_key_encrypted));
+            const balance = await connection.getBalance(wallet.publicKey);
+            
+            // Leave 0.001 SOL for rent
+            const sendAmount = balance - 0.001 * LAMPORTS_PER_SOL;
+            if (sendAmount <= 0) continue;
+
+            const tx = new Transaction().add(
+              SystemProgram.transfer({
+                fromPubkey: wallet.publicKey,
+                toPubkey: masterWallet.publicKey,
+                lamports: Math.floor(sendAmount),
+              })
+            );
+
+            const { blockhash } = await connection.getLatestBlockhash();
+            tx.recentBlockhash = blockhash;
+            tx.feePayer = wallet.publicKey;
+            tx.sign(wallet);
+
+            await connection.sendRawTransaction(tx.serialize());
+            withdrawn++;
+            totalSol += sendAmount / LAMPORTS_PER_SOL;
+          } catch (err) {
+            console.error('Withdraw error:', err);
+          }
+        }
+
+        await sendMessage(chatId, `✅ Withdrew from ${withdrawn} wallets\n💰 ~${totalSol.toFixed(4)} SOL sent to master`);
         break;
       }
 
@@ -330,7 +490,7 @@ export async function POST(request: NextRequest) {
           .update({ is_running: true, updated_at: new Date().toISOString() })
           .eq('bot_id', 'main');
 
-        await sendMessage(chatId, `🚀 Bot started!\n\n<b>Token:</b> ${config.token_symbol}\n<b>Wallets:</b> ${wallets.length}\n<b>Amount:</b> ${config.min_sol_amount}-${config.max_sol_amount} SOL\n<b>Interval:</b> ${config.interval_seconds}s\n\n⚠️ Make sure cron is hitting /api/volume-bot/trade`);
+        await sendMessage(chatId, `🚀 Bot started!\n\n<b>Token:</b> ${config.token_symbol}\n<b>Wallets:</b> ${wallets.length}\n<b>Amount:</b> ${config.min_sol_amount}-${config.max_sol_amount} SOL\n<b>Interval:</b> ${config.interval_seconds}s\n<b>Slippage:</b> ${config.slippage_bps} bps`);
         break;
       }
 
@@ -417,11 +577,11 @@ export async function POST(request: NextRequest) {
             if (config?.token_mint) {
               balanceText += ` | ${tokenAmount.toLocaleString()} ${config.token_symbol}`;
             }
-            balanceText += '\n';
+            balanceText += `\n<code>${w.wallet_address}</code>\n\n`;
           } catch {}
         }
 
-        balanceText += `\n<b>Total:</b> ${totalSol.toFixed(4)} SOL`;
+        balanceText += `<b>Total:</b> ${totalSol.toFixed(4)} SOL`;
         if (config?.token_mint) {
           balanceText += ` | ${totalToken.toLocaleString()} ${config.token_symbol}`;
         }
@@ -431,29 +591,61 @@ export async function POST(request: NextRequest) {
       }
 
       case '/stats': {
-        const { data: stats } = await supabase
-          .from('volume_bot_stats')
-          .select('*')
-          .eq('bot_id', 'main')
-          .single();
+        const { data: trades } = await supabase
+          .from('volume_bot_trades')
+          .select('trade_type, sol_amount, status, created_at')
+          .eq('bot_id', 'main');
 
-        if (!stats || stats.total_trades === 0) {
+        if (!trades || trades.length === 0) {
           await sendMessage(chatId, '📊 No trades yet');
           break;
         }
 
+        const successful = trades.filter(t => t.status === 'success');
+        const buys = successful.filter(t => t.trade_type === 'buy');
+        const sells = successful.filter(t => t.trade_type === 'sell');
+        const errors = trades.filter(t => t.status === 'failed');
+        const totalVolume = successful.reduce((sum, t) => sum + (t.sol_amount || 0), 0);
+
+        const firstTrade = trades[trades.length - 1]?.created_at;
+        const lastTrade = trades[0]?.created_at;
+
         await sendMessage(chatId, `
 <b>📊 Trading Stats</b>
 
-<b>Total Trades:</b> ${stats.total_trades}
-<b>Buys:</b> ${stats.total_buys}
-<b>Sells:</b> ${stats.total_sells}
-<b>Errors:</b> ${stats.total_errors}
-<b>Volume:</b> ${parseFloat(stats.total_volume_sol).toFixed(4)} SOL
+<b>Total Trades:</b> ${successful.length}
+<b>Buys:</b> ${buys.length}
+<b>Sells:</b> ${sells.length}
+<b>Errors:</b> ${errors.length}
+<b>Volume:</b> ${totalVolume.toFixed(4)} SOL
 
-<b>First Trade:</b> ${stats.first_trade ? new Date(stats.first_trade).toLocaleString() : 'N/A'}
-<b>Last Trade:</b> ${stats.last_trade ? new Date(stats.last_trade).toLocaleString() : 'N/A'}
+<b>First Trade:</b> ${firstTrade ? new Date(firstTrade).toLocaleString() : 'N/A'}
+<b>Last Trade:</b> ${lastTrade ? new Date(lastTrade).toLocaleString() : 'N/A'}
         `);
+        break;
+      }
+
+      case '/errors': {
+        const { data: errors } = await supabase
+          .from('volume_bot_trades')
+          .select('wallet_address, error_message, created_at')
+          .eq('bot_id', 'main')
+          .eq('status', 'failed')
+          .order('created_at', { ascending: false })
+          .limit(5);
+
+        if (!errors || errors.length === 0) {
+          await sendMessage(chatId, '✅ No recent errors');
+          break;
+        }
+
+        let errorText = '<b>Recent Errors</b>\n\n';
+        for (const e of errors) {
+          errorText += `<b>${new Date(e.created_at).toLocaleTimeString()}</b>\n`;
+          errorText += `${e.error_message || 'Unknown error'}\n\n`;
+        }
+
+        await sendMessage(chatId, errorText);
         break;
       }
 
@@ -502,4 +694,34 @@ Interval: Every 1 minute
     console.error('Webhook error:', error);
     return NextResponse.json({ ok: true });
   }
+}
+
+async function createNewWallets(supabase: any, chatId: number, count: number) {
+  const wallets: { address: string; privateKey: string }[] = [];
+  for (let i = 0; i < count; i++) {
+    const kp = Keypair.generate();
+    wallets.push({
+      address: kp.publicKey.toString(),
+      privateKey: bs58.encode(kp.secretKey),
+    });
+  }
+
+  // Clear old wallets and insert new
+  await supabase.from('volume_bot_wallets').delete().eq('bot_id', 'main');
+  
+  for (const w of wallets) {
+    await supabase.from('volume_bot_wallets').insert({
+      bot_id: 'main',
+      wallet_address: w.address,
+      private_key_encrypted: w.privateKey,
+    });
+  }
+
+  let exportText = `✅ Generated ${count} wallets!\n\n`;
+  for (let i = 0; i < wallets.length; i++) {
+    exportText += `<b>${i + 1}.</b> <code>${wallets[i].address}</code>\n<code>${wallets[i].privateKey}</code>\n\n`;
+  }
+  exportText += `⚠️ <b>SAVE THESE KEYS!</b>\n\nUse /fund <sol> to fund them`;
+
+  await sendMessage(chatId, exportText);
 }
