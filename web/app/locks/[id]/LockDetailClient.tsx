@@ -92,7 +92,7 @@ export default function LockDetailClient({ lock: initialLock }: LockDetailClient
       return;
     }
 
-    if (!lock.poolId && lock.poolId !== 0) {
+    if (lock.poolId === null || lock.poolId === undefined) {
       setUnlockError("Pool ID not found. Cannot unlock.");
       return;
     }
@@ -101,7 +101,74 @@ export default function LockDetailClient({ lock: initialLock }: LockDetailClient
     setUnlockError("");
 
     try {
-      console.log("Unlocking tokens...", { tokenMint: lock.tokenMint, poolId: lock.poolId });
+      console.log("🔓 Starting unlock process...");
+      console.log("   Token Mint:", lock.tokenMint);
+      console.log("   Pool ID:", lock.poolId);
+      console.log("   Lock ID:", lock.lockId);
+      
+      // Import what we need for debugging
+      const { getProgram, getPDAs } = await import("@/lib/anchor-program");
+      const { PublicKey: PK } = await import("@solana/web3.js");
+      
+      const program = getProgram(wallet.adapter, connection);
+      const tokenMintPubkey = new PK(lock.tokenMint);
+      
+      // Derive PDAs
+      const [projectPDA] = getPDAs.project(tokenMintPubkey, lock.poolId);
+      const [stakingVaultPDA] = getPDAs.stakingVault(tokenMintPubkey, lock.poolId);
+      const [userStakePDA] = getPDAs.userStake(projectPDA, publicKey);
+      
+      console.log("🔍 PDAs:");
+      console.log("   Project PDA:", projectPDA.toString());
+      console.log("   Staking Vault:", stakingVaultPDA.toString());
+      console.log("   User Stake PDA:", userStakePDA.toString());
+      
+      // Check if project exists
+      try {
+        const project = await program.account.project.fetch(projectPDA, "confirmed");
+        console.log("✅ Project exists on-chain");
+        console.log("   Token Mint:", project.tokenMint.toString());
+        console.log("   Pool ID:", project.poolId.toString());
+        console.log("   Lockup:", project.lockupSeconds.toString(), "seconds");
+      } catch (e) {
+        console.error("❌ Project NOT FOUND on-chain!");
+        setUnlockError(`Project not found on-chain for poolId ${lock.poolId}. The lock may not have been created properly.`);
+        setIsUnlocking(false);
+        return;
+      }
+      
+      // Check if user stake exists
+      try {
+        const stake = await program.account.stake.fetch(userStakePDA, "confirmed");
+        console.log("✅ User stake exists on-chain");
+        console.log("   Staked Amount:", stake.amount.toString());
+        console.log("   Deposit Time:", new Date(stake.depositTime.toNumber() * 1000).toISOString());
+      } catch (e) {
+        console.error("❌ User stake NOT FOUND on-chain!");
+        setUnlockError("Your stake account doesn't exist on-chain. The lock may have already been unlocked or was never created.");
+        setIsUnlocking(false);
+        return;
+      }
+      
+      // Check vault balance
+      try {
+        const vaultBalance = await connection.getTokenAccountBalance(stakingVaultPDA);
+        console.log("✅ Vault balance:", vaultBalance.value.uiAmount);
+        
+        if (!vaultBalance.value.uiAmount || vaultBalance.value.uiAmount === 0) {
+          console.error("❌ Vault is EMPTY!");
+          setUnlockError("The staking vault is empty. Tokens may have already been withdrawn.");
+          setIsUnlocking(false);
+          return;
+        }
+      } catch (e) {
+        console.error("❌ Could not fetch vault balance:", e);
+        setUnlockError("Could not verify vault balance. The vault may not exist.");
+        setIsUnlocking(false);
+        return;
+      }
+      
+      console.log("✅ All checks passed, proceeding with unstake...");
       
       // Unstake the tokens
       await unstake(lock.tokenMint, lock.poolId);
@@ -120,7 +187,7 @@ export default function LockDetailClient({ lock: initialLock }: LockDetailClient
       
       alert("Tokens unlocked successfully! ✅");
     } catch (error: any) {
-      console.error("Error unlocking:", error);
+      console.error("❌ Error unlocking:", error);
       setUnlockError(error.message || "Failed to unlock tokens");
     } finally {
       setIsUnlocking(false);
