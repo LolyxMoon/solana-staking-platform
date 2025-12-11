@@ -27,7 +27,6 @@ const ADMIN_CHAT_ID = process.env.VOLUME_BOT_ADMIN_CHAT_ID;
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
-// Updated to match jupiter-swap.ts endpoints
 const JUPITER_QUOTE_LITE = 'https://lite-api.jup.ag/swap/v1/quote';
 const JUPITER_QUOTE_PRO = 'https://api.jup.ag/swap/v1/quote';
 const JUPITER_ULTRA_API = 'https://lite-api.jup.ag/ultra/v1/order';
@@ -73,7 +72,6 @@ async function executeSwap(
   slippageBps: number
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
-    // Build quote params (matching jupiter-swap.ts)
     const quoteParams = new URLSearchParams({
       inputMint,
       outputMint,
@@ -81,7 +79,6 @@ async function executeSwap(
       slippageBps: slippageBps.toString(),
     });
 
-    // Step 1: Get quote from Lite API, fallback to Pro
     console.log('📡 Fetching Jupiter quote...');
     let quoteRes = await fetch(`${JUPITER_QUOTE_LITE}?${quoteParams}`, {
       method: 'GET',
@@ -106,10 +103,8 @@ async function executeSwap(
     console.log('✅ Quote received:', {
       inAmount: quoteData.inAmount,
       outAmount: quoteData.outAmount,
-      priceImpact: quoteData.priceImpactPct,
     });
 
-    // Step 2: Get swap transaction from Ultra API (matching jupiter-swap.ts)
     const orderParams = new URLSearchParams({
       inputMint,
       outputMint,
@@ -141,17 +136,10 @@ async function executeSwap(
       return { success: false, error: 'No transaction returned from Ultra API' };
     }
 
-    console.log('✅ Order received:', {
-      requestId: orderData.requestId,
-      feeMint: orderData.feeMint,
-    });
-
-    // Step 3: Deserialize and sign
     const transactionBuf = Buffer.from(orderData.transaction, 'base64');
     const transaction = VersionedTransaction.deserialize(transactionBuf);
     transaction.sign([wallet]);
 
-    // Step 4: Send transaction
     const signature = await connection.sendRawTransaction(transaction.serialize(), {
       skipPreflight: true,
       maxRetries: 2,
@@ -159,7 +147,6 @@ async function executeSwap(
 
     console.log('Transaction sent:', signature);
 
-    // Step 5: Confirm
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
     const confirmation = await connection.confirmTransaction({
       signature,
@@ -176,6 +163,116 @@ async function executeSwap(
   } catch (error: any) {
     console.error('Swap execution error:', error);
     return { success: false, error: error.message || 'Swap failed' };
+  }
+}
+
+async function tradeWithWallet(
+  connection: Connection,
+  supabase: any,
+  config: any,
+  walletData: any
+): Promise<{ wallet: string; success: boolean; tradeType?: string; solAmount?: number; signature?: string; error?: string }> {
+  try {
+    const wallet = Keypair.fromSecretKey(parsePrivateKey(walletData.private_key_encrypted));
+    const walletAddress = wallet.publicKey.toString();
+
+    // Check balances
+    const solBalance = await connection.getBalance(wallet.publicKey);
+    let tokenBalance = 0;
+    
+    try {
+      const ata = await getAssociatedTokenAddress(
+        new PublicKey(config.token_mint),
+        wallet.publicKey
+      );
+      const tokenAcc = await getAccount(connection, ata);
+      tokenBalance = Number(tokenAcc.amount);
+    } catch {}
+
+    const minSolLamports = config.min_sol_amount * LAMPORTS_PER_SOL;
+    const canBuy = solBalance > minSolLamports + 0.005 * LAMPORTS_PER_SOL;
+    const canSell = tokenBalance > 0;
+
+    let tradeType: 'buy' | 'sell';
+    
+    if (canBuy && canSell) {
+      tradeType = Math.random() < (config.buy_probability || 0.5) ? 'buy' : 'sell';
+    } else if (canBuy) {
+      tradeType = 'buy';
+    } else if (canSell) {
+      tradeType = 'sell';
+    } else {
+      return { 
+        wallet: walletAddress, 
+        success: false, 
+        error: 'insufficient_balance' 
+      };
+    }
+
+    const solAmount = randomBetween(config.min_sol_amount, config.max_sol_amount);
+    
+    let inputMint: string;
+    let outputMint: string;
+    let amount: number;
+
+    if (tradeType === 'buy') {
+      inputMint = SOL_MINT;
+      outputMint = config.token_mint;
+      amount = Math.floor(solAmount * LAMPORTS_PER_SOL);
+    } else {
+      inputMint = config.token_mint;
+      outputMint = SOL_MINT;
+      const sellPercent = randomBetween(0.1, 0.5);
+      amount = Math.floor(tokenBalance * sellPercent);
+    }
+
+    // Log trade attempt
+    const { data: tradeLog } = await supabase
+      .from('volume_bot_trades')
+      .insert({
+        bot_id: 'main',
+        wallet_address: walletAddress,
+        trade_type: tradeType,
+        sol_amount: solAmount,
+        status: 'pending',
+      })
+      .select()
+      .single();
+
+    // Execute swap
+    const result = await executeSwap(
+      connection,
+      wallet,
+      inputMint,
+      outputMint,
+      amount,
+      config.slippage_bps || 300
+    );
+
+    // Update trade log
+    await supabase
+      .from('volume_bot_trades')
+      .update({
+        status: result.success ? 'success' : 'failed',
+        signature: result.signature,
+        error_message: result.error,
+      })
+      .eq('id', tradeLog.id);
+
+    return {
+      wallet: walletAddress,
+      success: result.success,
+      tradeType,
+      solAmount,
+      signature: result.signature,
+      error: result.error,
+    };
+  } catch (error: any) {
+    return {
+      wallet: walletData.wallet_address,
+      success: false,
+      error: error.message,
+    };
   }
 }
 
@@ -238,123 +335,37 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Pick random wallet
-    const randomWallet = wallets[Math.floor(Math.random() * wallets.length)];
-    const wallet = Keypair.fromSecretKey(parsePrivateKey(randomWallet.private_key_encrypted));
-
-    // Decide buy or sell
-    const solBalance = await connection.getBalance(wallet.publicKey);
-    let tokenBalance = 0;
+    // Execute trades for ALL wallets simultaneously
+    console.log(`🚀 Trading with ${wallets.length} wallets...`);
     
-    try {
-      const ata = await getAssociatedTokenAddress(
-        new PublicKey(config.token_mint),
-        wallet.publicKey
-      );
-      const tokenAcc = await getAccount(connection, ata);
-      tokenBalance = Number(tokenAcc.amount);
-    } catch {}
+    const tradePromises = wallets.map(w => tradeWithWallet(connection, supabase, config, w));
+    const results = await Promise.all(tradePromises);
 
-    const minSolLamports = config.min_sol_amount * LAMPORTS_PER_SOL;
-    const canBuy = solBalance > minSolLamports + 0.005 * LAMPORTS_PER_SOL;
-    const canSell = tokenBalance > 0;
+    // Count results
+    const successful = results.filter(r => r.success);
+    const failed = results.filter(r => !r.success);
+    const totalVolume = successful.reduce((sum, r) => sum + (r.solAmount || 0), 0);
 
-    let tradeType: 'buy' | 'sell';
-    
-    if (canBuy && canSell) {
-      tradeType = Math.random() < (config.buy_probability || 0.5) ? 'buy' : 'sell';
-    } else if (canBuy) {
-      tradeType = 'buy';
-    } else if (canSell) {
-      tradeType = 'sell';
-    } else {
-      return NextResponse.json({ 
-        status: 'insufficient_balance',
-        wallet: wallet.publicKey.toString(),
-        sol: solBalance / LAMPORTS_PER_SOL,
-        token: tokenBalance / Math.pow(10, config.token_decimals || 9)
-      });
-    }
-
-    // Calculate amount
-    const solAmount = randomBetween(config.min_sol_amount, config.max_sol_amount);
-    
-    let inputMint: string;
-    let outputMint: string;
-    let amount: number;
-
-    if (tradeType === 'buy') {
-      inputMint = SOL_MINT;
-      outputMint = config.token_mint;
-      amount = Math.floor(solAmount * LAMPORTS_PER_SOL);
-    } else {
-      inputMint = config.token_mint;
-      outputMint = SOL_MINT;
-      const sellPercent = randomBetween(0.1, 0.5);
-      amount = Math.floor(tokenBalance * sellPercent);
-    }
-
-    // Log trade attempt
-    const { data: tradeLog } = await supabase
-      .from('volume_bot_trades')
-      .insert({
-        bot_id: 'main',
-        wallet_address: wallet.publicKey.toString(),
-        trade_type: tradeType,
-        sol_amount: solAmount,
-        status: 'pending',
-      })
-      .select()
-      .single();
-
-    // Execute swap
-    const result = await executeSwap(
-      connection,
-      wallet,
-      inputMint,
-      outputMint,
-      amount,
-      config.slippage_bps || 300
-    );
-
-    // Update trade log
-    await supabase
-      .from('volume_bot_trades')
-      .update({
-        status: result.success ? 'success' : 'failed',
-        signature: result.signature,
-        error_message: result.error,
-      })
-      .eq('id', tradeLog.id);
-
-    // Update stats
-    if (result.success) {
-      await supabase.rpc('increment_volume_stats', {
-        p_bot_id: 'main',
-        p_trade_type: tradeType,
-        p_sol_amount: solAmount,
-      });
-    } else {
-      await supabase.rpc('increment_volume_errors', { p_bot_id: 'main' });
-    }
-
-    // Send notification
-    if (result.success) {
-      const emoji = tradeType === 'buy' ? '🟢' : '🔴';
+    // Send summary notification
+    if (successful.length > 0) {
+      const buys = successful.filter(r => r.tradeType === 'buy').length;
+      const sells = successful.filter(r => r.tradeType === 'sell').length;
+      
       await sendTelegramMessage(
-        `${emoji} <b>${tradeType.toUpperCase()}</b> ${solAmount.toFixed(4)} SOL\n` +
-        `Wallet: <code>${wallet.publicKey.toString().slice(0, 8)}...</code>\n` +
-        `<a href="https://solscan.io/tx/${result.signature}">View TX</a>`
+        `⚡ <b>Batch Trade</b>\n` +
+        `✅ ${successful.length}/${results.length} success\n` +
+        `🟢 ${buys} buys | 🔴 ${sells} sells\n` +
+        `💰 ${totalVolume.toFixed(4)} SOL volume`
       );
     }
 
     return NextResponse.json({
-      status: result.success ? 'success' : 'failed',
-      trade_type: tradeType,
-      sol_amount: solAmount,
-      wallet: wallet.publicKey.toString(),
-      signature: result.signature,
-      error: result.error,
+      status: 'completed',
+      total_wallets: wallets.length,
+      successful: successful.length,
+      failed: failed.length,
+      total_volume: totalVolume,
+      results,
     });
   } catch (error: any) {
     console.error('Trade error:', error);
