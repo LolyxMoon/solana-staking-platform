@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Sparkles, BarChart3, Wrench, Send, Camera } from "lucide-react";
+import { Sparkles, BarChart3, Wrench, Send, Camera, Shield, ShieldCheck } from "lucide-react";
 
 const tools = [
   {
@@ -9,38 +9,60 @@ const tools = [
     description: "Burn dust tokens and close empty accounts to reclaim SOL rent",
     href: "/tools/wallet-cleanup",
     icon: Sparkles,
-    tags: ["Burn tokens under $1", "Close empty accounts", "Reclaim ~0.002 SOL per account"],
+    tags: ["Burn dust", "Close accounts", "Reclaim SOL"],
     available: true,
+    color: "from-orange-500 to-red-500",
   },
   {
     title: "Wallet Analyzer",
     description: "Portfolio breakdown, PnL tracking, and wallet insights",
     href: "/tools/wallet-analyzer",
     icon: BarChart3,
-    tags: ["Portfolio value", "PnL tracking", "24h changes"],
+    tags: ["Portfolio", "PnL tracking", "Analytics"],
     available: true,
+    color: "from-blue-500 to-cyan-500",
   },
   {
     title: "Airdrop Tool",
     description: "Send tokens to multiple wallets in batches",
     href: "/tools/airdrop",
     icon: Send,
-    tags: ["Batch transfers", "CSV upload", "Multi-recipient"],
+    tags: ["Batch transfers", "CSV upload", "Multi-send"],
     available: true,
+    color: "from-green-500 to-emerald-500",
   },
   {
     title: "Holder Snapshot",
     description: "Get a list of all token holders with balances",
     href: "/tools/snapshot",
     icon: Camera,
-    tags: ["Holder list", "Export CSV", "Token analytics"],
+    tags: ["Holder list", "Export CSV", "Analytics"],
     available: true,
+    color: "from-purple-500 to-pink-500",
+  },
+  {
+    title: "Token Safety",
+    description: "Free security scan for any SPL token",
+    href: "/tools/token-safety",
+    icon: ShieldCheck,
+    tags: ["Free", "Mint check", "Holder analysis"],
+    available: true,
+    color: "from-green-500 to-teal-500",
+  },
+  {
+    title: "Contract Audit",
+    description: "Automated security audit for Solana programs",
+    href: "/tools/audit",
+    icon: Shield,
+    tags: ["Buy & burn SPT", "IDL analysis", "PDF report"],
+    available: true,
+    color: "from-[#fb57ff] to-purple-600",
   },
 ];
 
 export default function ToolsPage() {
   return (
-    <div className="max-w-4xl mx-auto pt-6">
+    <div className="max-w-6xl mx-auto pt-6 px-4">
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
@@ -54,65 +76,64 @@ export default function ToolsPage() {
         </div>
       </div>
 
-      {/* Tools Grid */}
-      <div className="space-y-4">
+      {/* Tools Grid - 3x2 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {tools.map((tool) => (
           tool.available ? (
             <Link
               key={tool.title}
               href={tool.href}
-              className="block p-6 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 transition-all group"
+              className="block p-5 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 transition-all group"
             >
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#fb57ff]/20 to-purple-600/20 flex items-center justify-center group-hover:from-[#fb57ff]/30 group-hover:to-purple-600/30 transition-all">
-                  <tool.icon className="w-6 h-6" style={{ color: '#fb57ff' }} />
+              <div className="flex flex-col h-full">
+                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${tool.color} flex items-center justify-center mb-4 group-hover:scale-105 transition-transform`}>
+                  <tool.icon className="w-6 h-6 text-white" />
                 </div>
                 <div className="flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 mb-1">
                     <h2 className="text-lg font-semibold text-white group-hover:text-[#fb57ff] transition-colors">
                       {tool.title}
                     </h2>
-                    <span className="text-gray-500 group-hover:text-[#fb57ff] transition-colors">→</span>
                   </div>
-                  <p className="text-gray-400 text-sm mt-1">{tool.description}</p>
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {tool.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="px-2 py-1 rounded-md bg-white/[0.03] border border-white/[0.05] text-xs text-gray-400"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
+                  <p className="text-gray-400 text-sm mb-3">{tool.description}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {tool.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="px-2 py-1 rounded-md bg-white/[0.03] border border-white/[0.05] text-xs text-gray-400"
+                    >
+                      {tag}
+                    </span>
+                  ))}
                 </div>
               </div>
             </Link>
           ) : (
             <div
               key={tool.title}
-              className="block p-6 rounded-xl bg-white/[0.01] border border-white/[0.03] border-dashed opacity-60"
+              className="block p-5 rounded-xl bg-white/[0.01] border border-white/[0.03] border-dashed opacity-60"
             >
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-white/[0.02] flex items-center justify-center">
+              <div className="flex flex-col h-full">
+                <div className="w-12 h-12 rounded-xl bg-white/[0.02] flex items-center justify-center mb-4">
                   <tool.icon className="w-6 h-6 text-gray-600" />
                 </div>
                 <div className="flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 mb-1">
                     <h2 className="text-lg font-semibold text-gray-500">{tool.title}</h2>
                     <span className="px-2 py-0.5 rounded text-xs bg-white/[0.05] text-gray-500">Coming Soon</span>
                   </div>
-                  <p className="text-gray-600 text-sm mt-1">{tool.description}</p>
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {tool.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="px-2 py-1 rounded-md bg-white/[0.02] border border-white/[0.03] text-xs text-gray-600"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
+                  <p className="text-gray-600 text-sm mb-3">{tool.description}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {tool.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="px-2 py-1 rounded-md bg-white/[0.02] border border-white/[0.03] text-xs text-gray-600"
+                    >
+                      {tag}
+                    </span>
+                  ))}
                 </div>
               </div>
             </div>
