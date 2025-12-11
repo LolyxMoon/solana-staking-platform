@@ -15,7 +15,7 @@ import {
 import { X, Loader2, Flame, ArrowRight, Check } from "lucide-react";
 import { getJupiterQuote, executeJupiterSwap } from "@/lib/jupiter-swap";
 
-const SPT_MINT = new PublicKey("5U2b4wNBfpgpYMGS4w8F7Pfoe6Rf5qfCWmfMKqvpump");
+const SPT_MINT = new PublicKey("6uUU2z5GBasaxnkcqiQVHa2SXL68mAXDsq1zYN5Qxrm7");
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 interface AuditPaymentModalProps {
