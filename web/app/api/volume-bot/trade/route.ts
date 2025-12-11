@@ -13,12 +13,10 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 function parsePrivateKey(key: string): Uint8Array {
-  // Handle byte array format: [168,24,11,77,...]
   if (key.startsWith('[')) {
     const bytes = JSON.parse(key);
     return new Uint8Array(bytes);
   }
-  // Handle base58 format
   return bs58.decode(key);
 }
 
@@ -28,8 +26,11 @@ const BOT_TOKEN = process.env.VOLUME_BOT_TOKEN;
 const ADMIN_CHAT_ID = process.env.VOLUME_BOT_ADMIN_CHAT_ID;
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
-const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6/quote';
-const JUPITER_SWAP_API = 'https://quote-api.jup.ag/v6/swap';
+
+// Updated to match jupiter-swap.ts endpoints
+const JUPITER_QUOTE_LITE = 'https://lite-api.jup.ag/swap/v1/quote';
+const JUPITER_QUOTE_PRO = 'https://api.jup.ag/swap/v1/quote';
+const JUPITER_ULTRA_API = 'https://lite-api.jup.ag/ultra/v1/order';
 
 function getSupabase() {
   const { createClient } = require('@supabase/supabase-js');
@@ -72,68 +73,85 @@ async function executeSwap(
   slippageBps: number
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
-    // Get quote
-    const quoteUrl = `${JUPITER_QUOTE_API}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
-    console.log('Jupiter quote URL:', quoteUrl);
-    
-    const quoteRes = await fetch(quoteUrl, {
-      headers: {
-        'Accept': 'application/json',
-      },
+    // Build quote params (matching jupiter-swap.ts)
+    const quoteParams = new URLSearchParams({
+      inputMint,
+      outputMint,
+      amount: amount.toString(),
+      slippageBps: slippageBps.toString(),
     });
-    
-    console.log('Quote response status:', quoteRes.status);
-    
+
+    // Step 1: Get quote from Lite API, fallback to Pro
+    console.log('📡 Fetching Jupiter quote...');
+    let quoteRes = await fetch(`${JUPITER_QUOTE_LITE}?${quoteParams}`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!quoteRes.ok) {
+      console.log('Lite API failed, trying Pro API...');
+      quoteRes = await fetch(`${JUPITER_QUOTE_PRO}?${quoteParams}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
+    }
+
     if (!quoteRes.ok) {
       const errorText = await quoteRes.text();
       console.error('Quote error:', errorText);
-      return { success: false, error: `Quote failed: ${quoteRes.status} - ${errorText}` };
-    }
-    
-    const quote = await quoteRes.json();
-    console.log('Quote received:', JSON.stringify(quote).slice(0, 200));
-    
-    if (!quote || quote.error) {
-      return { success: false, error: quote?.error || 'No route found' };
+      return { success: false, error: `Quote failed: ${quoteRes.status}` };
     }
 
-    // Get swap transaction
-    const swapRes = await fetch(JUPITER_SWAP_API, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify({
-        quoteResponse: quote,
-        userPublicKey: wallet.publicKey.toString(),
-        wrapAndUnwrapSol: true,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: 'auto',
-      }),
+    const quoteData = await quoteRes.json();
+    console.log('✅ Quote received:', {
+      inAmount: quoteData.inAmount,
+      outAmount: quoteData.outAmount,
+      priceImpact: quoteData.priceImpactPct,
     });
 
-    console.log('Swap response status:', swapRes.status);
+    // Step 2: Get swap transaction from Ultra API (matching jupiter-swap.ts)
+    const orderParams = new URLSearchParams({
+      inputMint,
+      outputMint,
+      amount: amount.toString(),
+      taker: wallet.publicKey.toString(),
+      slippageBps: slippageBps.toString(),
+    });
 
-    if (!swapRes.ok) {
-      const errorText = await swapRes.text();
-      console.error('Swap error:', errorText);
-      return { success: false, error: `Swap request failed: ${swapRes.status}` };
+    console.log('📡 Fetching Ultra order...');
+    const orderRes = await fetch(`${JUPITER_ULTRA_API}?${orderParams}`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!orderRes.ok) {
+      const errorText = await orderRes.text();
+      console.error('Order error:', errorText);
+      return { success: false, error: `Order failed: ${orderRes.status}` };
     }
 
-    const swapData = await swapRes.json();
+    const orderData = await orderRes.json();
     
-    if (!swapData.swapTransaction) {
-      console.error('No swap transaction:', swapData);
-      return { success: false, error: swapData.error || 'No swap transaction returned' };
+    if (orderData.error) {
+      console.error('Jupiter error:', orderData.error);
+      return { success: false, error: orderData.error };
+    }
+    
+    if (!orderData.transaction) {
+      return { success: false, error: 'No transaction returned from Ultra API' };
     }
 
-    // Deserialize and sign
-    const swapTxBuf = Buffer.from(swapData.swapTransaction, 'base64');
-    const transaction = VersionedTransaction.deserialize(swapTxBuf);
+    console.log('✅ Order received:', {
+      requestId: orderData.requestId,
+      feeMint: orderData.feeMint,
+    });
+
+    // Step 3: Deserialize and sign
+    const transactionBuf = Buffer.from(orderData.transaction, 'base64');
+    const transaction = VersionedTransaction.deserialize(transactionBuf);
     transaction.sign([wallet]);
 
-    // Send transaction
+    // Step 4: Send transaction
     const signature = await connection.sendRawTransaction(transaction.serialize(), {
       skipPreflight: true,
       maxRetries: 2,
@@ -141,14 +159,19 @@ async function executeSwap(
 
     console.log('Transaction sent:', signature);
 
-    // Confirm
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-    await connection.confirmTransaction({
+    // Step 5: Confirm
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
+    const confirmation = await connection.confirmTransaction({
       signature,
       blockhash,
       lastValidBlockHeight,
     }, 'confirmed');
 
+    if (confirmation.value.err) {
+      return { success: false, error: `Transaction failed: ${JSON.stringify(confirmation.value.err)}` };
+    }
+
+    console.log('✅ Swap confirmed!');
     return { success: true, signature };
   } catch (error: any) {
     console.error('Swap execution error:', error);
@@ -158,7 +181,6 @@ async function executeSwap(
 
 export async function GET(request: NextRequest) {
   try {
-    // Verify cron secret
     const { searchParams } = new URL(request.url);
     const secret = searchParams.get('secret');
     
@@ -234,13 +256,12 @@ export async function GET(request: NextRequest) {
     } catch {}
 
     const minSolLamports = config.min_sol_amount * LAMPORTS_PER_SOL;
-    const canBuy = solBalance > minSolLamports + 0.005 * LAMPORTS_PER_SOL; // Keep some for fees
+    const canBuy = solBalance > minSolLamports + 0.005 * LAMPORTS_PER_SOL;
     const canSell = tokenBalance > 0;
 
     let tradeType: 'buy' | 'sell';
     
     if (canBuy && canSell) {
-      // Random choice weighted by buy_probability
       tradeType = Math.random() < (config.buy_probability || 0.5) ? 'buy' : 'sell';
     } else if (canBuy) {
       tradeType = 'buy';
@@ -269,8 +290,7 @@ export async function GET(request: NextRequest) {
     } else {
       inputMint = config.token_mint;
       outputMint = SOL_MINT;
-      // Sell percentage of holdings
-      const sellPercent = randomBetween(0.1, 0.5); // 10-50%
+      const sellPercent = randomBetween(0.1, 0.5);
       amount = Math.floor(tokenBalance * sellPercent);
     }
 
@@ -306,6 +326,17 @@ export async function GET(request: NextRequest) {
         error_message: result.error,
       })
       .eq('id', tradeLog.id);
+
+    // Update stats
+    if (result.success) {
+      await supabase.rpc('increment_volume_stats', {
+        p_bot_id: 'main',
+        p_trade_type: tradeType,
+        p_sol_amount: solAmount,
+      });
+    } else {
+      await supabase.rpc('increment_volume_errors', { p_bot_id: 'main' });
+    }
 
     // Send notification
     if (result.success) {
