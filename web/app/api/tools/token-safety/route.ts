@@ -6,6 +6,22 @@ export const maxDuration = 30;
 
 const HELIUS_RPC = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT!;
 
+// Known burn addresses
+const BURN_ADDRESSES = new Set([
+  "1nc1nerator11111111111111111111111111111111",
+  "11111111111111111111111111111111",
+  "1111111111111111111111111111111111111111111",
+  "deaddeaddeaddeaddeaddeaddeaddeaddead",
+]);
+
+// Known locker program IDs
+const LOCKER_PROGRAMS = new Set([
+  "LocpQgucEQHbqNABEYvBvwoxCPsSbG91A1QaQhQQqjn", // Streamflow
+  "LockKXdYQVMbhhckwH3BxoYJ9FYatcZjwNGzuFwqHdP", // Jupiter Lock
+  "2r5VekMNiWPzi1pWwvJczrdPaZnJG59u91unSrTunwJg", // Raydium Lock
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", // Check specific accounts
+]);
+
 interface TokenSafetyResult {
   mint: string;
   name: string;
@@ -26,6 +42,96 @@ interface TokenSafetyResult {
   ageInDays: number | null;
   overallScore: number;
   riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+}
+
+// Check if an address is a burn address
+function isBurnAddress(address: string): boolean {
+  if (BURN_ADDRESSES.has(address)) return true;
+  // Check for addresses starting with "1111" or containing mostly 1s
+  if (address.startsWith("1111111111")) return true;
+  // Check for null-like addresses
+  if (address === "11111111111111111111111111111111") return true;
+  return false;
+}
+
+// Analyze LP token distribution
+async function analyzeLPTokens(
+  connection: Connection,
+  lpMint: string,
+  heliusRpc: string
+): Promise<{ burned: number; locked: number; unlocked: number; totalSupply: number }> {
+  try {
+    // Get LP mint info
+    const lpMintPubkey = new PublicKey(lpMint);
+    const lpMintInfo = await connection.getParsedAccountInfo(lpMintPubkey);
+    
+    if (!lpMintInfo.value?.data || typeof lpMintInfo.value.data !== "object") {
+      return { burned: 0, locked: 0, unlocked: 100, totalSupply: 0 };
+    }
+
+    const lpParsedData = (lpMintInfo.value.data as any).parsed?.info;
+    const lpDecimals = lpParsedData?.decimals || 9;
+    const lpTotalSupply = Number(lpParsedData?.supply || 0) / Math.pow(10, lpDecimals);
+
+    if (lpTotalSupply === 0) {
+      return { burned: 0, locked: 0, unlocked: 100, totalSupply: 0 };
+    }
+
+    // Get LP token holders
+    const holdersRes = await fetch(heliusRpc, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "lp-holders",
+        method: "getTokenAccounts",
+        params: {
+          mint: lpMint,
+          limit: 100,
+        },
+      }),
+    });
+
+    if (!holdersRes.ok) {
+      return { burned: 0, locked: 0, unlocked: 100, totalSupply: lpTotalSupply };
+    }
+
+    const holdersData = await holdersRes.json();
+    const accounts = holdersData.result?.token_accounts || [];
+
+    let burnedAmount = 0;
+    let lockedAmount = 0;
+    let unlockedAmount = 0;
+
+    for (const acc of accounts) {
+      const owner = acc.owner;
+      const amount = Number(acc.amount) / Math.pow(10, lpDecimals);
+
+      if (amount <= 0) continue;
+
+      if (isBurnAddress(owner)) {
+        burnedAmount += amount;
+      } else if (LOCKER_PROGRAMS.has(owner)) {
+        lockedAmount += amount;
+      } else {
+        // Check if owner is a PDA of a locker program
+        // For now, classify as unlocked
+        unlockedAmount += amount;
+      }
+    }
+
+    const totalTracked = burnedAmount + lockedAmount + unlockedAmount;
+    
+    // Calculate percentages
+    const burned = totalTracked > 0 ? (burnedAmount / totalTracked) * 100 : 0;
+    const locked = totalTracked > 0 ? (lockedAmount / totalTracked) * 100 : 0;
+    const unlocked = totalTracked > 0 ? (unlockedAmount / totalTracked) * 100 : 0;
+
+    return { burned, locked, unlocked, totalSupply: lpTotalSupply };
+  } catch (err) {
+    console.error("LP analysis error:", err);
+    return { burned: 0, locked: 0, unlocked: 100, totalSupply: 0 };
+  }
 }
 
 export async function POST(req: Request) {
@@ -70,12 +176,16 @@ export async function POST(req: Request) {
     let symbol = mint.slice(0, 4) + "..." + mint.slice(-4);
     let logoURI: string | null = null;
     let createdAt: Date | null = null;
+    let lpMint: string | null = null;
 
     try {
       const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
       if (dexRes.ok) {
         const dexData = await dexRes.json();
-        const bestPair = dexData.pairs?.sort(
+        const pairs = dexData.pairs || [];
+        
+        // Sort by liquidity
+        const bestPair = pairs.sort(
           (a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
         )[0];
 
@@ -87,6 +197,11 @@ export async function POST(req: Request) {
         
         if (bestPair?.pairCreatedAt) {
           createdAt = new Date(bestPair.pairCreatedAt);
+        }
+
+        // Get LP mint from pair address (for Raydium)
+        if (bestPair?.pairAddress) {
+          lpMint = bestPair.pairAddress;
         }
       }
     } catch {
@@ -147,12 +262,28 @@ export async function POST(req: Request) {
       console.error("Error fetching holders:", err);
     }
 
-    // 4. Check for transfer tax (Token-2022 extension)
+    // 4. Analyze LP tokens (burned/locked/unlocked)
+    let lpInfo: { burned: number; locked: number; unlocked: number; } | null = null;
+    
+    if (lpMint) {
+      try {
+        const lpAnalysis = await analyzeLPTokens(connection, lpMint, HELIUS_RPC);
+        if (lpAnalysis.totalSupply > 0) {
+          lpInfo = {
+            burned: lpAnalysis.burned,
+            locked: lpAnalysis.locked,
+            unlocked: lpAnalysis.unlocked,
+          };
+        }
+      } catch (err) {
+        console.error("LP analysis failed:", err);
+      }
+    }
+
+    // 5. Check for transfer tax (Token-2022 extension)
     let taxBps: number | null = null;
     if (isToken2022) {
       try {
-        // Token-2022 extensions are in the account data
-        // For simplicity, we'll check if there's a transfer fee config
         const extensions = (mintInfo.value.data as any).parsed?.info?.extensions;
         if (extensions) {
           const transferFee = extensions.find((e: any) => e.extension === "transferFeeConfig");
@@ -166,7 +297,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 5. Check metadata mutability (Metaplex)
+    // 6. Check metadata mutability (Metaplex)
     let metadataMutable = true;
     try {
       const METADATA_PROGRAM = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
@@ -181,66 +312,66 @@ export async function POST(req: Request) {
 
       const metadataAccount = await connection.getAccountInfo(metadataPDA);
       if (metadataAccount) {
-        // Byte 0 is key, byte 1 is update authority present flag
-        // Byte at position ~1 + 32 + 32 + ... contains isMutable flag
-        // For simplicity, check if update authority exists
         const data = metadataAccount.data;
-        // isMutable is typically at a specific offset in v1 metadata
-        // This is a simplified check - in production use @metaplex-foundation/js
-        metadataMutable = data.length > 0; // Simplified - assume mutable if metadata exists
+        metadataMutable = data.length > 0;
       }
     } catch {
       // Default to mutable if can't determine
     }
 
-    // 6. Calculate age
+    // 7. Calculate age
     let ageInDays: number | null = null;
     if (createdAt) {
       ageInDays = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
     }
 
-    // 7. Calculate safety score
+    // 8. Calculate safety score
     let score = 100;
-    const issues: string[] = [];
 
     // Mint authority (-30 if active)
     if (mintAuthority) {
       score -= 30;
-      issues.push("Mint authority active");
     }
 
     // Freeze authority (-20 if active)
     if (freezeAuthority) {
       score -= 20;
-      issues.push("Freeze authority active");
     }
 
     // Transfer tax (-10 if exists)
     if (taxBps && taxBps > 0) {
       score -= 10;
-      if (taxBps > 500) score -= 10; // Extra penalty for high tax
-      issues.push("Has transfer tax");
+      if (taxBps > 500) score -= 10;
     }
 
     // Top holder concentration
     if (top10Concentration > 50) {
       score -= 20;
-      issues.push("High concentration");
     } else if (top10Concentration > 30) {
       score -= 10;
-      issues.push("Moderate concentration");
     }
 
     // Low holder count
     if (holderCount < 100) {
       score -= 10;
-      issues.push("Low holder count");
     }
 
     // New token
     if (ageInDays !== null && ageInDays < 7) {
       score -= 10;
-      issues.push("New token");
+    }
+
+    // LP risk assessment
+    if (lpInfo) {
+      if (lpInfo.unlocked > 80) {
+        // High rug risk - most LP is unlocked
+        score -= 20;
+      } else if (lpInfo.unlocked > 50) {
+        score -= 10;
+      } else if (lpInfo.burned > 90 || lpInfo.locked > 90) {
+        // Bonus for burned/locked LP
+        score += 5;
+      }
     }
 
     // Clamp score
@@ -280,7 +411,7 @@ export async function POST(req: Request) {
       topHolders,
       top10Concentration,
       holderCount,
-      lpInfo: null, // Could add LP analysis later
+      lpInfo,
       createdAt,
       ageInDays,
       overallScore: score,
