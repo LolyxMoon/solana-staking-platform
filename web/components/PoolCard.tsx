@@ -323,14 +323,22 @@ export default function PoolCard(props: PoolCardProps) {
   }, [lockPeriod, type, userStakeTimestamp, currentTime]);
 
   const poolEndInfo = useMemo(() => {
-    if (!poolEndTime) return { hasEnded: false, endsAt: null, remainingSeconds: 0 };
+    if (!poolEndTime) return { hasEnded: false, endsAt: null, remainingSeconds: 0, status: 'none' };
     
     const remainingSeconds = Math.max(0, poolEndTime - currentTime);
+    const daysRemaining = remainingSeconds / 86400;
+    
+    let status: 'ended' | 'critical' | 'warning' | 'active' | 'none' = 'active';
+    if (remainingSeconds === 0) status = 'ended';
+    else if (daysRemaining < 1) status = 'critical';
+    else if (daysRemaining < 7) status = 'warning';
     
     return {
       hasEnded: remainingSeconds === 0,
       endsAt: new Date(poolEndTime * 1000),
       remainingSeconds,
+      status,
+      daysRemaining,
     };
   }, [poolEndTime, currentTime]);
 
@@ -1153,19 +1161,49 @@ export default function PoolCard(props: PoolCardProps) {
         </div>
 
         {poolEndTime && !poolEndInfo.hasEnded && (
-          <div className="bg-white/[0.02] border border-white/[0.05] p-2 rounded-lg relative z-10">
+          <div className={`p-2 rounded-lg relative z-10 border ${
+            poolEndInfo.status === 'critical' 
+              ? 'bg-red-500/10 border-red-500/30' 
+              : poolEndInfo.status === 'warning'
+              ? 'bg-yellow-500/10 border-yellow-500/30'
+              : 'bg-white/[0.02] border-white/[0.05]'
+          }`}>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1 sm:gap-1.5">
-                <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-gray-400 flex-shrink-0" />
-                <span className="text-[9px] sm:text-[10px] md:text-xs text-gray-400">Pool Ends In</span>
+                <Clock className={`w-3 h-3 sm:w-3.5 sm:h-3.5 flex-shrink-0 ${
+                  poolEndInfo.status === 'critical' 
+                    ? 'text-red-400' 
+                    : poolEndInfo.status === 'warning'
+                    ? 'text-yellow-400'
+                    : 'text-gray-400'
+                }`} />
+                <span className={`text-[9px] sm:text-[10px] md:text-xs ${
+                  poolEndInfo.status === 'critical' 
+                    ? 'text-red-400' 
+                    : poolEndInfo.status === 'warning'
+                    ? 'text-yellow-400'
+                    : 'text-gray-400'
+                }`}>
+                  {poolEndInfo.status === 'critical' ? 'Ending Soon!' : 'Pool Ends In'}
+                </span>
               </div>
-              <span className="text-white font-bold text-[11px] sm:text-xs md:text-sm">
+              <span className={`font-bold text-[11px] sm:text-xs md:text-sm ${
+                poolEndInfo.status === 'critical' 
+                  ? 'text-red-400' 
+                  : poolEndInfo.status === 'warning'
+                  ? 'text-yellow-400'
+                  : 'text-white'
+              }`}>
                 {formatTimeRemaining(poolEndInfo.remainingSeconds)}
               </span>
             </div>
+            {poolEndInfo.endsAt && (
+              <p className="text-[8px] sm:text-[9px] text-gray-500 mt-1">
+                {poolEndInfo.endsAt.toLocaleDateString()} at {poolEndInfo.endsAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            )}
           </div>
         )}
-
         <button
           onClick={() => setOpenModal("viewBalances")}
           disabled={!connected}
@@ -1323,7 +1361,7 @@ export default function PoolCard(props: PoolCardProps) {
                   <div className="relative">
                     <input
                       type="number"
-                      value={amount || ''}
+                      value={amount}
                       onChange={(e) => setAmount(Number(e.target.value))}
                       className="w-full p-2.5 sm:p-3 pr-12 sm:pr-16 rounded-lg bg-white/[0.02] text-white border border-white/[0.05] focus:border-[#fb57ff] focus:outline-none text-base sm:text-lg font-semibold"
                       placeholder="0.00"
