@@ -244,7 +244,7 @@ export default function SmartContractAudit() {
                 ) : (
                   <>
                     <Shield className="w-5 h-5" />
-                    Start Audit (0.01 SOL in SPT)
+                    Start Audit (2 SOL in SPT)
                   </>
                 )}
               </button>
@@ -416,7 +416,7 @@ export default function SmartContractAudit() {
         isOpen={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
         onSuccess={handlePaymentSuccess}
-        solAmount={0.01}
+        solAmount={2}
       />
     </div>
   );

@@ -33,6 +33,9 @@ const JUPITER_ULTRA_API = 'https://lite-api.jup.ag/ultra/v1/order';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY!;
 
+// Auto-drain threshold - if ANY wallet falls below this, drain ALL wallets
+const AUTO_DRAIN_THRESHOLD = 0.01 * LAMPORTS_PER_SOL;
+
 // Direct REST API calls - no SDK caching
 async function supabaseGet(table: string, query: string = '') {
   const res = await fetch(
@@ -120,6 +123,129 @@ async function getTokenBalance(connection: Connection, wallet: PublicKey, tokenM
     console.error('Error getting token balance:', err);
     return 0;
   }
+}
+
+// Drain a single wallet - sell all tokens to SOL
+async function drainWallet(
+  connection: Connection,
+  wallet: Keypair,
+  tokenMint: string,
+  slippageBps: number
+): Promise<{ success: boolean; tokensold: number; error?: string }> {
+  try {
+    const tokenBalance = await getTokenBalance(connection, wallet.publicKey, tokenMint);
+    
+    if (tokenBalance < 1000) {
+      // No tokens to drain
+      return { success: true, tokensold: 0 };
+    }
+
+    console.log(`🔄 Draining wallet ${wallet.publicKey.toString().slice(0,8)}: ${tokenBalance} tokens`);
+
+    const orderParams = new URLSearchParams({
+      inputMint: tokenMint,
+      outputMint: SOL_MINT,
+      amount: tokenBalance.toString(),
+      taker: wallet.publicKey.toString(),
+      slippageBps: slippageBps.toString(),
+    });
+
+    const orderRes = await fetch(`${JUPITER_ULTRA_API}?${orderParams}`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!orderRes.ok) {
+      const errorText = await orderRes.text();
+      return { success: false, tokensold: 0, error: `Order failed: ${errorText}` };
+    }
+
+    const orderData = await orderRes.json();
+    
+    if (orderData.error || !orderData.transaction) {
+      return { success: false, tokensold: 0, error: orderData.error || 'No transaction' };
+    }
+
+    const transactionBuf = Buffer.from(orderData.transaction, 'base64');
+    const transaction = VersionedTransaction.deserialize(transactionBuf);
+    transaction.sign([wallet]);
+
+    const signature = await connection.sendRawTransaction(transaction.serialize(), {
+      skipPreflight: true,
+      maxRetries: 2,
+    });
+
+    // Wait for confirmation
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
+    await connection.confirmTransaction({
+      signature,
+      blockhash,
+      lastValidBlockHeight,
+    }, 'confirmed');
+
+    console.log(`✅ Drained ${tokenBalance} tokens from ${wallet.publicKey.toString().slice(0,8)}`);
+    return { success: true, tokensold: tokenBalance };
+  } catch (error: any) {
+    console.error('Drain error:', error);
+    return { success: false, tokensold: 0, error: error.message };
+  }
+}
+
+// Drain ALL wallets - sell all tokens to SOL
+async function drainAllWallets(
+  connection: Connection,
+  wallets: any[],
+  tokenMint: string,
+  slippageBps: number
+): Promise<{ drained: number; totalTokens: number }> {
+  console.log(`🚨 AUTO-DRAIN: Draining all ${wallets.length} wallets...`);
+  
+  let drained = 0;
+  let totalTokens = 0;
+
+  // Drain sequentially to avoid rate limits
+  for (const w of wallets) {
+    try {
+      const wallet = Keypair.fromSecretKey(parsePrivateKey(w.private_key_encrypted));
+      const result = await drainWallet(connection, wallet, tokenMint, slippageBps);
+      
+      if (result.success && result.tokensold > 0) {
+        drained++;
+        totalTokens += result.tokensold;
+      }
+      
+      // Small delay between drains
+      await new Promise(r => setTimeout(r, 500));
+    } catch (err) {
+      console.error('Drain wallet error:', err);
+    }
+  }
+
+  return { drained, totalTokens };
+}
+
+// Check if any wallet is below threshold
+async function checkWalletBalances(
+  connection: Connection,
+  wallets: any[]
+): Promise<{ belowThreshold: boolean; lowWallets: string[] }> {
+  const lowWallets: string[] = [];
+  
+  for (const w of wallets) {
+    try {
+      const pubkey = new PublicKey(w.wallet_address);
+      const balance = await connection.getBalance(pubkey);
+      
+      if (balance < AUTO_DRAIN_THRESHOLD) {
+        lowWallets.push(w.wallet_address.slice(0, 8));
+      }
+    } catch {}
+  }
+
+  return {
+    belowThreshold: lowWallets.length > 0,
+    lowWallets,
+  };
 }
 
 async function executeSwap(
@@ -242,52 +368,31 @@ async function tradeWithWallet(
     
     console.log(`Wallet ${walletAddress.slice(0,8)}: SOL=${solBalance/LAMPORTS_PER_SOL}, Token=${tokenBalance}`);
 
-    // ========== BUY-HEAVY STRATEGY ==========
-    // Thresholds (in lamports)
-    const SOL_THRESHOLD = 0.008 * LAMPORTS_PER_SOL; // When SOL drops below this, sell tokens
-    const MIN_SOL_FOR_BUY = 0.006 * LAMPORTS_PER_SOL; // Minimum SOL needed to buy
-    const canSell = tokenBalance > 1000; // Min 1000 raw units to avoid dust
-
-    let tradeType: 'buy' | 'sell';
-    
-    // BUY-HEAVY LOGIC:
-    // - Buy whenever we have enough SOL
-    // - Only sell when SOL is low and we have tokens
-    if (solBalance < SOL_THRESHOLD && canSell) {
-      // SOL is low, sell tokens to get more SOL
-      tradeType = 'sell';
-      console.log(`Wallet ${walletAddress.slice(0,8)}: LOW SOL (${(solBalance/LAMPORTS_PER_SOL).toFixed(4)}) - Selling tokens`);
-    } else if (solBalance >= MIN_SOL_FOR_BUY) {
-      // Have SOL, buy tokens
-      tradeType = 'buy';
-    } else {
-      // Not enough SOL and no tokens to sell
+    // Skip if below minimum SOL needed for any trade
+    const MIN_SOL_FOR_TRADE = 0.005 * LAMPORTS_PER_SOL;
+    if (solBalance < MIN_SOL_FOR_TRADE) {
       return { 
         wallet: walletAddress, 
         success: false, 
-        error: 'insufficient_balance' 
+        error: 'insufficient_sol' 
       };
     }
-    // ========================================
 
+    // Always BUY - we handle sells via auto-drain
+    const tradeType = 'buy';
     const solAmount = randomBetween(config.min_sol_amount, config.max_sol_amount);
     
-    let inputMint: string;
-    let outputMint: string;
-    let amount: number;
+    // Cap buy amount to available SOL minus fees
+    const maxAffordable = Math.max(0, (solBalance / LAMPORTS_PER_SOL) - 0.003);
+    const cappedAmount = Math.min(solAmount, maxAffordable);
+    const amount = Math.floor(cappedAmount * LAMPORTS_PER_SOL);
 
-    if (tradeType === 'buy') {
-      inputMint = SOL_MINT;
-      outputMint = config.token_mint;
-      // Cap buy amount to available SOL minus fees
-      const maxAffordable = Math.max(0, (solBalance / LAMPORTS_PER_SOL) - 0.003);
-      const cappedAmount = Math.min(solAmount, maxAffordable);
-      amount = Math.floor(cappedAmount * LAMPORTS_PER_SOL);
-    } else {
-      inputMint = config.token_mint;
-      outputMint = SOL_MINT;
-      // Sell 80% of tokens when selling (to refill SOL)
-      amount = Math.floor(tokenBalance * 0.8);
+    if (amount < 0.001 * LAMPORTS_PER_SOL) {
+      return { 
+        wallet: walletAddress, 
+        success: false, 
+        error: 'amount_too_small' 
+      };
     }
 
     // Log trade attempt
@@ -295,16 +400,16 @@ async function tradeWithWallet(
       bot_id: 'main',
       wallet_address: walletAddress,
       trade_type: tradeType,
-      sol_amount: solAmount,
+      sol_amount: cappedAmount,
       status: 'pending',
     });
 
-    // Execute swap
+    // Execute swap - always buy
     const result = await executeSwap(
       connection,
       wallet,
-      inputMint,
-      outputMint,
+      SOL_MINT,
+      config.token_mint,
       amount,
       config.slippage_bps || 300
     );
@@ -322,7 +427,7 @@ async function tradeWithWallet(
       wallet: walletAddress,
       success: result.success,
       tradeType,
-      solAmount,
+      solAmount: cappedAmount,
       signature: result.signature,
       error: result.error,
     };
@@ -382,7 +487,35 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Execute trades for ALL wallets simultaneously
+    // ========== PRE-TRADE: Check if any wallet needs drain ==========
+    const preCheck = await checkWalletBalances(connection, wallets);
+    let preDrainResult = null;
+    
+    if (preCheck.belowThreshold) {
+      console.log(`⚠️ PRE-TRADE: Wallets below threshold: ${preCheck.lowWallets.join(', ')}`);
+      
+      // Drain all wallets first
+      preDrainResult = await drainAllWallets(
+        connection,
+        wallets,
+        config.token_mint,
+        config.slippage_bps || 1000 // Higher slippage for drain
+      );
+
+      if (preDrainResult.drained > 0) {
+        await sendTelegramMessage(
+          `🔄 <b>PRE-DRAIN</b>\n` +
+          `Low SOL wallets: ${preCheck.lowWallets.join(', ')}\n` +
+          `Drained ${preDrainResult.drained} wallets\n` +
+          `Tokens sold: ${preDrainResult.totalTokens.toLocaleString()}`
+        );
+      }
+
+      // Small delay after drain
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
+    // ========== EXECUTE TRADES ==========
     console.log(`🚀 Trading with ${wallets.length} wallets...`);
     
     const tradePromises = wallets.map((w: any) => tradeWithWallet(connection, config, w));
@@ -393,17 +526,45 @@ export async function GET(request: NextRequest) {
     const failed = results.filter(r => !r.success);
     const totalVolume = successful.reduce((sum, r) => sum + (r.solAmount || 0), 0);
 
-    // Send summary notification
-    if (successful.length > 0) {
-      const buys = successful.filter(r => r.tradeType === 'buy').length;
-      const sells = successful.filter(r => r.tradeType === 'sell').length;
+    // ========== POST-TRADE: Check balances and auto-drain if needed ==========
+    const postCheck = await checkWalletBalances(connection, wallets);
+    let postDrainResult = null;
+
+    if (postCheck.belowThreshold) {
+      console.log(`⚠️ POST-TRADE: Wallets below threshold: ${postCheck.lowWallets.join(', ')}`);
       
-      await sendTelegramMessage(
-        `⚡ <b>Batch Trade</b>\n` +
-        `✅ ${successful.length}/${results.length} success\n` +
-        `🟢 ${buys} buys | 🔴 ${sells} sells\n` +
-        `💰 ${totalVolume.toFixed(4)} SOL volume`
+      // Drain ALL wallets to ensure everyone has SOL
+      postDrainResult = await drainAllWallets(
+        connection,
+        wallets,
+        config.token_mint,
+        config.slippage_bps || 1000 // Higher slippage for drain
       );
+
+      if (postDrainResult.drained > 0) {
+        await sendTelegramMessage(
+          `🚨 <b>AUTO-DRAIN TRIGGERED</b>\n` +
+          `Low SOL wallets: ${postCheck.lowWallets.join(', ')}\n` +
+          `Drained ${postDrainResult.drained} wallets\n` +
+          `Tokens sold: ${postDrainResult.totalTokens.toLocaleString()}`
+        );
+      }
+    }
+
+    // Send summary notification
+    if (successful.length > 0 || preDrainResult || postDrainResult) {
+      let msg = `⚡ <b>Volume Bot</b>\n`;
+      msg += `✅ ${successful.length}/${results.length} trades\n`;
+      msg += `💰 ${totalVolume.toFixed(4)} SOL volume`;
+      
+      if (preDrainResult?.drained) {
+        msg += `\n🔄 Pre-drain: ${preDrainResult.drained} wallets`;
+      }
+      if (postDrainResult?.drained) {
+        msg += `\n🚨 Post-drain: ${postDrainResult.drained} wallets`;
+      }
+      
+      await sendTelegramMessage(msg);
     }
 
     return NextResponse.json({
@@ -412,6 +573,8 @@ export async function GET(request: NextRequest) {
       successful: successful.length,
       failed: failed.length,
       total_volume: totalVolume,
+      pre_drain: preDrainResult,
+      post_drain: postDrainResult,
       results,
     });
   } catch (error: any) {
