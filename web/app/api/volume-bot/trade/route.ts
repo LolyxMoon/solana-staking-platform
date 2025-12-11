@@ -242,25 +242,33 @@ async function tradeWithWallet(
     
     console.log(`Wallet ${walletAddress.slice(0,8)}: SOL=${solBalance/LAMPORTS_PER_SOL}, Token=${tokenBalance}`);
 
-    const minSolLamports = config.min_sol_amount * LAMPORTS_PER_SOL;
-    const canBuy = solBalance > minSolLamports + 0.005 * LAMPORTS_PER_SOL;
+    // ========== BUY-HEAVY STRATEGY ==========
+    // Thresholds (in lamports)
+    const SOL_THRESHOLD = 0.008 * LAMPORTS_PER_SOL; // When SOL drops below this, sell tokens
+    const MIN_SOL_FOR_BUY = 0.006 * LAMPORTS_PER_SOL; // Minimum SOL needed to buy
     const canSell = tokenBalance > 1000; // Min 1000 raw units to avoid dust
 
     let tradeType: 'buy' | 'sell';
     
-    if (canBuy && canSell) {
-      tradeType = Math.random() < (config.buy_probability || 0.5) ? 'buy' : 'sell';
-    } else if (canBuy) {
-      tradeType = 'buy';
-    } else if (canSell) {
+    // BUY-HEAVY LOGIC:
+    // - Buy whenever we have enough SOL
+    // - Only sell when SOL is low and we have tokens
+    if (solBalance < SOL_THRESHOLD && canSell) {
+      // SOL is low, sell tokens to get more SOL
       tradeType = 'sell';
+      console.log(`Wallet ${walletAddress.slice(0,8)}: LOW SOL (${(solBalance/LAMPORTS_PER_SOL).toFixed(4)}) - Selling tokens`);
+    } else if (solBalance >= MIN_SOL_FOR_BUY) {
+      // Have SOL, buy tokens
+      tradeType = 'buy';
     } else {
+      // Not enough SOL and no tokens to sell
       return { 
         wallet: walletAddress, 
         success: false, 
         error: 'insufficient_balance' 
       };
     }
+    // ========================================
 
     const solAmount = randomBetween(config.min_sol_amount, config.max_sol_amount);
     
@@ -271,12 +279,15 @@ async function tradeWithWallet(
     if (tradeType === 'buy') {
       inputMint = SOL_MINT;
       outputMint = config.token_mint;
-      amount = Math.floor(solAmount * LAMPORTS_PER_SOL);
+      // Cap buy amount to available SOL minus fees
+      const maxAffordable = Math.max(0, (solBalance / LAMPORTS_PER_SOL) - 0.003);
+      const cappedAmount = Math.min(solAmount, maxAffordable);
+      amount = Math.floor(cappedAmount * LAMPORTS_PER_SOL);
     } else {
       inputMint = config.token_mint;
       outputMint = SOL_MINT;
-      const sellPercent = randomBetween(0.1, 0.5);
-      amount = Math.floor(tokenBalance * sellPercent);
+      // Sell 80% of tokens when selling (to refill SOL)
+      amount = Math.floor(tokenBalance * 0.8);
     }
 
     // Log trade attempt
