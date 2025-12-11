@@ -31,16 +31,56 @@ const JUPITER_QUOTE_LITE = 'https://lite-api.jup.ag/swap/v1/quote';
 const JUPITER_QUOTE_PRO = 'https://api.jup.ag/swap/v1/quote';
 const JUPITER_ULTRA_API = 'https://lite-api.jup.ag/ultra/v1/order';
 
-function getSupabase() {
-  const { createClient } = require('@supabase/supabase-js');
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY;
-  
-  if (!url || !key) {
-    throw new Error(`Missing Supabase config: URL=${!!url}, KEY=${!!key}`);
-  }
-  
-  return createClient(url, key);
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY!;
+
+// Direct REST API calls - no SDK caching
+async function supabaseGet(table: string, query: string = '') {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/${table}?${query}`,
+    {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Cache-Control': 'no-cache',
+      },
+      cache: 'no-store',
+    }
+  );
+  return res.json();
+}
+
+async function supabaseInsert(table: string, data: any) {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/${table}`,
+    {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify(data),
+    }
+  );
+  return res.json();
+}
+
+async function supabaseUpdate(table: string, query: string, data: any) {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/${table}?${query}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    }
+  );
+  return res.ok;
 }
 
 async function sendTelegramMessage(text: string) {
@@ -168,7 +208,6 @@ async function executeSwap(
 
 async function tradeWithWallet(
   connection: Connection,
-  supabase: any,
   config: any,
   walletData: any
 ): Promise<{ wallet: string; success: boolean; tradeType?: string; solAmount?: number; signature?: string; error?: string }> {
@@ -227,17 +266,13 @@ async function tradeWithWallet(
     }
 
     // Log trade attempt
-    const { data: tradeLog } = await supabase
-      .from('volume_bot_trades')
-      .insert({
-        bot_id: 'main',
-        wallet_address: walletAddress,
-        trade_type: tradeType,
-        sol_amount: solAmount,
-        status: 'pending',
-      })
-      .select()
-      .single();
+    const tradeLog = await supabaseInsert('volume_bot_trades', {
+      bot_id: 'main',
+      wallet_address: walletAddress,
+      trade_type: tradeType,
+      sol_amount: solAmount,
+      status: 'pending',
+    });
 
     // Execute swap
     const result = await executeSwap(
@@ -250,14 +285,13 @@ async function tradeWithWallet(
     );
 
     // Update trade log
-    await supabase
-      .from('volume_bot_trades')
-      .update({
+    if (tradeLog?.[0]?.id) {
+      await supabaseUpdate('volume_bot_trades', `id=eq.${tradeLog[0].id}`, {
         status: result.success ? 'success' : 'failed',
         signature: result.signature,
         error_message: result.error,
-      })
-      .eq('id', tradeLog.id);
+      });
+    }
 
     return {
       wallet: walletAddress,
@@ -285,15 +319,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const supabase = getSupabase();
     const connection = new Connection(RPC_URL, 'confirmed');
 
-    // Get config
-    const { data: config } = await supabase
-      .from('volume_bot_config')
-      .select('*')
-      .eq('bot_id', 'main')
-      .single();
+    // Get config - direct REST call
+    const configs = await supabaseGet('volume_bot_config', 'bot_id=eq.main&select=*');
+    const config = configs?.[0];
 
     if (!config?.is_running) {
       return NextResponse.json({ status: 'not_running' });
@@ -303,32 +333,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No token configured' }, { status: 400 });
     }
 
-    // Get wallets
-    const { data: wallets, error: walletError } = await supabase
-    .from('volume_bot_wallets')
-    .select('*')
-    .eq('bot_id', 'main');
+    // Get wallets - direct REST call
+    const wallets = await supabaseGet('volume_bot_wallets', 'bot_id=eq.main&select=*');
 
-    // DEBUG
+    // DEBUG - remove this after testing
     return NextResponse.json({
-    debug: true,
-    timestamp: new Date().toISOString(),
-    buildTime: 'Dec11-v2',
-    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    dbWallets: wallets?.map(w => ({
+      debug: true,
+      timestamp: new Date().toISOString(),
+      buildTime: 'Dec11-v4-direct',
+      dbWallets: wallets?.map((w: any) => ({
         stored_address: w.wallet_address,
-    })),
-    walletError,
+      })),
     });
 
+    if (!wallets || wallets.length === 0) {
+      return NextResponse.json({ error: 'No wallets' }, { status: 400 });
+    }
+
     // Check last trade time (respect interval)
-    const { data: lastTrade } = await supabase
-      .from('volume_bot_trades')
-      .select('created_at')
-      .eq('bot_id', 'main')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+    const trades = await supabaseGet('volume_bot_trades', 'bot_id=eq.main&select=created_at&order=created_at.desc&limit=1');
+    const lastTrade = trades?.[0];
 
     if (lastTrade) {
       const lastTradeTime = new Date(lastTrade.created_at).getTime();
@@ -346,7 +370,7 @@ export async function GET(request: NextRequest) {
     // Execute trades for ALL wallets simultaneously
     console.log(`🚀 Trading with ${wallets.length} wallets...`);
     
-    const tradePromises = wallets.map(w => tradeWithWallet(connection, supabase, config, w));
+    const tradePromises = wallets.map((w: any) => tradeWithWallet(connection, config, w));
     const results = await Promise.all(tradePromises);
 
     // Count results
