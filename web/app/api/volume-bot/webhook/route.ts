@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Keypair, PublicKey, Connection, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { getAssociatedTokenAddress, getAccount } from '@solana/spl-token';
 import bs58 from 'bs58';
 
 export const dynamic = 'force-dynamic';
@@ -17,9 +16,6 @@ const BOT_TOKEN = process.env.VOLUME_BOT_TOKEN!;
 const ALLOWED_USER_IDS = process.env.VOLUME_BOT_ALLOWED_IDS?.split(',').map(id => parseInt(id.trim())) || [];
 const RPC_URL = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT!;
 const CRON_SECRET = process.env.VOLUME_BOT_CRON_SECRET || 'your-secret-key';
-
-// Track pending confirmations
-const pendingConfirmations: Map<number, { action: string; data: any; expires: number }> = new Map();
 
 function getSupabase() {
   const { createClient } = require('@supabase/supabase-js');
@@ -44,6 +40,30 @@ async function sendMessage(chatId: number, text: string, parseMode: 'HTML' | 'Ma
 function isAuthorized(userId: number): boolean {
   if (ALLOWED_USER_IDS.length === 0) return true;
   return ALLOWED_USER_IDS.includes(userId);
+}
+
+// Reliable token balance check using getParsedTokenAccountsByOwner
+async function getTokenBalance(connection: Connection, wallet: PublicKey, tokenMint: string): Promise<{ amount: number; rawAmount: number }> {
+  try {
+    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+      wallet,
+      { mint: new PublicKey(tokenMint) }
+    );
+    
+    if (tokenAccounts.value.length === 0) {
+      return { amount: 0, rawAmount: 0 };
+    }
+    
+    const info = tokenAccounts.value[0].account.data.parsed.info;
+    const rawAmount = Number(info.tokenAmount.amount);
+    const decimals = info.tokenAmount.decimals;
+    const amount = rawAmount / Math.pow(10, decimals);
+    
+    return { amount, rawAmount };
+  } catch (err) {
+    console.error('Error getting token balance:', err);
+    return { amount: 0, rawAmount: 0 };
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -170,11 +190,8 @@ export async function POST(request: NextRequest) {
               totalSol += solBal / LAMPORTS_PER_SOL;
 
               if (config?.token_mint) {
-                try {
-                  const ata = await getAssociatedTokenAddress(new PublicKey(config.token_mint), pubkey);
-                  const tokenAcc = await getAccount(connection, ata);
-                  totalTokens += Number(tokenAcc.amount) / Math.pow(10, config.token_decimals || 9);
-                } catch {}
+                const { amount } = await getTokenBalance(connection, pubkey, config.token_mint);
+                totalTokens += amount;
               }
             } catch {}
           }
@@ -240,23 +257,17 @@ Creating new wallets will <b>DELETE</b> these forever!
         for (const w of wallets) {
           try {
             const wallet = Keypair.fromSecretKey(parsePrivateKey(w.private_key_encrypted));
-            const ata = await getAssociatedTokenAddress(new PublicKey(config.token_mint), wallet.publicKey);
             
-            let tokenBalance = 0;
-            try {
-              const tokenAcc = await getAccount(connection, ata);
-              tokenBalance = Number(tokenAcc.amount);
-            } catch {
-              continue; // No token account
-            }
+            // Use reliable token balance check
+            const { amount, rawAmount } = await getTokenBalance(connection, wallet.publicKey, config.token_mint);
 
-            if (tokenBalance === 0) continue;
+            if (rawAmount === 0) continue;
 
             // Sell all tokens
             const params = new URLSearchParams({
               inputMint: config.token_mint,
               outputMint: 'So11111111111111111111111111111111111111112',
-              amount: tokenBalance.toString(),
+              amount: rawAmount.toString(),
               taker: wallet.publicKey.toString(),
               slippageBps: (config.slippage_bps || 1000).toString(),
             });
@@ -277,7 +288,7 @@ Creating new wallets will <b>DELETE</b> these forever!
             await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true });
             
             drained++;
-            totalTokens += tokenBalance / Math.pow(10, config.token_decimals || 9);
+            totalTokens += amount;
           } catch (err) {
             console.error('Drain error:', err);
           }
@@ -565,12 +576,9 @@ Creating new wallets will <b>DELETE</b> these forever!
 
             let tokenAmount = 0;
             if (config?.token_mint) {
-              try {
-                const ata = await getAssociatedTokenAddress(new PublicKey(config.token_mint), pubkey);
-                const tokenAcc = await getAccount(connection, ata);
-                tokenAmount = Number(tokenAcc.amount) / Math.pow(10, config.token_decimals || 9);
-                totalToken += tokenAmount;
-              } catch {}
+              const { amount } = await getTokenBalance(connection, pubkey, config.token_mint);
+              tokenAmount = amount;
+              totalToken += tokenAmount;
             }
 
             balanceText += `${i + 1}. ${solAmount.toFixed(4)} SOL`;
