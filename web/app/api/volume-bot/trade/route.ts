@@ -34,7 +34,7 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY!;
 
 // Auto-drain threshold - if ANY wallet falls below this, drain ALL wallets
-const AUTO_DRAIN_THRESHOLD = 0.01 * LAMPORTS_PER_SOL;
+const AUTO_DRAIN_THRESHOLD = 0.03 * LAMPORTS_PER_SOL;
 
 // Direct REST API calls - no SDK caching
 async function supabaseGet(table: string, query: string = '') {
