@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 /**
  * POST /api/tools/audit/pdf
- * Generates a PDF audit report
+ * Generates a PDF audit report using pdf-lib (serverless compatible)
  */
 export async function POST(req: Request) {
   try {
@@ -15,45 +16,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No audit data provided" }, { status: 400 });
     }
 
-    // Dynamic import for server-side PDF generation
-    let PDFDocument;
-    try {
-      PDFDocument = (await import("pdfkit")).default;
-    } catch (e) {
-      console.error("Failed to import pdfkit:", e);
-      return NextResponse.json({ error: "PDF library not available. Run: npm install pdfkit" }, { status: 500 });
-    }
-    
     // Create PDF document
-    const doc = new PDFDocument({
-      size: "A4",
-      margins: { top: 50, bottom: 50, left: 50, right: 50 },
-      info: {
-        Title: `Security Audit - ${audit.programId?.slice(0, 8) || 'Unknown'}...`,
-        Author: "StakePoint Smart Contract Auditor",
-        Subject: "Solana Program Security Analysis",
-      },
-      autoFirstPage: true,
-      bufferPages: true,
-    });
-
-    // Collect PDF chunks
-    const chunks: Buffer[] = [];
-    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+    const pdfDoc = await PDFDocument.create();
+    
+    // Embed fonts
+    const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const courier = await pdfDoc.embedFont(StandardFonts.Courier);
 
     // Colors
-    const PRIMARY = "#fb57ff";
-    const DARK = "#1a1a1a";
-    const GRAY = "#666666";
-    const GREEN = "#22c55e";
-    const YELLOW = "#eab308";
-    const RED = "#ef4444";
+    const PRIMARY = rgb(0.98, 0.34, 1); // #fb57ff
+    const DARK = rgb(0.1, 0.1, 0.1);
+    const GRAY = rgb(0.4, 0.4, 0.4);
+    const LIGHT_GRAY = rgb(0.6, 0.6, 0.6);
+    const GREEN = rgb(0.13, 0.77, 0.37);
+    const YELLOW = rgb(0.92, 0.7, 0.03);
+    const ORANGE = rgb(0.98, 0.45, 0.09);
+    const RED = rgb(0.94, 0.27, 0.27);
+    const WHITE = rgb(1, 1, 1);
 
     const getRiskColor = (risk: string) => {
       switch (risk) {
         case "LOW": return GREEN;
         case "MEDIUM": return YELLOW;
-        case "HIGH": return "#f97316";
+        case "HIGH": return ORANGE;
         case "CRITICAL": return RED;
         default: return GRAY;
       }
@@ -68,343 +54,623 @@ export async function POST(req: Request) {
       }
     };
 
-    // ===== HEADER =====
-    doc.rect(0, 0, doc.page.width, 120).fill(DARK);
-    
-    // Logo placeholder (circle with SP text - no file system access needed)
-    doc.circle(80, 50, 25).fill(PRIMARY);
-    doc.fontSize(16).fillColor("#ffffff").text("SP", 68, 42);
-    
-    doc.fontSize(22).fillColor("#ffffff").text("SECURITY AUDIT REPORT", 120, 30);
-    doc.fontSize(10).fillColor(PRIMARY).text("StakePoint Smart Contract Auditor", 120, 58);
-    
-    // Contact info
-    doc.fontSize(9).fillColor("#888888");
-    doc.text("stakepoint.app", 120, 78);
-    
-    doc.fontSize(9).fillColor("#666666").text(
-      `Generated: ${new Date(audit.timestamp || Date.now()).toLocaleString()}`, 
-      380, 
-      78,
-      { width: 165, align: "right" }
-    );
+    // Page dimensions
+    const pageWidth = 595.28; // A4
+    const pageHeight = 841.89;
+    const margin = 50;
 
-    doc.y = 140;
+    // ===== PAGE 1 =====
+    let page = pdfDoc.addPage([pageWidth, pageHeight]);
+    let y = pageHeight - 50;
 
-    // ===== PROGRAM INFO =====
-    doc.fontSize(14).fillColor(DARK).text("Program Information", 50);
-    doc.moveDown(0.5);
-    
-    doc.fontSize(10).fillColor(GRAY);
-    doc.text(`Program Name: `, 50, doc.y, { continued: true });
-    doc.fillColor(DARK).text(audit.programName || "Unknown");
-    
-    doc.fillColor(GRAY).text(`Program ID: `, 50, doc.y, { continued: true });
-    doc.font("Courier").fillColor(DARK).text(audit.programId || "N/A");
-    doc.font("Helvetica");
+    // Header background
+    page.drawRectangle({
+      x: 0,
+      y: pageHeight - 120,
+      width: pageWidth,
+      height: 120,
+      color: DARK,
+    });
 
-    doc.moveDown(1.5);
+    // Logo circle
+    page.drawCircle({
+      x: 80,
+      y: pageHeight - 60,
+      size: 25,
+      color: PRIMARY,
+    });
+    page.drawText("SP", {
+      x: 68,
+      y: pageHeight - 67,
+      size: 16,
+      font: helveticaBold,
+      color: WHITE,
+    });
 
-    // ===== OVERALL SCORE BOX =====
-    const scoreBoxY = doc.y;
-    doc.rect(50, scoreBoxY, 495, 80).fillAndStroke("#f8f8f8", "#e0e0e0");
-    
+    // Title
+    page.drawText("SECURITY AUDIT REPORT", {
+      x: 120,
+      y: pageHeight - 45,
+      size: 22,
+      font: helveticaBold,
+      color: WHITE,
+    });
+
+    page.drawText("StakePoint Smart Contract Auditor", {
+      x: 120,
+      y: pageHeight - 65,
+      size: 10,
+      font: helvetica,
+      color: PRIMARY,
+    });
+
+    page.drawText("stakepoint.app", {
+      x: 120,
+      y: pageHeight - 82,
+      size: 9,
+      font: helvetica,
+      color: LIGHT_GRAY,
+    });
+
+    // Date
+    const dateStr = new Date(audit.timestamp || Date.now()).toLocaleString();
+    page.drawText(`Generated: ${dateStr}`, {
+      x: 380,
+      y: pageHeight - 82,
+      size: 9,
+      font: helvetica,
+      color: LIGHT_GRAY,
+    });
+
+    y = pageHeight - 160;
+
+    // Program Information
+    page.drawText("Program Information", {
+      x: margin,
+      y,
+      size: 14,
+      font: helveticaBold,
+      color: DARK,
+    });
+    y -= 25;
+
+    page.drawText(`Program Name: ${audit.programName || "Unknown"}`, {
+      x: margin,
+      y,
+      size: 10,
+      font: helvetica,
+      color: GRAY,
+    });
+    y -= 15;
+
+    page.drawText(`Program ID: ${audit.programId || "N/A"}`, {
+      x: margin,
+      y,
+      size: 10,
+      font: courier,
+      color: DARK,
+    });
+    y -= 35;
+
+    // Score Box
+    const scoreBoxY = y - 60;
+    page.drawRectangle({
+      x: margin,
+      y: scoreBoxY,
+      width: pageWidth - margin * 2,
+      height: 80,
+      color: rgb(0.97, 0.97, 0.97),
+      borderColor: rgb(0.88, 0.88, 0.88),
+      borderWidth: 1,
+    });
+
     // Score circle
     const scoreColor = getRiskColor(audit.riskLevel || "MEDIUM");
-    doc.circle(110, scoreBoxY + 40, 30).fill(scoreColor);
-    doc.fontSize(24).fillColor("#ffffff").text(
-      String(audit.overallScore || 0), 
-      85, 
-      scoreBoxY + 28,
-      { width: 50, align: "center" }
-    );
-    
-    // Score label
-    doc.fontSize(12).fillColor(DARK).text("Security Score", 155, scoreBoxY + 20);
-    doc.fontSize(10).fillColor(GRAY).text("out of 100", 155, scoreBoxY + 36);
-    
-    // Risk level badge
-    doc.roundedRect(155, scoreBoxY + 52, 100, 20, 3).fill(scoreColor);
-    doc.fontSize(10).fillColor("#ffffff").text(
-      `${audit.riskLevel || "UNKNOWN"} RISK`,
-      155,
-      scoreBoxY + 56,
-      { width: 100, align: "center" }
-    );
+    page.drawCircle({
+      x: margin + 60,
+      y: scoreBoxY + 40,
+      size: 30,
+      color: scoreColor,
+    });
 
-    // Instructions count
+    const scoreText = String(audit.overallScore || 0);
+    page.drawText(scoreText, {
+      x: margin + 60 - (scoreText.length * 6),
+      y: scoreBoxY + 33,
+      size: 24,
+      font: helveticaBold,
+      color: WHITE,
+    });
+
+    page.drawText("Security Score", {
+      x: margin + 105,
+      y: scoreBoxY + 52,
+      size: 12,
+      font: helveticaBold,
+      color: DARK,
+    });
+
+    page.drawText("out of 100", {
+      x: margin + 105,
+      y: scoreBoxY + 36,
+      size: 10,
+      font: helvetica,
+      color: GRAY,
+    });
+
+    // Risk badge
+    const riskText = `${audit.riskLevel || "UNKNOWN"} RISK`;
+    page.drawRectangle({
+      x: margin + 105,
+      y: scoreBoxY + 10,
+      width: 90,
+      height: 20,
+      color: scoreColor,
+    });
+    page.drawText(riskText, {
+      x: margin + 115,
+      y: scoreBoxY + 15,
+      size: 10,
+      font: helveticaBold,
+      color: WHITE,
+    });
+
+    // Stats
     const instructionCount = audit.instructions?.length || 0;
     const passedChecks = audit.securityChecks?.filter((c: any) => c.status === "PASS").length || 0;
     const totalChecks = audit.securityChecks?.length || 0;
-    
-    doc.fontSize(11).fillColor(DARK).text(
-      `${instructionCount} Instructions Analyzed`,
-      300,
-      scoreBoxY + 30
-    );
-    doc.fontSize(10).fillColor(GRAY).text(
-      `${passedChecks}/${totalChecks} Security Checks Passed`,
-      300,
-      scoreBoxY + 48
-    );
 
-    doc.y = scoreBoxY + 100;
+    page.drawText(`${instructionCount} Instructions Analyzed`, {
+      x: 300,
+      y: scoreBoxY + 48,
+      size: 11,
+      font: helvetica,
+      color: DARK,
+    });
 
-    // ===== SUMMARY =====
-    doc.fontSize(14).fillColor(DARK).text("Executive Summary", 50);
-    doc.moveDown(0.5);
-    doc.fontSize(10).fillColor(GRAY).text(audit.summary || "No summary available.", 50, doc.y, { width: 495 });
-    doc.moveDown(1.5);
+    page.drawText(`${passedChecks}/${totalChecks} Security Checks Passed`, {
+      x: 300,
+      y: scoreBoxY + 30,
+      size: 10,
+      font: helvetica,
+      color: GRAY,
+    });
 
-    // ===== SECURITY CHECKS =====
-    doc.fontSize(14).fillColor(DARK).text("Security Checks", 50);
-    doc.moveDown(0.5);
+    y = scoreBoxY - 30;
+
+    // Summary
+    page.drawText("Executive Summary", {
+      x: margin,
+      y,
+      size: 14,
+      font: helveticaBold,
+      color: DARK,
+    });
+    y -= 20;
+
+    // Word wrap summary
+    const summaryText = audit.summary || "No summary available.";
+    const summaryLines = wrapText(summaryText, 90);
+    for (const line of summaryLines) {
+      page.drawText(line, {
+        x: margin,
+        y,
+        size: 10,
+        font: helvetica,
+        color: GRAY,
+      });
+      y -= 14;
+    }
+    y -= 15;
+
+    // Security Checks
+    page.drawText("Security Checks", {
+      x: margin,
+      y,
+      size: 14,
+      font: helveticaBold,
+      color: DARK,
+    });
+    y -= 25;
 
     const securityChecks = audit.securityChecks || [];
     for (const check of securityChecks) {
-      if (doc.y > 750) {
-        doc.addPage();
+      if (y < 100) {
+        page = pdfDoc.addPage([pageWidth, pageHeight]);
+        y = pageHeight - 50;
       }
-      
-      const checkY = doc.y;
-      
-      // Status indicator
-      doc.circle(60, checkY + 6, 5).fill(getStatusColor(check.status));
-      
-      // Check name and description
-      doc.fontSize(10).fillColor(DARK).text(check.name, 75, checkY);
-      doc.fontSize(9).fillColor(GRAY).text(check.description || "", 75, checkY + 12);
-      
-      // Status text
-      doc.fontSize(9).fillColor(getStatusColor(check.status)).text(
-        check.status,
-        480,
-        checkY,
-        { width: 65, align: "right" }
-      );
-      
-      doc.y = checkY + 28;
+
+      // Status circle
+      page.drawCircle({
+        x: margin + 8,
+        y: y + 4,
+        size: 5,
+        color: getStatusColor(check.status),
+      });
+
+      page.drawText(check.name, {
+        x: margin + 25,
+        y,
+        size: 10,
+        font: helvetica,
+        color: DARK,
+      });
+
+      page.drawText(check.description || "", {
+        x: margin + 25,
+        y: y - 12,
+        size: 9,
+        font: helvetica,
+        color: GRAY,
+      });
+
+      page.drawText(check.status, {
+        x: pageWidth - margin - 40,
+        y,
+        size: 9,
+        font: helveticaBold,
+        color: getStatusColor(check.status),
+      });
+
+      y -= 35;
     }
 
-    doc.moveDown(1);
+    // ===== PAGE 2 - Instructions =====
+    page = pdfDoc.addPage([pageWidth, pageHeight]);
+    y = pageHeight - 50;
 
-    // ===== INSTRUCTIONS ANALYSIS =====
-    if (doc.y > 650) {
-      doc.addPage();
-    }
-
-    doc.fontSize(14).fillColor(DARK).text("Instructions Analysis", 50);
-    doc.moveDown(0.5);
+    page.drawText("Instructions Analysis", {
+      x: margin,
+      y,
+      size: 14,
+      font: helveticaBold,
+      color: DARK,
+    });
+    y -= 30;
 
     const instructions = audit.instructions || [];
     for (const ix of instructions) {
-      if (doc.y > 720) {
-        doc.addPage();
+      if (y < 100) {
+        page = pdfDoc.addPage([pageWidth, pageHeight]);
+        y = pageHeight - 50;
       }
 
-      const ixY = doc.y;
       const hasRisks = ix.risks && ix.risks.length > 0;
-      
+      const boxHeight = hasRisks ? 55 : 40;
+
       // Instruction box
-      doc.rect(50, ixY, 495, hasRisks ? 55 : 40).fillAndStroke("#fafafa", "#e5e5e5");
-      
+      page.drawRectangle({
+        x: margin,
+        y: y - boxHeight + 15,
+        width: pageWidth - margin * 2,
+        height: boxHeight,
+        color: rgb(0.98, 0.98, 0.98),
+        borderColor: rgb(0.9, 0.9, 0.9),
+        borderWidth: 1,
+      });
+
       // Instruction name
-      doc.font("Courier").fontSize(11).fillColor(DARK).text(ix.name, 60, ixY + 8);
-      doc.font("Helvetica");
-      
+      page.drawText(ix.name, {
+        x: margin + 10,
+        y: y,
+        size: 11,
+        font: courier,
+        color: DARK,
+      });
+
       // Badges
-      let badgeX = 60;
-      const badgeY = ixY + 24;
-      
+      let badgeX = margin + 10;
+      const badgeY = y - 18;
+
       if (ix.hasSignerCheck) {
-        doc.roundedRect(badgeX, badgeY, 55, 14, 2).fill(GREEN);
-        doc.fontSize(8).fillColor("#ffffff").text("Signer", badgeX + 10, badgeY + 3);
-        badgeX += 60;
-      }
-      
-      if (ix.hasPdaValidation) {
-        doc.roundedRect(badgeX, badgeY, 40, 14, 2).fill("#3b82f6");
-        doc.fontSize(8).fillColor("#ffffff").text("PDA", badgeX + 10, badgeY + 3);
-        badgeX += 45;
-      }
-      
-      if (ix.hasOwnerCheck) {
-        doc.roundedRect(badgeX, badgeY, 50, 14, 2).fill("#8b5cf6");
-        doc.fontSize(8).fillColor("#ffffff").text("Owner", badgeX + 10, badgeY + 3);
+        page.drawRectangle({
+          x: badgeX,
+          y: badgeY - 3,
+          width: 50,
+          height: 14,
+          color: GREEN,
+        });
+        page.drawText("Signer", {
+          x: badgeX + 8,
+          y: badgeY,
+          size: 8,
+          font: helvetica,
+          color: WHITE,
+        });
         badgeX += 55;
+      }
+
+      if (ix.hasPdaValidation) {
+        page.drawRectangle({
+          x: badgeX,
+          y: badgeY - 3,
+          width: 35,
+          height: 14,
+          color: rgb(0.23, 0.51, 0.96),
+        });
+        page.drawText("PDA", {
+          x: badgeX + 8,
+          y: badgeY,
+          size: 8,
+          font: helvetica,
+          color: WHITE,
+        });
+        badgeX += 40;
+      }
+
+      if (ix.hasOwnerCheck) {
+        page.drawRectangle({
+          x: badgeX,
+          y: badgeY - 3,
+          width: 45,
+          height: 14,
+          color: rgb(0.55, 0.36, 0.96),
+        });
+        page.drawText("Owner", {
+          x: badgeX + 8,
+          y: badgeY,
+          size: 8,
+          font: helvetica,
+          color: WHITE,
+        });
+        badgeX += 50;
       }
 
       // Risks
       if (hasRisks) {
-        let riskX = 60;
-        const riskY = badgeY + 18;
+        let riskX = margin + 10;
+        const riskY = badgeY - 20;
         for (const risk of ix.risks.slice(0, 2)) {
-          const riskColor = risk.includes("CRITICAL") ? RED : 
-                           risk.includes("HIGH") ? "#f97316" : YELLOW;
-          
-          const riskText = risk.length > 35 ? risk.slice(0, 35) + "..." : risk;
-          const riskWidth = Math.min(riskText.length * 5 + 10, 200);
-          doc.roundedRect(riskX, riskY, riskWidth, 14, 2).fill(riskColor);
-          doc.fontSize(7).fillColor("#ffffff").text(riskText, riskX + 5, riskY + 3);
+          const riskColor = risk.includes("CRITICAL") ? RED :
+                           risk.includes("HIGH") ? ORANGE : YELLOW;
+          const riskDisplayText = risk.length > 30 ? risk.slice(0, 30) + "..." : risk;
+          const riskWidth = Math.min(riskDisplayText.length * 4.5 + 16, 180);
+
+          page.drawRectangle({
+            x: riskX,
+            y: riskY - 3,
+            width: riskWidth,
+            height: 14,
+            color: riskColor,
+          });
+          page.drawText(riskDisplayText, {
+            x: riskX + 5,
+            y: riskY,
+            size: 7,
+            font: helvetica,
+            color: WHITE,
+          });
           riskX += riskWidth + 5;
-          
-          if (riskX > 400) break;
         }
       }
 
       // Account count
       const accountCount = ix.accounts?.length || 0;
-      doc.fontSize(9).fillColor(GRAY).text(
-        `${accountCount} accounts`,
-        480,
-        ixY + 10,
-        { width: 60, align: "right" }
-      );
+      page.drawText(`${accountCount} accounts`, {
+        x: pageWidth - margin - 60,
+        y: y,
+        size: 9,
+        font: helvetica,
+        color: GRAY,
+      });
 
-      doc.y = ixY + (hasRisks ? 60 : 45);
+      y -= boxHeight + 10;
     }
-
-    doc.moveDown(1);
 
     // ===== RECOMMENDATIONS =====
     const recommendations = audit.recommendations || [];
     if (recommendations.length > 0) {
-      if (doc.y > 650) {
-        doc.addPage();
+      if (y < 200) {
+        page = pdfDoc.addPage([pageWidth, pageHeight]);
+        y = pageHeight - 50;
       }
 
-      doc.fontSize(14).fillColor(DARK).text("Recommendations", 50);
-      doc.moveDown(0.5);
+      y -= 20;
+      page.drawText("Recommendations", {
+        x: margin,
+        y,
+        size: 14,
+        font: helveticaBold,
+        color: DARK,
+      });
+      y -= 25;
 
       for (const rec of recommendations) {
-        if (doc.y > 750) {
-          doc.addPage();
+        if (y < 80) {
+          page = pdfDoc.addPage([pageWidth, pageHeight]);
+          y = pageHeight - 50;
         }
-        
-        const recY = doc.y;
-        doc.fontSize(10).fillColor(YELLOW).text("!", 58, recY);
-        doc.fontSize(10).fillColor(GRAY).text(rec, 75, recY, { width: 470 });
-        doc.moveDown(0.8);
+
+        page.drawText("!", {
+          x: margin + 5,
+          y,
+          size: 12,
+          font: helveticaBold,
+          color: YELLOW,
+        });
+
+        const recLines = wrapText(rec, 85);
+        for (const line of recLines) {
+          page.drawText(line, {
+            x: margin + 25,
+            y,
+            size: 10,
+            font: helvetica,
+            color: GRAY,
+          });
+          y -= 14;
+        }
+        y -= 8;
       }
     }
 
     // ===== DISCLAIMER PAGE =====
-    doc.addPage();
-    
-    doc.fontSize(16).fillColor(DARK).text("Disclaimer", 50, 50);
-    doc.moveDown(1);
-    
-    doc.fontSize(10).fillColor(GRAY).text(
-      `This security audit report was automatically generated by StakePoint Smart Contract Auditor on ${new Date(audit.timestamp || Date.now()).toLocaleString()}.`,
-      50,
-      doc.y,
-      { width: 495 }
-    );
-    doc.moveDown(1);
-    
-    doc.text(
-      "IMPORTANT: This automated analysis is provided for informational purposes only and should not be considered a comprehensive security audit. It analyzes publicly available IDL data and applies pattern-based checks for common vulnerabilities.",
-      50,
-      doc.y,
-      { width: 495 }
-    );
-    doc.moveDown(1);
-    
-    doc.text("Limitations of this automated audit include:", 50, doc.y, { width: 495 });
-    doc.moveDown(0.5);
-    
-    const limitations = [
-      "- Cannot analyze actual program bytecode or implementation details",
-      "- Cannot detect logical vulnerabilities specific to business logic",
-      "- Cannot verify runtime behavior or edge cases",
-      "- Cannot assess cross-program invocation risks in full context",
-      "- May not detect all vulnerability patterns",
-    ];
-    
-    for (const lim of limitations) {
-      doc.text(lim, 60, doc.y, { width: 485 });
-      doc.moveDown(0.3);
-    }
-    
-    doc.moveDown(1);
-    doc.text(
-      "For production deployments involving significant value, we strongly recommend engaging a professional security auditing firm to conduct a thorough manual review of your smart contract code.",
-      50,
-      doc.y,
-      { width: 495 }
-    );
-    
-    // StakePoint Branding Box
-    doc.moveDown(2);
-    const brandBoxY = doc.y;
-    doc.rect(50, brandBoxY, 495, 100).fillAndStroke("#fafafa", "#e5e5e5");
-    
-    // Logo placeholder
-    doc.circle(100, brandBoxY + 50, 30).fill(PRIMARY);
-    doc.fontSize(18).fillColor("#ffffff").text("SP", 86, brandBoxY + 42);
-    
-    // Company info
-    doc.fontSize(16).fillColor(DARK).text("StakePoint", 150, brandBoxY + 25);
-    doc.fontSize(10).fillColor(GRAY).text("Solana DeFi Platform", 150, brandBoxY + 45);
-    
-    doc.fontSize(10).fillColor(PRIMARY).text("stakepoint.app", 150, brandBoxY + 65);
-    doc.fontSize(10).fillColor(GRAY).text("contact@stakepoint.app", 150, brandBoxY + 80);
-    
-    // Tagline
-    doc.fontSize(9).fillColor(GRAY).text(
-      "Staking | Farming | Swaps | Tools",
-      350,
-      brandBoxY + 45,
-      { width: 180, align: "right" }
-    );
+    page = pdfDoc.addPage([pageWidth, pageHeight]);
+    y = pageHeight - 50;
 
-    // ===== FOOTER on all pages =====
-    const pages = doc.bufferedPageRange();
-    for (let i = 0; i < pages.count; i++) {
-      doc.switchToPage(i);
-      
-      doc.fontSize(8).fillColor("#999999").text(
-        "This is an automated analysis and should not replace a professional security audit.",
-        50,
-        doc.page.height - 40,
-        { width: 350 }
-      );
-      doc.fontSize(8).fillColor(PRIMARY).text(
-        "stakepoint.app",
-        400,
-        doc.page.height - 40,
-        { width: 145, align: "right" }
-      );
+    page.drawText("Disclaimer", {
+      x: margin,
+      y,
+      size: 16,
+      font: helveticaBold,
+      color: DARK,
+    });
+    y -= 30;
+
+    const disclaimerText = `This security audit report was automatically generated by StakePoint Smart Contract Auditor on ${dateStr}.
+
+IMPORTANT: This automated analysis is provided for informational purposes only and should not be considered a comprehensive security audit. It analyzes publicly available IDL data and applies pattern-based checks for common vulnerabilities.
+
+Limitations of this automated audit include:
+- Cannot analyze actual program bytecode or implementation details
+- Cannot detect logical vulnerabilities specific to business logic
+- Cannot verify runtime behavior or edge cases
+- Cannot assess cross-program invocation risks in full context
+- May not detect all vulnerability patterns
+
+For production deployments involving significant value, we strongly recommend engaging a professional security auditing firm to conduct a thorough manual review of your smart contract code.`;
+
+    const disclaimerLines = disclaimerText.split('\n');
+    for (const line of disclaimerLines) {
+      const wrappedLines = wrapText(line, 90);
+      for (const wLine of wrappedLines) {
+        page.drawText(wLine, {
+          x: margin,
+          y,
+          size: 10,
+          font: helvetica,
+          color: GRAY,
+        });
+        y -= 14;
+      }
+      y -= 6;
     }
 
-    // Finalize PDF
-    doc.end();
-
-    // Wait for PDF to complete
-    const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
-      doc.on("end", () => {
-        resolve(Buffer.concat(chunks));
-      });
-      doc.on("error", reject);
+    // Branding box
+    y -= 20;
+    page.drawRectangle({
+      x: margin,
+      y: y - 85,
+      width: pageWidth - margin * 2,
+      height: 100,
+      color: rgb(0.98, 0.98, 0.98),
+      borderColor: rgb(0.9, 0.9, 0.9),
+      borderWidth: 1,
     });
 
-    console.log("PDF generated, size:", pdfBuffer.length);
+    // Logo
+    page.drawCircle({
+      x: margin + 50,
+      y: y - 35,
+      size: 30,
+      color: PRIMARY,
+    });
+    page.drawText("SP", {
+      x: margin + 38,
+      y: y - 42,
+      size: 18,
+      font: helveticaBold,
+      color: WHITE,
+    });
 
-    // Return PDF
-    return new NextResponse(pdfBuffer, {
+    page.drawText("StakePoint", {
+      x: margin + 100,
+      y: y - 20,
+      size: 16,
+      font: helveticaBold,
+      color: DARK,
+    });
+
+    page.drawText("Solana DeFi Platform", {
+      x: margin + 100,
+      y: y - 38,
+      size: 10,
+      font: helvetica,
+      color: GRAY,
+    });
+
+    page.drawText("stakepoint.app", {
+      x: margin + 100,
+      y: y - 55,
+      size: 10,
+      font: helvetica,
+      color: PRIMARY,
+    });
+
+    page.drawText("contact@stakepoint.app", {
+      x: margin + 100,
+      y: y - 70,
+      size: 10,
+      font: helvetica,
+      color: GRAY,
+    });
+
+    page.drawText("Staking | Farming | Swaps | Tools", {
+      x: 350,
+      y: y - 38,
+      size: 9,
+      font: helvetica,
+      color: GRAY,
+    });
+
+    // Add footer to all pages
+    const pages = pdfDoc.getPages();
+    for (const p of pages) {
+      p.drawText("This is an automated analysis and should not replace a professional security audit.", {
+        x: margin,
+        y: 25,
+        size: 8,
+        font: helvetica,
+        color: LIGHT_GRAY,
+      });
+
+      p.drawText("stakepoint.app", {
+        x: pageWidth - margin - 60,
+        y: 25,
+        size: 8,
+        font: helvetica,
+        color: PRIMARY,
+      });
+    }
+
+    // Generate PDF
+    const pdfBytes = await pdfDoc.save();
+
+    console.log("PDF generated, size:", pdfBytes.length);
+
+    return new NextResponse(pdfBytes, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="audit-${(audit.programId || 'unknown').slice(0, 8)}.pdf"`,
-        "Content-Length": String(pdfBuffer.length),
+        "Content-Length": String(pdfBytes.length),
       },
     });
 
   } catch (err: any) {
     console.error("PDF generation error:", err);
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: err.message || "PDF generation failed",
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
     }, { status: 500 });
   }
+}
+
+// Helper to wrap text
+function wrapText(text: string, maxChars: number): string[] {
+  if (!text) return [""];
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let currentLine = "";
+
+  for (const word of words) {
+    if ((currentLine + word).length <= maxChars) {
+      currentLine += (currentLine ? " " : "") + word;
+    } else {
+      if (currentLine) lines.push(currentLine);
+      currentLine = word;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+
+  return lines.length > 0 ? lines : [""];
 }
