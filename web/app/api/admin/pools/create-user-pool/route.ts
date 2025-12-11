@@ -26,6 +26,8 @@ export async function POST(req: Request) {
       creator: body.creatorWallet,
       paymentTx: body.paymentTxSignature,
       transferTaxBps: body.transferTaxBps,
+      referrerWallet: body.referrerWallet || "none",
+      referrerSplitBps: body.referrerSplitBps || 0,
     });
     
     // 1. Verify payment transaction on-chain
@@ -129,7 +131,17 @@ export async function POST(req: Request) {
       // Continue with defaults if blockchain fetch fails
     }
     
-    // 4. Create pool in database with fetched blockchain data
+    // ✅ 4. Process referrer data
+    const hasReferrer = body.referrerWallet && body.referrerWallet.length > 30;
+    const referralSplitPercent = hasReferrer && body.referrerSplitBps 
+      ? body.referrerSplitBps / 100  // Convert bps to percent (5000 -> 50)
+      : null;
+    
+    if (hasReferrer) {
+      console.log(`🔗 Pool has referrer: ${body.referrerWallet} (${referralSplitPercent}% split)`);
+    }
+    
+    // 5. Create pool in database with fetched blockchain data
     const pool = await prisma.pool.create({
       data: {
         tokenMint: body.tokenMint,
@@ -139,8 +151,8 @@ export async function POST(req: Request) {
         apr: body.apr ? parseFloat(body.apr) : null,
         apy: body.apy ? parseFloat(body.apy) : null,
         type: body.type || "unlocked",
-        lockPeriod: lockPeriod, // ✅ Use blockchain-fetched value
-        duration: duration, // ✅ Use blockchain-fetched value
+        lockPeriod: lockPeriod,
+        duration: duration,
         rewards: body.rewards || "To be deposited",
         logo: body.logo || null,
         pairAddress: body.pairAddress || null,
@@ -156,10 +168,14 @@ export async function POST(req: Request) {
         transferTaxBps: transferTaxBps,
         featured: false,
         hidden: false,
+        // ✅ REFERRER DATA
+        referralEnabled: hasReferrer,
+        referralWallet: hasReferrer ? body.referrerWallet : null,
+        referralSplitPercent: referralSplitPercent,
       },
     });
     
-    console.log("✅ User pool created:", pool.id);
+    console.log("✅ User pool created:", pool.id, hasReferrer ? `(referred by ${body.referrerWallet.slice(0,8)}...)` : "");
     
     // 📢 Send Telegram alert
     try {
