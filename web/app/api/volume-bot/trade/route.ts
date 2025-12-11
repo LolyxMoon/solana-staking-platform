@@ -312,9 +312,11 @@ export async function GET(request: NextRequest) {
     // DEBUG
     return NextResponse.json({
     debug: true,
+    timestamp: new Date().toISOString(),
+    buildTime: 'Dec11-v2',
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
     dbWallets: wallets?.map(w => ({
         stored_address: w.wallet_address,
-        private_key_preview: w.private_key_encrypted?.slice(0, 10) + '...',
     })),
     walletError,
     });
