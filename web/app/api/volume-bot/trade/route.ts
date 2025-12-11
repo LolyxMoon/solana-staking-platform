@@ -304,14 +304,20 @@ export async function GET(request: NextRequest) {
     }
 
     // Get wallets
-    const { data: wallets } = await supabase
-      .from('volume_bot_wallets')
-      .select('*')
-      .eq('bot_id', 'main');
+    const { data: wallets, error: walletError } = await supabase
+    .from('volume_bot_wallets')
+    .select('*')
+    .eq('bot_id', 'main');
 
-    if (!wallets || wallets.length === 0) {
-      return NextResponse.json({ error: 'No wallets' }, { status: 400 });
-    }
+    // DEBUG
+    return NextResponse.json({
+    debug: true,
+    dbWallets: wallets?.map(w => ({
+        stored_address: w.wallet_address,
+        private_key_preview: w.private_key_encrypted?.slice(0, 10) + '...',
+    })),
+    walletError,
+    });
 
     // Check last trade time (respect interval)
     const { data: lastTrade } = await supabase
