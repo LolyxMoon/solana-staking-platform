@@ -336,16 +336,6 @@ export async function GET(request: NextRequest) {
     // Get wallets - direct REST call
     const wallets = await supabaseGet('volume_bot_wallets', 'bot_id=eq.main&select=*');
 
-    // DEBUG - remove this after testing
-    return NextResponse.json({
-      debug: true,
-      timestamp: new Date().toISOString(),
-      buildTime: 'Dec11-v4-direct',
-      dbWallets: wallets?.map((w: any) => ({
-        stored_address: w.wallet_address,
-      })),
-    });
-
     if (!wallets || wallets.length === 0) {
       return NextResponse.json({ error: 'No wallets' }, { status: 400 });
     }
