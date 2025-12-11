@@ -78,36 +78,75 @@ export async function POST(req: Request) {
     let idl: any = null;
     let programName = "Unknown Program";
 
-    // Try Anchor IDL account
+    // Try Anchor IDL account - Method 1: findProgramAddressSync
     try {
       const [idlAddress] = PublicKey.findProgramAddressSync(
         [Buffer.from("anchor:idl"), programPubkey.toBuffer()],
         programPubkey
       );
 
+      console.log("Trying IDL address (method 1):", idlAddress.toBase58());
       const idlAccount = await connection.getAccountInfo(idlAddress);
       
       if (idlAccount) {
-        // Skip 8-byte discriminator + 4-byte length
-        const idlData = idlAccount.data.slice(12);
-        const inflated = await inflateIdl(idlData);
+        console.log("Found IDL account, data length:", idlAccount.data.length);
+        
+        // Anchor IDL account layout:
+        // - 8 bytes: discriminator
+        // - 32 bytes: authority pubkey
+        // - 4 bytes: data length (u32 LE)
+        // - N bytes: zlib compressed IDL
+        const dataLengthOffset = 40; // 8 + 32
+        const dataLength = idlAccount.data.readUInt32LE(dataLengthOffset);
+        console.log("Compressed IDL data length:", dataLength);
+        
+        const compressedData = idlAccount.data.slice(dataLengthOffset + 4, dataLengthOffset + 4 + dataLength);
+        const inflated = await inflateIdl(compressedData);
         idl = JSON.parse(inflated);
-        programName = idl.name || "Anchor Program";
+        programName = idl.metadata?.name || idl.name || "Anchor Program";
         console.log("✅ Found on-chain IDL:", programName);
       }
-    } catch (idlErr) {
-      console.log("No on-chain IDL found, trying registry...");
+    } catch (idlErr: any) {
+      console.log("Method 1 IDL fetch failed:", idlErr.message);
+    }
+
+    // Try Method 2: createWithSeed (older Anchor versions)
+    if (!idl) {
+      try {
+        const base = PublicKey.findProgramAddressSync([], programPubkey)[0];
+        const idlAddressOld = await PublicKey.createWithSeed(base, "anchor:idl", programPubkey);
+        
+        console.log("Trying IDL address (method 2):", idlAddressOld.toBase58());
+        const idlAccount = await connection.getAccountInfo(idlAddressOld);
+        
+        if (idlAccount) {
+          console.log("Found IDL account (method 2), data length:", idlAccount.data.length);
+          
+          const dataLengthOffset = 40;
+          const dataLength = idlAccount.data.readUInt32LE(dataLengthOffset);
+          console.log("Compressed IDL data length:", dataLength);
+          
+          const compressedData = idlAccount.data.slice(dataLengthOffset + 4, dataLengthOffset + 4 + dataLength);
+          const inflated = await inflateIdl(compressedData);
+          idl = JSON.parse(inflated);
+          programName = idl.metadata?.name || idl.name || "Anchor Program";
+          console.log("✅ Found on-chain IDL (method 2):", programName);
+        }
+      } catch (idlErr: any) {
+        console.log("Method 2 IDL fetch failed:", idlErr.message);
+      }
     }
 
     // Try Anchor registry as fallback
     if (!idl) {
       try {
+        console.log("Trying Anchor registry...");
         const registryRes = await fetch(
           `https://anchor.so/api/v0/program/${programId}/idl`
         );
         if (registryRes.ok) {
           idl = await registryRes.json();
-          programName = idl.name || "Anchor Program";
+          programName = idl.metadata?.name || idl.name || "Anchor Program";
           console.log("✅ Found IDL in registry:", programName);
         }
       } catch {
@@ -117,7 +156,7 @@ export async function POST(req: Request) {
 
     if (!idl) {
       return NextResponse.json({ 
-        error: "No IDL found. Program must have a verified IDL on-chain or in Anchor registry." 
+        error: "No IDL found. Program must have a verified IDL on-chain or in Anchor registry. Use 'anchor idl init' to publish your IDL." 
       }, { status: 400 });
     }
 
@@ -143,14 +182,20 @@ export async function POST(req: Request) {
 
 // Helper to inflate compressed IDL
 async function inflateIdl(data: Buffer): Promise<string> {
-  // IDL is typically zlib compressed
   const pako = await import("pako");
   try {
+    // Try zlib inflate first
     const inflated = pako.inflate(data);
     return new TextDecoder().decode(inflated);
-  } catch {
-    // Maybe not compressed
-    return data.toString("utf8");
+  } catch (e1) {
+    try {
+      // Try raw inflate
+      const inflated = pako.inflateRaw(data);
+      return new TextDecoder().decode(inflated);
+    } catch (e2) {
+      // Maybe not compressed, try as-is
+      return data.toString("utf8");
+    }
   }
 }
 
@@ -223,14 +268,31 @@ function analyzeIdl(idl: any, programId: string): {
     description: hasAuthority ? "Has authority/admin account structures" : "No explicit authority pattern found",
   });
 
-  // Arithmetic checks (look for checked math in types)
-  const hasCheckedMath = JSON.stringify(idl).includes("checked") || 
-                          JSON.stringify(idl).includes("saturating");
-  
+  // Check for pause mechanism
+  const hasPause = ixs.some((ix: any) => 
+    ix.name.toLowerCase().includes("pause")
+  );
+
   securityChecks.push({
-    name: "Integer Overflow Protection",
-    status: hasCheckedMath ? "PASS" : "WARN",
-    description: hasCheckedMath ? "Uses checked/saturating math" : "Review arithmetic operations manually",
+    name: "Emergency Pause",
+    status: hasPause ? "PASS" : "WARN",
+    description: hasPause ? "Has pause/unpause functionality" : "No pause mechanism detected",
+  });
+
+  // Check for error handling
+  const errorCount = (idl.errors || []).length;
+  securityChecks.push({
+    name: "Error Handling",
+    status: errorCount >= 10 ? "PASS" : errorCount >= 5 ? "WARN" : "FAIL",
+    description: `${errorCount} custom error types defined`,
+  });
+
+  // Check for event logging
+  const eventCount = (idl.events || []).length;
+  securityChecks.push({
+    name: "Event Logging",
+    status: eventCount >= 5 ? "PASS" : eventCount > 0 ? "WARN" : "FAIL",
+    description: `${eventCount} events for audit trails`,
   });
 
   // Generate recommendations
@@ -246,8 +308,12 @@ function analyzeIdl(idl: any, programId: string): {
     recommendations.push("Review flagged instructions for potential vulnerabilities");
   }
 
-  if (!hasCheckedMath) {
-    recommendations.push("Use checked_add, checked_sub, checked_mul for arithmetic operations");
+  if (!hasPause) {
+    recommendations.push("Consider adding emergency pause functionality");
+  }
+
+  if (errorCount < 10) {
+    recommendations.push("Add more descriptive custom errors for better debugging");
   }
 
   recommendations.push("Consider a professional manual audit for production deployment");
@@ -258,9 +324,9 @@ function analyzeIdl(idl: any, programId: string): {
   const warnChecks = securityChecks.filter(c => c.status === "WARN").length;
   
   let baseScore = (passedChecks / totalChecks) * 100;
-  baseScore -= warnChecks * 5;
-  baseScore -= issues * 15;
-  baseScore -= warnings * 5;
+  baseScore -= warnChecks * 3;
+  baseScore -= issues * 10;
+  baseScore -= warnings * 3;
   
   const overallScore = Math.max(0, Math.min(100, Math.round(baseScore)));
 
@@ -272,7 +338,7 @@ function analyzeIdl(idl: any, programId: string): {
   else riskLevel = "CRITICAL";
 
   // Generate summary
-  const summary = `Analyzed ${instructions.length} instructions across the ${idl.name || "program"}. ` +
+  const summary = `Analyzed ${instructions.length} instructions across the ${idl.metadata?.name || idl.name || "program"}. ` +
     `Found ${issues} high-severity issues and ${warnings} warnings. ` +
     `${passedChecks}/${totalChecks} security checks passed. ` +
     (riskLevel === "LOW" 
@@ -311,6 +377,8 @@ function analyzeInstruction(ix: any, idl: any): InstructionAnalysis {
     a.constraints.some((c: string) =>
       c.includes("owner") || c.includes("has_one") || c.includes("constraint")
     )
+  ) || accounts.some((a: any) => 
+    a.name.toLowerCase().includes("admin") && a.isSigner
   );
 
   const risks: string[] = [];
@@ -324,7 +392,7 @@ function analyzeInstruction(ix: any, idl: any): InstructionAnalysis {
   }
 
   if (ix.name.toLowerCase().includes("withdraw") || ix.name.toLowerCase().includes("transfer")) {
-    if (!hasOwnerCheck) {
+    if (!hasOwnerCheck && !accounts.some((a: any) => a.name.toLowerCase().includes("admin") && a.isSigner)) {
       risks.push("CRITICAL: Fund movement without owner check");
     }
   }
@@ -357,10 +425,11 @@ function analyzeInstruction(ix: any, idl: any): InstructionAnalysis {
 function extractConstraints(acc: any): string[] {
   const constraints: string[] = [];
   
-  if (acc.pda) constraints.push(`seeds: ${JSON.stringify(acc.pda.seeds)}`);
+  if (acc.pda) constraints.push(`pda: ${JSON.stringify(acc.pda.seeds || acc.pda)}`);
   if (acc.relations) constraints.push(`has_one: ${acc.relations.join(", ")}`);
   if (acc.constraint) constraints.push(`constraint: ${acc.constraint}`);
   if (acc.owner) constraints.push(`owner: ${acc.owner}`);
+  if (acc.address) constraints.push(`address: ${acc.address}`);
   
   // Handle Anchor IDL v0.29+ format
   if (acc.seeds) constraints.push(`seeds: ${JSON.stringify(acc.seeds)}`);
