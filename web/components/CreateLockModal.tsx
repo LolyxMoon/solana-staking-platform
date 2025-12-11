@@ -262,15 +262,12 @@ export default function CreateLockModal({
     try {
       setStatusMessage("Finding available pool slot...");
       
-      // Check if pool exists in database with matching lockup
+      // For locks, ALWAYS create a new unique pool (no reusing)
       const poolsResponse = await fetch(`/api/pools/by-token/${selectedToken.mint}`);
       const existingPools = poolsResponse.ok ? await poolsResponse.json() : [];
-      
-      // Find pool with matching lockup duration AND matching token mint
-      let matchingPool = existingPools.find((p: any) => 
-        p.lockPeriod === finalDuration && 
-        p.tokenMint === selectedToken.mint
-      );
+
+      // Don't look for matching pool - each lock gets its own pool
+      let matchingPool = null;
       
       // Track the actual poolId we'll use
       let usedPoolId: number;

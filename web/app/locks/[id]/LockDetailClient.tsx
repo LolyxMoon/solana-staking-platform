@@ -150,6 +150,12 @@ export default function LockDetailClient({ lock: initialLock }: LockDetailClient
         const stakeAccount = await program.account.stake.fetch(userStakePDA, "confirmed");
         console.log("✅ User stake exists on-chain");
         console.log("   Staked Amount:", stakeAccount.amount.toString());
+      
+      if (stakeAccount.amount.toNumber() === 0) {
+        setUnlockError("This lock has already been unlocked.");
+        setIsUnlocking(false);
+        return;
+      }
       } catch (e) {
         console.error("❌ User stake NOT FOUND!");
         setUnlockError("Stake account not found. May have been unlocked already.");
