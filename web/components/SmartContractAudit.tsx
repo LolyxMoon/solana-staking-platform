@@ -100,27 +100,57 @@ export default function SmartContractAudit() {
     }
   };
 
+  // ✅ FIXED: PDF download function with proper browser support
   const handleDownloadPdf = async () => {
     if (!auditResult) return;
     
     setDownloadingPdf(true);
+    setError(null);
+    
     try {
+      console.log("Starting PDF download...");
+      
       const res = await fetch("/api/tools/audit/pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ audit: auditResult }),
       });
 
-      if (!res.ok) throw new Error("PDF generation failed");
+      console.log("PDF response status:", res.status);
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "PDF generation failed");
+      }
 
       const blob = await res.blob();
+      console.log("PDF blob size:", blob.size);
+      
+      // Create object URL
       const url = window.URL.createObjectURL(blob);
+      
+      // Create link element
       const a = document.createElement("a");
+      a.style.display = "none";
       a.href = url;
       a.download = `audit-${auditResult.programId.slice(0, 8)}-${Date.now()}.pdf`;
+      
+      // ✅ CRITICAL: Append to body (required for Firefox and some browsers)
+      document.body.appendChild(a);
+      
+      // Trigger download
       a.click();
-      window.URL.revokeObjectURL(url);
+      
+      // Cleanup after small delay
+      setTimeout(() => {
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }, 100);
+      
+      console.log("PDF download triggered successfully");
+      
     } catch (err: any) {
+      console.error("PDF download error:", err);
       setError(err.message || "Failed to download PDF");
     } finally {
       setDownloadingPdf(false);
@@ -214,7 +244,7 @@ export default function SmartContractAudit() {
                 ) : (
                   <>
                     <Shield className="w-5 h-5" />
-                    Start Audit (0.01 SOL in SPT)
+                    Start Audit (2 SOL in SPT)
                   </>
                 )}
               </button>
@@ -317,6 +347,9 @@ export default function SmartContractAudit() {
                       {ix.hasPdaValidation && (
                         <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded">PDA ✓</span>
                       )}
+                      {ix.hasOwnerCheck && (
+                        <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-xs rounded">Owner ✓</span>
+                      )}
                     </div>
                   </div>
                   {ix.risks.length > 0 && (
@@ -383,7 +416,7 @@ export default function SmartContractAudit() {
         isOpen={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
         onSuccess={handlePaymentSuccess}
-        solAmount={0.01}
+        solAmount={2}
       />
     </div>
   );

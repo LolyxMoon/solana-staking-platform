@@ -239,11 +239,17 @@ function analyzeIdl(idl: any, programId: string): {
     description: "PDA seeds and bumps are validated",
   });
 
+  // Owner checks - pass if most instructions with mutable accounts have owner checks
+  const ixWithMutAccounts = instructions.filter(ix => ix.accounts.some(a => a.isMut));
+  const ixWithOwnerChecks = ixWithMutAccounts.filter(ix => ix.hasOwnerCheck);
+  const ownerCheckRatio = ixWithMutAccounts.length > 0 
+    ? ixWithOwnerChecks.length / ixWithMutAccounts.length 
+    : 1;
+  
   securityChecks.push({
     name: "Owner Checks",
-    status: instructions.every(ix => ix.hasOwnerCheck || ix.accounts.filter(a => a.isMut).length === 0) ? "PASS" : 
-            instructions.some(ix => ix.hasOwnerCheck) ? "WARN" : "FAIL",
-    description: "Account ownership is verified before mutations",
+    status: ownerCheckRatio >= 0.8 ? "PASS" : ownerCheckRatio >= 0.5 ? "WARN" : "FAIL",
+    description: `${ixWithOwnerChecks.length}/${ixWithMutAccounts.length} mutable instructions verify ownership`,
   });
 
   // Check for common patterns
@@ -257,15 +263,48 @@ function analyzeIdl(idl: any, programId: string): {
     description: hasInit ? "Has initialization instructions" : "No explicit initialization found",
   });
 
-  // Check for admin/authority patterns
-  const hasAuthority = idl.accounts?.some((acc: any) => 
-    acc.name.toLowerCase().includes("authority") || acc.name.toLowerCase().includes("admin")
-  );
+  // Check for admin/authority patterns - look in INSTRUCTION accounts, not IDL account structs
+  const hasAdminPattern = ixs.some((ix: any) => {
+    const accounts = ix.accounts || [];
+    return accounts.some((acc: any) => {
+      const name = (acc.name || "").toLowerCase();
+      const isSigner = acc.isSigner || acc.signer;
+      return (name.includes("admin") || name.includes("authority") || name.includes("owner")) && isSigner;
+    });
+  });
+  
+  // Also check account structs for admin fields
+  const hasAdminInStructs = idl.types?.some((t: any) => {
+    const fields = t.type?.fields || [];
+    return fields.some((f: any) => {
+      const name = (f.name || "").toLowerCase();
+      return name.includes("admin") || name.includes("authority") || name.includes("owner");
+    });
+  }) || idl.accounts?.some((acc: any) => {
+    const fields = acc.type?.fields || [];
+    return fields.some((f: any) => {
+      const name = (f.name || "").toLowerCase();
+      return name.includes("admin") || name.includes("authority") || name.includes("owner");
+    });
+  });
+
+  const hasAccessControl = hasAdminPattern || hasAdminInStructs;
+  
+  // Count admin-gated instructions
+  const adminGatedIx = ixs.filter((ix: any) => {
+    const accounts = ix.accounts || [];
+    return accounts.some((acc: any) => {
+      const name = (acc.name || "").toLowerCase();
+      return (name.includes("admin") || name.includes("authority")) && (acc.isSigner || acc.signer);
+    });
+  });
 
   securityChecks.push({
     name: "Access Control",
-    status: hasAuthority ? "PASS" : "WARN",
-    description: hasAuthority ? "Has authority/admin account structures" : "No explicit authority pattern found",
+    status: hasAccessControl ? "PASS" : "WARN",
+    description: hasAccessControl 
+      ? `${adminGatedIx.length} instructions require admin/authority` 
+      : "No explicit authority pattern found",
   });
 
   // Check for pause mechanism
@@ -363,6 +402,7 @@ function analyzeInstruction(ix: any, idl: any): InstructionAnalysis {
     isMut: acc.isMut || acc.writable || false,
     isSigner: acc.isSigner || acc.signer || false,
     constraints: extractConstraints(acc),
+    pda: acc.pda || null,
   }));
 
   const hasSignerCheck = accounts.some((a: any) => a.isSigner);
@@ -373,13 +413,42 @@ function analyzeInstruction(ix: any, idl: any): InstructionAnalysis {
     )
   );
 
-  const hasOwnerCheck = accounts.some((a: any) =>
+  // Enhanced owner check detection:
+  // 1. Explicit constraint/owner/has_one attributes
+  // 2. Admin/authority account that is a signer
+  // 3. PDA that includes user/signer in its seeds (implicit ownership via PDA derivation)
+  const hasExplicitOwnerCheck = accounts.some((a: any) =>
     a.constraints.some((c: string) =>
       c.includes("owner") || c.includes("has_one") || c.includes("constraint")
     )
-  ) || accounts.some((a: any) => 
-    a.name.toLowerCase().includes("admin") && a.isSigner
   );
+  
+  const hasAdminSigner = accounts.some((a: any) => 
+    (a.name.toLowerCase().includes("admin") || a.name.toLowerCase().includes("authority")) && a.isSigner
+  );
+  
+  // Check if any PDA includes user/signer in seeds - this implies ownership validation
+  const hasPdaWithUserSeed = accounts.some((a: any) => {
+    if (!a.pda || !a.pda.seeds) return false;
+    return a.pda.seeds.some((seed: any) => {
+      // Check if seed references user, signer, or authority account
+      if (seed.kind === "account") {
+        const path = (seed.path || "").toLowerCase();
+        return path.includes("user") || path.includes("signer") || path.includes("authority");
+      }
+      return false;
+    });
+  });
+  
+  // Also check if there's a "stake" or "user_account" PDA derived from user - common pattern
+  const hasUserDerivedAccount = accounts.some((a: any) => {
+    const name = a.name.toLowerCase();
+    const isUserRelated = name.includes("stake") || name.includes("user_") || name.includes("position");
+    const hasPdaSeeds = a.constraints.some((c: string) => c.includes("seeds"));
+    return isUserRelated && hasPdaSeeds && hasSignerCheck;
+  });
+
+  const hasOwnerCheck = hasExplicitOwnerCheck || hasAdminSigner || hasPdaWithUserSeed || hasUserDerivedAccount;
 
   const risks: string[] = [];
 
@@ -392,7 +461,8 @@ function analyzeInstruction(ix: any, idl: any): InstructionAnalysis {
   }
 
   if (ix.name.toLowerCase().includes("withdraw") || ix.name.toLowerCase().includes("transfer")) {
-    if (!hasOwnerCheck && !accounts.some((a: any) => a.name.toLowerCase().includes("admin") && a.isSigner)) {
+    // Only flag if there's no owner check AND no user-derived PDA AND no admin signer
+    if (!hasOwnerCheck) {
       risks.push("CRITICAL: Fund movement without owner check");
     }
   }
