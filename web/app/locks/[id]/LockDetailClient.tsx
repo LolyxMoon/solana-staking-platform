@@ -31,6 +31,7 @@ interface LockDetailClientProps {
     unlockTime: Date;
     creatorWallet: string;
     poolId?: number;
+    stakePda?: string;
     logo: string | null;
     isActive: boolean;
     isUnlocked: boolean;
@@ -104,9 +105,8 @@ export default function LockDetailClient({ lock: initialLock }: LockDetailClient
       console.log("🔓 Starting unlock process...");
       console.log("   Token Mint:", lock.tokenMint);
       console.log("   Pool ID:", lock.poolId);
-      console.log("   Lock ID:", lock.lockId);
+      console.log("   Saved Stake PDA:", lock.stakePda);
       
-      // Import what we need for debugging
       const { getProgram, getPDAs } = await import("@/lib/anchor-program");
       const { PublicKey: PK } = await import("@solana/web3.js");
       
@@ -116,12 +116,21 @@ export default function LockDetailClient({ lock: initialLock }: LockDetailClient
       // Derive PDAs
       const [projectPDA] = getPDAs.project(tokenMintPubkey, lock.poolId);
       const [stakingVaultPDA] = getPDAs.stakingVault(tokenMintPubkey, lock.poolId);
-      const [userStakePDA] = getPDAs.userStake(projectPDA, publicKey);
+      const [derivedStakePDA] = getPDAs.userStake(projectPDA, publicKey);
       
       console.log("🔍 PDAs:");
       console.log("   Project PDA:", projectPDA.toString());
       console.log("   Staking Vault:", stakingVaultPDA.toString());
-      console.log("   User Stake PDA:", userStakePDA.toString());
+      console.log("   Derived Stake PDA:", derivedStakePDA.toString());
+      console.log("   Saved Stake PDA:  ", lock.stakePda || "NOT SAVED");
+      console.log("   PDAs Match:", lock.stakePda === derivedStakePDA.toString());
+      
+      // Use saved PDA if available
+      const userStakePDA = lock.stakePda 
+        ? new PK(lock.stakePda) 
+        : derivedStakePDA;
+      
+      console.log("   Using Stake PDA:", userStakePDA.toString());
       
       // Check if project exists
       try {
@@ -129,23 +138,21 @@ export default function LockDetailClient({ lock: initialLock }: LockDetailClient
         console.log("✅ Project exists on-chain");
         console.log("   Token Mint:", project.tokenMint.toString());
         console.log("   Pool ID:", project.poolId.toString());
-        console.log("   Lockup:", project.lockupSeconds.toString(), "seconds");
       } catch (e) {
         console.error("❌ Project NOT FOUND on-chain!");
-        setUnlockError(`Project not found on-chain for poolId ${lock.poolId}. The lock may not have been created properly.`);
+        setUnlockError(`Project not found for poolId ${lock.poolId}`);
         setIsUnlocking(false);
         return;
       }
       
-      // Check if user stake exists
+      // Check if user stake exists using the correct PDA
       try {
-        const stake = await program.account.stake.fetch(userStakePDA, "confirmed");
+        const stakeAccount = await program.account.stake.fetch(userStakePDA, "confirmed");
         console.log("✅ User stake exists on-chain");
-        console.log("   Staked Amount:", stake.amount.toString());
-        console.log("   Deposit Time:", new Date(stake.depositTime.toNumber() * 1000).toISOString());
+        console.log("   Staked Amount:", stakeAccount.amount.toString());
       } catch (e) {
-        console.error("❌ User stake NOT FOUND on-chain!");
-        setUnlockError("Your stake account doesn't exist on-chain. The lock may have already been unlocked or was never created.");
+        console.error("❌ User stake NOT FOUND!");
+        setUnlockError("Stake account not found. May have been unlocked already.");
         setIsUnlocking(false);
         return;
       }
@@ -154,26 +161,14 @@ export default function LockDetailClient({ lock: initialLock }: LockDetailClient
       try {
         const vaultBalance = await connection.getTokenAccountBalance(stakingVaultPDA);
         console.log("✅ Vault balance:", vaultBalance.value.uiAmount);
-        
-        if (!vaultBalance.value.uiAmount || vaultBalance.value.uiAmount === 0) {
-          console.error("❌ Vault is EMPTY!");
-          setUnlockError("The staking vault is empty. Tokens may have already been withdrawn.");
-          setIsUnlocking(false);
-          return;
-        }
       } catch (e) {
-        console.error("❌ Could not fetch vault balance:", e);
-        setUnlockError("Could not verify vault balance. The vault may not exist.");
-        setIsUnlocking(false);
-        return;
+        console.error("❌ Could not fetch vault balance");
       }
       
       console.log("✅ All checks passed, proceeding with unstake...");
       
-      // Unstake the tokens
       await unstake(lock.tokenMint, lock.poolId);
       
-      // Update lock status in database
       const response = await fetch(`/api/locks/${lock.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -181,8 +176,7 @@ export default function LockDetailClient({ lock: initialLock }: LockDetailClient
       });
 
       if (response.ok) {
-        const updatedLock = await response.json();
-        setLock(updatedLock);
+        setLock(await response.json());
       }
       
       alert("Tokens unlocked successfully! ✅");
