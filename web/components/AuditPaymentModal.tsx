@@ -65,7 +65,7 @@ export default function AuditPaymentModal({
         throw new Error("Failed to get quote");
       }
       
-      const sptOut = Number(quote.outAmount) / 1e6; // SPT has 6 decimals
+      const sptOut = Number(quote.outAmount) / 1e9;
       setSptAmount(sptOut);
       setStep("quote");
     } catch (err: any) {
