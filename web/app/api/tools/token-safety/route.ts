@@ -173,8 +173,122 @@ async function fetchMeteoraPoolFees(mint: string): Promise<{
   poolAddress: string | null;
   dex: string;
 } | null> {
+  
+  // Try to get pool address from DexScreener first (they have reliable pool data)
+  let poolAddress: string | null = null;
   try {
-    // Try Meteora Dynamic AMM API
+    const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    
+    if (dexRes.ok) {
+      const dexData = await dexRes.json();
+      const pairs = dexData.pairs || [];
+      
+      // Find Meteora pair
+      const meteoraPair = pairs.find((p: any) => 
+        p.dexId?.toLowerCase().includes('meteora') || 
+        p.url?.includes('meteora')
+      );
+      
+      if (meteoraPair) {
+        poolAddress = meteoraPair.pairAddress;
+        console.log("Found Meteora pool from DexScreener:", poolAddress);
+      }
+    }
+  } catch (err) {
+    console.log("DexScreener pool lookup failed:", err);
+  }
+
+  // If we have a pool address, query Meteora directly
+  if (poolAddress) {
+    try {
+      // Try Dynamic AMM pool endpoint
+      const poolRes = await fetch(`https://amm-v2.meteora.ag/pools/${poolAddress}`, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(5000),
+      });
+      
+      if (poolRes.ok) {
+        const poolData = await poolRes.json();
+        console.log("=== METEORA POOL DIRECT RESPONSE ===");
+        console.log(JSON.stringify(poolData, null, 2));
+        
+        let buyFee = 0;
+        let sellFee = 0;
+        
+        // Extract creator/trade fees
+        if (poolData.trade_fee_bps !== undefined) {
+          buyFee = poolData.trade_fee_bps / 100;
+          sellFee = poolData.trade_fee_bps / 100;
+        }
+        if (poolData.creator_fee_bps !== undefined) {
+          buyFee = poolData.creator_fee_bps / 100;
+          sellFee = poolData.creator_fee_bps / 100;
+        }
+        if (poolData.fees?.trading_fee_bps !== undefined) {
+          buyFee = poolData.fees.trading_fee_bps / 100;
+          sellFee = poolData.fees.trading_fee_bps / 100;
+        }
+        
+        if (buyFee > 0 || sellFee > 0) {
+          return { buyFee, sellFee, poolAddress, dex: "Meteora" };
+        }
+      }
+    } catch (err) {
+      console.log("Meteora direct pool fetch failed:", err);
+    }
+  }
+
+  // Try Meteora Dynamic AMM API with token mint
+  try {
+    const meteoraRes = await fetch(`https://amm-v2.meteora.ag/pools?token=${mint}`, {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    
+    if (meteoraRes.ok) {
+      const pools = await meteoraRes.json();
+      console.log("=== METEORA AMM V2 RESPONSE ===");
+      console.log(JSON.stringify(pools, null, 2).slice(0, 2000));
+      
+      const poolList = Array.isArray(pools) ? pools : pools.pools || pools.data || [];
+      
+      if (poolList.length > 0) {
+        for (const pool of poolList) {
+          let buyFee = 0;
+          let sellFee = 0;
+          
+          if (pool.trade_fee_bps !== undefined) {
+            buyFee = pool.trade_fee_bps / 100;
+            sellFee = pool.trade_fee_bps / 100;
+          }
+          if (pool.creator_fee_bps !== undefined) {
+            buyFee = pool.creator_fee_bps / 100;
+            sellFee = pool.creator_fee_bps / 100;
+          }
+          if (pool.trading_fee !== undefined) {
+            buyFee = pool.trading_fee;
+            sellFee = pool.trading_fee;
+          }
+          
+          if (buyFee > 0 || sellFee > 0) {
+            return {
+              buyFee,
+              sellFee,
+              poolAddress: pool.pool_address || pool.address || null,
+              dex: "Meteora"
+            };
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.log("Meteora AMM V2 fetch failed:", err);
+  }
+
+  // Try the original AMM endpoint  
+  try {
     const meteoraRes = await fetch(`https://amm.meteora.ag/pools?address=${mint}`, {
       headers: { 'Accept': 'application/json' },
       signal: AbortSignal.timeout(5000),
@@ -187,44 +301,27 @@ async function fetchMeteoraPoolFees(mint: string): Promise<{
       
       if (Array.isArray(pools) && pools.length > 0) {
         for (const pool of pools) {
-          // Check if this pool contains our token
           if (pool.pool_token_mints?.includes(mint) || 
               pool.token_a_mint === mint || 
               pool.token_b_mint === mint) {
             
-            // Extract fees - Meteora uses different formats
             let buyFee = 0;
             let sellFee = 0;
             
-            // Check for trade_fee_bps (basis points)
             if (pool.trade_fee_bps !== undefined) {
               buyFee = pool.trade_fee_bps / 100;
               sellFee = pool.trade_fee_bps / 100;
             }
-            
-            // Check for fees object
             if (pool.fees) {
               if (pool.fees.trade_fee_numerator && pool.fees.trade_fee_denominator) {
                 const feePercent = (pool.fees.trade_fee_numerator / pool.fees.trade_fee_denominator) * 100;
                 buyFee = feePercent;
                 sellFee = feePercent;
               }
-              if (pool.fees.buy_fee !== undefined) buyFee = pool.fees.buy_fee;
-              if (pool.fees.sell_fee !== undefined) sellFee = pool.fees.sell_fee;
             }
-            
-            // Check for creator_trade_fee_bps (memecoin launch fee)
             if (pool.creator_trade_fee_bps !== undefined) {
               buyFee = pool.creator_trade_fee_bps / 100;
               sellFee = pool.creator_trade_fee_bps / 100;
-            }
-            
-            // Check config object
-            if (pool.config) {
-              if (pool.config.trade_fee_bps !== undefined) {
-                buyFee = pool.config.trade_fee_bps / 100;
-                sellFee = pool.config.trade_fee_bps / 100;
-              }
             }
             
             if (buyFee > 0 || sellFee > 0) {
@@ -243,100 +340,53 @@ async function fetchMeteoraPoolFees(mint: string): Promise<{
     console.log("Meteora AMM fetch failed:", err);
   }
   
-  // Try Meteora DLMM API
+  // Try Meteora DLMM API - but search for our specific token
   try {
-    const dlmmRes = await fetch(`https://dlmm-api.meteora.ag/pair/all_by_groups?include_pool_token=${mint}`, {
+    const dlmmRes = await fetch(`https://dlmm-api.meteora.ag/pair/all`, {
       headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(8000),
     });
     
     if (dlmmRes.ok) {
       const dlmmData = await dlmmRes.json();
-      console.log("=== METEORA DLMM RESPONSE ===");
-      console.log(JSON.stringify(dlmmData, null, 2).slice(0, 2000));
       
-      // Parse DLMM response for fees
-      if (dlmmData.groups) {
-        for (const group of dlmmData.groups) {
-          if (group.pairs) {
-            for (const pair of group.pairs) {
-              if (pair.mint_x === mint || pair.mint_y === mint) {
-                let buyFee = 0;
-                let sellFee = 0;
-                
-                // DLMM uses base_fee_percentage
-                if (pair.base_fee_percentage !== undefined) {
-                  buyFee = parseFloat(pair.base_fee_percentage);
-                  sellFee = parseFloat(pair.base_fee_percentage);
-                }
-                
-                if (pair.trade_fee_bps !== undefined) {
-                  buyFee = pair.trade_fee_bps / 100;
-                  sellFee = pair.trade_fee_bps / 100;
-                }
-                
-                if (buyFee > 0 || sellFee > 0) {
-                  return {
-                    buyFee,
-                    sellFee,
-                    poolAddress: pair.address || null,
-                    dex: "Meteora DLMM"
-                  };
-                }
-              }
-            }
-          }
+      // Search for pairs containing our mint
+      const pairs = Array.isArray(dlmmData) ? dlmmData : dlmmData.pairs || [];
+      const matchingPair = pairs.find((p: any) => 
+        p.mint_x === mint || p.mint_y === mint ||
+        p.token_x_mint === mint || p.token_y_mint === mint
+      );
+      
+      if (matchingPair) {
+        console.log("=== METEORA DLMM MATCHING PAIR ===");
+        console.log(JSON.stringify(matchingPair, null, 2));
+        
+        let buyFee = 0;
+        let sellFee = 0;
+        
+        if (matchingPair.base_fee_percentage !== undefined) {
+          buyFee = parseFloat(matchingPair.base_fee_percentage);
+          sellFee = parseFloat(matchingPair.base_fee_percentage);
+        }
+        if (matchingPair.trade_fee_bps !== undefined) {
+          buyFee = matchingPair.trade_fee_bps / 100;
+          sellFee = matchingPair.trade_fee_bps / 100;
+        }
+        
+        if (buyFee > 0 || sellFee > 0) {
+          return {
+            buyFee,
+            sellFee,
+            poolAddress: matchingPair.address || null,
+            dex: "Meteora DLMM"
+          };
         }
       }
     }
   } catch (err) {
     console.log("Meteora DLMM fetch failed:", err);
   }
-  
-  // Try Meteora memecoin pool API (different endpoint)
-  try {
-    const memeRes = await fetch(`https://memecoin-api.meteora.ag/pools?token_address=${mint}`, {
-      headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(5000),
-    });
-    
-    if (memeRes.ok) {
-      const memeData = await memeRes.json();
-      console.log("=== METEORA MEMECOIN RESPONSE ===");
-      console.log(JSON.stringify(memeData, null, 2));
-      
-      if (memeData.pool || memeData.pools) {
-        const pool = memeData.pool || memeData.pools?.[0];
-        if (pool) {
-          let buyFee = 0;
-          let sellFee = 0;
-          
-          if (pool.creator_fee_percent !== undefined) {
-            buyFee = pool.creator_fee_percent;
-            sellFee = pool.creator_fee_percent;
-          }
-          if (pool.buy_fee !== undefined) buyFee = pool.buy_fee;
-          if (pool.sell_fee !== undefined) sellFee = pool.sell_fee;
-          if (pool.trade_fee_bps !== undefined) {
-            buyFee = pool.trade_fee_bps / 100;
-            sellFee = pool.trade_fee_bps / 100;
-          }
-          
-          if (buyFee > 0 || sellFee > 0) {
-            return {
-              buyFee,
-              sellFee,
-              poolAddress: pool.address || null,
-              dex: "Meteora Memecoin"
-            };
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.log("Meteora memecoin fetch failed:", err);
-  }
-  
+
   return null;
 }
 
