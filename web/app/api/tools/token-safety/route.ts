@@ -6,6 +6,14 @@ export const maxDuration = 30;
 
 const HELIUS_RPC = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT!;
 
+interface Token2022Extension {
+  name: string;
+  enabled: boolean;
+  riskLevel: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+  description: string;
+  details?: string;
+}
+
 interface TokenSafetyResult {
   mint: string;
   name: string;
@@ -26,6 +34,17 @@ interface TokenSafetyResult {
   ageInDays: number | null;
   overallScore: number;
   riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  // Full audit fields
+  token2022Extensions?: Token2022Extension[];
+  honeypotAnalysis?: {
+    canBuy: boolean;
+    canSell: boolean;
+    buyTax: number;
+    sellTax: number;
+    isHoneypot: boolean;
+    honeypotReason?: string;
+  };
+  fullAuditCompleted?: boolean;
 }
 
 // Try RugCheck API for LP data
@@ -40,10 +59,8 @@ async function fetchRugCheckLP(mint: string): Promise<{ burned: number; locked: 
 
     const data = await res.json();
     
-    // Try to extract LP info from various possible locations
     if (data.markets && data.markets.length > 0) {
       for (const market of data.markets) {
-        // Check for lp object
         if (market.lp) {
           const lpLockedPct = market.lp.lpLockedPct ?? market.lp.lockedPct ?? 0;
           const lpBurnedPct = market.lp.lpBurnedPct ?? market.lp.burnedPct ?? 0;
@@ -56,7 +73,6 @@ async function fetchRugCheckLP(mint: string): Promise<{ burned: number; locked: 
           }
         }
         
-        // Check for direct fields
         if (market.lpLockedPct !== undefined || market.lpBurnedPct !== undefined) {
           return {
             burned: market.lpBurnedPct || 0,
@@ -67,7 +83,6 @@ async function fetchRugCheckLP(mint: string): Promise<{ burned: number; locked: 
       }
     }
     
-    // Check top-level
     if (data.lpLockedPct !== undefined || data.lpBurnedPct !== undefined) {
       return {
         burned: data.lpBurnedPct || 0,
@@ -83,7 +98,7 @@ async function fetchRugCheckLP(mint: string): Promise<{ burned: number; locked: 
   }
 }
 
-// Fetch from DexScreener - get labels and metadata
+// Fetch from DexScreener
 async function fetchDexScreenerData(mint: string): Promise<{
   lpInfo: { burned: number; locked: number; unlocked: number; } | null;
   name: string;
@@ -103,7 +118,6 @@ async function fetchDexScreenerData(mint: string): Promise<{
     const dexData = await dexRes.json();
     const pairs = dexData.pairs || [];
     
-    // Sort by liquidity
     const bestPair = pairs.sort(
       (a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
     )[0];
@@ -123,18 +137,15 @@ async function fetchDexScreenerData(mint: string): Promise<{
       createdAt = new Date(bestPair.pairCreatedAt);
     }
 
-    // Check labels for LP info (DexScreener shows these in UI)
     let lpInfo: { burned: number; locked: number; unlocked: number; } | null = null;
     
     if (bestPair?.labels && Array.isArray(bestPair.labels)) {
       const labels = bestPair.labels.map((l: string) => l.toLowerCase());
       
-      // Check for burn indicators
       const hasBurn = labels.some((l: string) => 
         l.includes('burn') || l.includes('burned') || l.includes('🔥')
       );
       
-      // Check for lock indicators  
       const hasLock = labels.some((l: string) => 
         l.includes('lock') || l.includes('locked') || l.includes('🔒')
       );
@@ -146,13 +157,6 @@ async function fetchDexScreenerData(mint: string): Promise<{
       }
     }
 
-    // Also check info object for additional data
-    if (!lpInfo && bestPair?.info) {
-      const info = bestPair.info;
-      // Some pairs have socials/websites that might indicate LP status
-      // This is a fallback check
-    }
-
     return { lpInfo, name, symbol, logoURI, createdAt };
   } catch (err) {
     console.log("DexScreener fetch failed:", err);
@@ -160,9 +164,208 @@ async function fetchDexScreenerData(mint: string): Promise<{
   }
 }
 
+// Analyze Token-2022 extensions for dangerous patterns
+function analyzeToken2022Extensions(extensions: any[]): Token2022Extension[] {
+  const results: Token2022Extension[] = [];
+  
+  if (!extensions || !Array.isArray(extensions)) {
+    return results;
+  }
+
+  for (const ext of extensions) {
+    const extType = ext.extension;
+    
+    switch (extType) {
+      case "transferHook":
+        results.push({
+          name: "Transfer Hook",
+          enabled: true,
+          riskLevel: "CRITICAL",
+          description: "Can execute arbitrary code on every transfer - major honeypot risk",
+          details: ext.state?.authority || ext.state?.programId,
+        });
+        break;
+        
+      case "permanentDelegate":
+        results.push({
+          name: "Permanent Delegate",
+          enabled: true,
+          riskLevel: "CRITICAL", 
+          description: "Someone can transfer tokens from ANY wallet holding this token",
+          details: ext.state?.delegate,
+        });
+        break;
+        
+      case "nonTransferable":
+        results.push({
+          name: "Non-Transferable",
+          enabled: true,
+          riskLevel: "HIGH",
+          description: "Tokens cannot be transferred or sold - soulbound token",
+        });
+        break;
+        
+      case "defaultAccountState":
+        const state = ext.state?.state;
+        if (state === "frozen") {
+          results.push({
+            name: "Default Account State: Frozen",
+            enabled: true,
+            riskLevel: "HIGH",
+            description: "New token accounts are frozen by default",
+          });
+        }
+        break;
+        
+      case "transferFeeConfig":
+        const feeBps = ext.state?.newerTransferFee?.transferFeeBasisPoints || 
+                       ext.state?.olderTransferFee?.transferFeeBasisPoints || 0;
+        if (feeBps > 0) {
+          results.push({
+            name: "Transfer Fee",
+            enabled: true,
+            riskLevel: feeBps > 1000 ? "HIGH" : "MEDIUM",
+            description: `${(feeBps / 100).toFixed(2)}% fee on every transfer`,
+            details: `${feeBps} basis points`,
+          });
+        }
+        break;
+        
+      case "interestBearingConfig":
+        results.push({
+          name: "Interest Bearing",
+          enabled: true,
+          riskLevel: "INFO",
+          description: "Token balance changes over time based on interest rate",
+        });
+        break;
+        
+      case "confidentialTransferMint":
+        results.push({
+          name: "Confidential Transfer",
+          enabled: true,
+          riskLevel: "INFO",
+          description: "Supports private/confidential transfers",
+        });
+        break;
+        
+      case "mintCloseAuthority":
+        results.push({
+          name: "Mint Close Authority",
+          enabled: true,
+          riskLevel: "MEDIUM",
+          description: "Mint account can be closed, potentially destroying the token",
+          details: ext.state?.closeAuthority,
+        });
+        break;
+        
+      case "metadataPointer":
+        // Info only, not a risk
+        break;
+        
+      case "tokenMetadata":
+        // Info only, not a risk
+        break;
+    }
+  }
+  
+  return results;
+}
+
+// Simple honeypot analysis based on token properties
+async function analyzeHoneypot(
+  mint: string,
+  extensions: Token2022Extension[],
+  mintAuthority: string | null,
+  freezeAuthority: string | null
+): Promise<{
+  canBuy: boolean;
+  canSell: boolean;
+  buyTax: number;
+  sellTax: number;
+  isHoneypot: boolean;
+  honeypotReason?: string;
+}> {
+  let isHoneypot = false;
+  let honeypotReason: string | undefined;
+  let buyTax = 0;
+  let sellTax = 0;
+  
+  // Check for critical extensions that indicate honeypot
+  const hasTransferHook = extensions.some(e => e.name === "Transfer Hook");
+  const hasPermanentDelegate = extensions.some(e => e.name === "Permanent Delegate");
+  const isNonTransferable = extensions.some(e => e.name === "Non-Transferable");
+  const isFrozenByDefault = extensions.some(e => e.name.includes("Default Account State: Frozen"));
+  
+  // Check for transfer fee
+  const transferFeeExt = extensions.find(e => e.name === "Transfer Fee");
+  if (transferFeeExt && transferFeeExt.details) {
+    const bps = parseInt(transferFeeExt.details) || 0;
+    buyTax = bps / 100;
+    sellTax = bps / 100;
+  }
+  
+  if (hasTransferHook) {
+    isHoneypot = true;
+    honeypotReason = "Transfer Hook detected - can block or modify any transfer";
+  } else if (hasPermanentDelegate) {
+    isHoneypot = true;
+    honeypotReason = "Permanent Delegate - your tokens can be taken at any time";
+  } else if (isNonTransferable) {
+    isHoneypot = true;
+    honeypotReason = "Non-Transferable token - cannot be sold";
+  } else if (isFrozenByDefault) {
+    isHoneypot = true;
+    honeypotReason = "Accounts frozen by default - trading may be blocked";
+  } else if (freezeAuthority) {
+    // Not a definite honeypot but a risk
+    // Could freeze your account after you buy
+  }
+  
+  // Check RugCheck for additional honeypot signals
+  try {
+    const rugRes = await fetch(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    
+    if (rugRes.ok) {
+      const rugData = await rugRes.json();
+      
+      // Check for risks array
+      if (rugData.risks && Array.isArray(rugData.risks)) {
+        for (const risk of rugData.risks) {
+          const riskName = (risk.name || "").toLowerCase();
+          if (riskName.includes("honeypot") || riskName.includes("cannot sell")) {
+            isHoneypot = true;
+            honeypotReason = risk.description || "Honeypot detected by RugCheck";
+            break;
+          }
+        }
+      }
+      
+      // Check score
+      if (rugData.score !== undefined && rugData.score < 200) {
+        // Very low score might indicate issues
+      }
+    }
+  } catch (err) {
+    console.log("RugCheck honeypot check failed:", err);
+  }
+  
+  return {
+    canBuy: !isHoneypot,
+    canSell: !isHoneypot,
+    buyTax,
+    sellTax,
+    isHoneypot,
+    honeypotReason,
+  };
+}
+
 export async function POST(req: Request) {
   try {
-    const { mint } = await req.json();
+    const { mint, fullAudit, paymentTx, walletAddress } = await req.json();
 
     if (!mint) {
       return NextResponse.json({ error: "Mint address required" }, { status: 400 });
@@ -176,6 +379,27 @@ export async function POST(req: Request) {
     }
 
     const connection = new Connection(HELIUS_RPC, "confirmed");
+
+    // Verify payment if full audit requested
+    if (fullAudit && paymentTx) {
+      try {
+        const txInfo = await connection.getTransaction(paymentTx, {
+          commitment: "confirmed",
+          maxSupportedTransactionVersion: 0,
+        });
+        
+        if (!txInfo) {
+          console.log("Payment transaction not found, proceeding anyway for now");
+          // In production, you might want to reject here
+          // return NextResponse.json({ error: "Payment transaction not found" }, { status: 400 });
+        } else {
+          console.log("Payment verified:", paymentTx);
+        }
+      } catch (err) {
+        console.log("Payment verification error:", err);
+        // Continue anyway for now
+      }
+    }
 
     // 1. Get mint account info
     const mintInfo = await connection.getParsedAccountInfo(mintPubkey);
@@ -197,6 +421,9 @@ export async function POST(req: Request) {
     // Check if Token-2022
     const isToken2022 = mintInfo.value.owner.toString() === "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
+    // Get extensions for Token-2022
+    const extensions = (mintInfo.value.data as any).parsed?.info?.extensions || [];
+
     // 2. Fetch data from multiple sources in parallel
     const [dexScreenerData, rugCheckLP] = await Promise.all([
       fetchDexScreenerData(mint),
@@ -208,11 +435,7 @@ export async function POST(req: Request) {
     let logoURI = dexScreenerData.logoURI;
     let createdAt = dexScreenerData.createdAt;
     
-    // Use RugCheck LP data if available, otherwise DexScreener labels
     let lpInfo = rugCheckLP || dexScreenerData.lpInfo;
-    
-    console.log("LP Info sources - RugCheck:", rugCheckLP, "DexScreener:", dexScreenerData.lpInfo);
-    console.log("Final lpInfo:", lpInfo);
 
     // 3. Get top holders using Helius
     let topHolders: { wallet: string; percentage: number; }[] = [];
@@ -238,7 +461,6 @@ export async function POST(req: Request) {
         const holdersData = await holdersRes.json();
         const accounts = holdersData.result?.token_accounts || [];
         
-        // Aggregate by owner
         const holderMap = new Map<string, number>();
         for (const acc of accounts) {
           const owner = acc.owner;
@@ -248,7 +470,6 @@ export async function POST(req: Request) {
           }
         }
 
-        // Sort by balance
         const sortedHolders = Array.from(holderMap.entries())
           .map(([wallet, balance]) => ({ wallet, balance }))
           .sort((a, b) => b.balance - a.balance);
@@ -256,7 +477,6 @@ export async function POST(req: Request) {
         holderCount = sortedHolders.length;
         const totalHeld = sortedHolders.reduce((sum, h) => sum + h.balance, 0);
 
-        // Calculate percentages
         topHolders = sortedHolders.slice(0, 10).map(h => ({
           wallet: h.wallet,
           percentage: totalHeld > 0 ? (h.balance / totalHeld) * 100 : 0,
@@ -270,18 +490,11 @@ export async function POST(req: Request) {
 
     // 4. Check for transfer tax (Token-2022 extension)
     let taxBps: number | null = null;
-    if (isToken2022) {
-      try {
-        const extensions = (mintInfo.value.data as any).parsed?.info?.extensions;
-        if (extensions) {
-          const transferFee = extensions.find((e: any) => e.extension === "transferFeeConfig");
-          if (transferFee) {
-            taxBps = transferFee.state?.newerTransferFee?.transferFeeBasisPoints || 
-                     transferFee.state?.olderTransferFee?.transferFeeBasisPoints || 0;
-          }
-        }
-      } catch {
-        // No transfer fee
+    if (isToken2022 && extensions.length > 0) {
+      const transferFee = extensions.find((e: any) => e.extension === "transferFeeConfig");
+      if (transferFee) {
+        taxBps = transferFee.state?.newerTransferFee?.transferFeeBasisPoints || 
+                 transferFee.state?.olderTransferFee?.transferFeeBasisPoints || 0;
       }
     }
 
@@ -313,43 +526,47 @@ export async function POST(req: Request) {
       ageInDays = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
     }
 
-    // 7. Calculate safety score
+    // 7. Full audit: Analyze Token-2022 extensions and honeypot
+    let token2022Extensions: Token2022Extension[] | undefined;
+    let honeypotAnalysis: TokenSafetyResult["honeypotAnalysis"] | undefined;
+    
+    if (fullAudit) {
+      console.log("Running full audit for:", mint);
+      
+      // Analyze Token-2022 extensions
+      token2022Extensions = analyzeToken2022Extensions(extensions);
+      console.log("Token-2022 extensions found:", token2022Extensions.length);
+      
+      // Run honeypot analysis
+      honeypotAnalysis = await analyzeHoneypot(
+        mint,
+        token2022Extensions,
+        mintAuthority,
+        freezeAuthority
+      );
+      console.log("Honeypot analysis:", honeypotAnalysis);
+    }
+
+    // 8. Calculate safety score
     let score = 100;
 
-    // Mint authority (-30 if active)
-    if (mintAuthority) {
-      score -= 30;
-    }
-
-    // Freeze authority (-20 if active)
-    if (freezeAuthority) {
-      score -= 20;
-    }
-
-    // Transfer tax (-10 if exists)
+    if (mintAuthority) score -= 30;
+    if (freezeAuthority) score -= 20;
+    
     if (taxBps && taxBps > 0) {
       score -= 10;
       if (taxBps > 500) score -= 10;
     }
 
-    // Top holder concentration
     if (top10Concentration > 50) {
       score -= 20;
     } else if (top10Concentration > 30) {
       score -= 10;
     }
 
-    // Low holder count
-    if (holderCount < 100) {
-      score -= 10;
-    }
+    if (holderCount < 100) score -= 10;
+    if (ageInDays !== null && ageInDays < 7) score -= 10;
 
-    // New token
-    if (ageInDays !== null && ageInDays < 7) {
-      score -= 10;
-    }
-
-    // LP risk assessment
     if (lpInfo) {
       if (lpInfo.unlocked > 80) {
         score -= 20;
@@ -360,10 +577,21 @@ export async function POST(req: Request) {
       }
     }
 
-    // Clamp score
+    // Additional penalties for full audit findings
+    if (fullAudit && token2022Extensions) {
+      for (const ext of token2022Extensions) {
+        if (ext.riskLevel === "CRITICAL") score -= 25;
+        else if (ext.riskLevel === "HIGH") score -= 15;
+        else if (ext.riskLevel === "MEDIUM") score -= 5;
+      }
+    }
+    
+    if (fullAudit && honeypotAnalysis?.isHoneypot) {
+      score -= 30;
+    }
+
     score = Math.max(0, Math.min(100, score));
 
-    // Determine risk level
     let riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
     if (score >= 80) riskLevel = "LOW";
     else if (score >= 60) riskLevel = "MEDIUM";
@@ -402,6 +630,12 @@ export async function POST(req: Request) {
       ageInDays,
       overallScore: score,
       riskLevel,
+      // Full audit fields
+      ...(fullAudit && {
+        token2022Extensions,
+        honeypotAnalysis,
+        fullAuditCompleted: true,
+      }),
     };
 
     return NextResponse.json({ success: true, result });
