@@ -14,16 +14,21 @@ export function calculatePendingRewards(
 
     const currentTime = Math.floor(Date.now() / 1000);
     
-    // ✅ Use BigInt for large numbers to avoid precision loss
-    const rewardRatePerSecond = BigInt(project.rewardRatePerSecond.toString());
     const totalStaked = BigInt(project.totalStaked.toString());
     const lastUpdateTime = stake.lastClaimTime?.toNumber() || stake.lastStakeTimestamp?.toNumber() || project.lastUpdateTime.toNumber();
     const poolEndTime = project.poolEndTime.toNumber();
     
     const stakeAmount = BigInt(stake.amount.toString());
     const rewardsPending = BigInt(stake.rewardsPending.toString());
+    
+    // ✅ Get rate mode (0 = Fixed APY, 1 = Variable)
+    const rateMode = project.rateMode ?? 1;  // Default to variable if not set
+    const rateBpsPerYear = BigInt(project.rateBpsPerYear?.toString() || '0');
+    const rewardRatePerSecond = BigInt(project.rewardRatePerSecond?.toString() || '0');
 
     console.log("🔍 Calculation Input:", {
+      rateMode,
+      rateBpsPerYear: rateBpsPerYear.toString(),
       rewardRatePerSecond: rewardRatePerSecond.toString(),
       totalStaked_tokens: Number(totalStaked) / Math.pow(10, decimals),
       stakeAmount_tokens: Number(stakeAmount) / Math.pow(10, decimals),
@@ -32,7 +37,7 @@ export function calculatePendingRewards(
     });
 
     // Calculate effective time (stop at pool end time)
-    if (currentTime <= lastUpdateTime || totalStaked === 0n) {
+    if (currentTime <= lastUpdateTime) {
       return Number(rewardsPending) / Math.pow(10, decimals);
     }
 
@@ -45,18 +50,44 @@ export function calculatePendingRewards(
       return Number(rewardsPending) / Math.pow(10, decimals);
     }
 
-    // Formula: (stakeAmount × rewardRatePerSecond × effectiveTime) / totalStaked
-    //
-    // Breaking it down:
-    // - rewardRatePerSecond is in lamports/second for the ENTIRE POOL
-    // - multiply by effectiveTime (seconds) = total pool distribution
-    // - multiply by stakeAmount (user's lamports staked)
-    // - divide by totalStaked = user's proportional share
-    //
-    // This gives us: (user_stake / total_staked) × pool_rate × time = user's lamports earned
-    
-    const numerator = stakeAmount * rewardRatePerSecond * BigInt(effectiveTime);
-    const earnedLamports = numerator / totalStaked; // Divide by totalStaked for proportional share
+    let earnedLamports: bigint;
+
+    if (rateMode === 0) {
+      // ✅ FIXED APY MODE
+      // Formula: (stakeAmount × rateBpsPerYear × effectiveTime) / (10000 × 31536000)
+      // This gives: stake × (APY/100) × (time/year) = earned
+      const SECONDS_PER_YEAR = 31536000n;
+      const BPS_DIVISOR = 10000n;
+      
+      const numerator = stakeAmount * rateBpsPerYear * BigInt(effectiveTime);
+      earnedLamports = numerator / (BPS_DIVISOR * SECONDS_PER_YEAR);
+      
+      console.log("🔍 Fixed APY Calculation:", {
+        formula: "(stake × rateBps × time) / (10000 × 31536000)",
+        stakeAmount: stakeAmount.toString(),
+        rateBpsPerYear: rateBpsPerYear.toString(),
+        effectiveTime,
+        earnedLamports: earnedLamports.toString(),
+      });
+      
+    } else {
+      // ✅ VARIABLE/DYNAMIC MODE
+      // Formula: (stakeAmount × rewardRatePerSecond × effectiveTime) / totalStaked
+      // User gets proportional share of pool emissions
+      
+      if (totalStaked === 0n) {
+        return Number(rewardsPending) / Math.pow(10, decimals);
+      }
+      
+      const numerator = stakeAmount * rewardRatePerSecond * BigInt(effectiveTime);
+      earnedLamports = numerator / totalStaked;
+      
+      console.log("🔍 Variable Mode Calculation:", {
+        formula: "(stake × rate × time) / totalStaked",
+        numerator: numerator.toString(),
+        earnedLamports: earnedLamports.toString(),
+      });
+    }
     
     // Total pending = previously pending + newly earned
     const totalPendingLamports = rewardsPending + earnedLamports;
@@ -64,12 +95,10 @@ export function calculatePendingRewards(
 
     console.log("🔍 Reward Calculation:", {
       effectiveTime,
-      numerator: numerator.toString(),
       earnedLamports: earnedLamports.toString(),
       earnedTokens: Number(earnedLamports) / Math.pow(10, decimals),
       rewardsPending_tokens: Number(rewardsPending) / Math.pow(10, decimals),
       totalPending_tokens: totalPending,
-      perSecondRate: Number(earnedLamports) / effectiveTime / Math.pow(10, decimals),
     });
     
     return totalPending;
@@ -104,12 +133,8 @@ export function useRealtimeRewards(
       console.log("🔄 UI Update:", { timestamp: new Date().toISOString(), pending });
     };
 
-    // Calculate immediately
     calculate();
-
-    // Update every 1 second for smooth real-time display
     const interval = setInterval(calculate, 1000);
-
     return () => clearInterval(interval);
   }, [project, stake]);
 
