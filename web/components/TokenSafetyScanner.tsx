@@ -69,6 +69,8 @@ interface TokenSafetyResult {
     sellTax: number;
     isHoneypot: boolean;
     honeypotReason?: string;
+    taxSource?: string;
+    feesVerified: boolean;
   };
   fullAuditCompleted?: boolean;
 }
@@ -288,7 +290,7 @@ export default function TokenSafetyScanner() {
             <Zap className="w-4 h-4" style={{ color: '#fb57ff' }} />
             <span className="text-sm font-semibold" style={{ color: '#fb57ff' }}>Full Audit</span>
           </div>
-          <p className="text-xs text-gray-400">0.5 SOL in SPT • Token-2022 + Honeypot + PDF</p>
+          <p className="text-xs text-gray-400">0.01 SOL in SPT • Token-2022 + Honeypot + PDF</p>
         </div>
       </div>
 
@@ -576,11 +578,26 @@ export default function TokenSafetyScanner() {
                     <span className="text-sm text-gray-300">Can Sell: Yes</span>
                   </div>
                   <div className="text-sm text-gray-400">
-                    Buy Tax: <span className="text-white">{result.honeypotAnalysis.buyTax}%</span>
+                    Buy Tax: <span className={result.honeypotAnalysis.buyTax === -1 ? "text-yellow-400" : result.honeypotAnalysis.buyTax > 0 ? "text-yellow-400" : "text-green-400"}>
+                      {result.honeypotAnalysis.buyTax === -1 ? "Unknown" : `${result.honeypotAnalysis.buyTax}%`}
+                    </span>
                   </div>
                   <div className="text-sm text-gray-400">
-                    Sell Tax: <span className="text-white">{result.honeypotAnalysis.sellTax}%</span>
+                    Sell Tax: <span className={result.honeypotAnalysis.sellTax === -1 ? "text-yellow-400" : result.honeypotAnalysis.sellTax > 0 ? "text-yellow-400" : "text-green-400"}>
+                      {result.honeypotAnalysis.sellTax === -1 ? "Unknown" : `${result.honeypotAnalysis.sellTax}%`}
+                    </span>
                   </div>
+                  {result.honeypotAnalysis.taxSource && (
+                    <div className="col-span-2 text-xs text-gray-500 mt-1">
+                      Source: {result.honeypotAnalysis.taxSource}
+                      {!result.honeypotAnalysis.feesVerified && " (unverified)"}
+                    </div>
+                  )}
+                  {!result.honeypotAnalysis.taxSource && result.honeypotAnalysis.buyTax === 0 && result.honeypotAnalysis.sellTax === 0 && (
+                    <div className="col-span-2 text-xs text-gray-500 mt-1">
+                      No DEX-level fees detected. Standard SPL token or fees not found.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -729,7 +746,7 @@ export default function TokenSafetyScanner() {
                   style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}
                 >
                   <Flame className="w-5 h-5" />
-                  Run Full Audit (0.5 SOL in SPT)
+                  Run Full Audit (0.01 SOL in SPT)
                 </button>
               ) : (
                 <div className="mt-4 text-center">
@@ -798,7 +815,7 @@ export default function TokenSafetyScanner() {
               </div>
             </div>
             <div>
-              <p className="text-xs font-semibold mb-2 flex items-center gap-1" style={{ color: '#fb57ff' }}><Zap className="w-3 h-3" /> Full Audit (0.5 SOL)</p>
+              <p className="text-xs font-semibold mb-2 flex items-center gap-1" style={{ color: '#fb57ff' }}><Zap className="w-3 h-3" /> Full Audit (0.01 SOL)</p>
               <div className="space-y-1">
                 {["Transfer Hook (Honeypot)", "Permanent Delegate (Drain)", "Non-Transferable Check", "Default Frozen State", "Confidential Transfers", "Simulated Buy/Sell Test", "PDF Audit Certificate"].map((item) => (
                   <div key={item} className="flex items-center gap-2 text-xs text-gray-400">

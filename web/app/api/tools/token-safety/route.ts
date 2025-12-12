@@ -43,6 +43,8 @@ interface TokenSafetyResult {
     sellTax: number;
     isHoneypot: boolean;
     honeypotReason?: string;
+    taxSource?: string;
+    feesVerified: boolean;
   };
   fullAuditCompleted?: boolean;
 }
@@ -164,6 +166,311 @@ async function fetchDexScreenerData(mint: string): Promise<{
   }
 }
 
+// Fetch Meteora pool fees for a token
+async function fetchMeteoraPoolFees(mint: string): Promise<{
+  buyFee: number;
+  sellFee: number;
+  poolAddress: string | null;
+  dex: string;
+} | null> {
+  try {
+    // Try Meteora Dynamic AMM API
+    const meteoraRes = await fetch(`https://amm.meteora.ag/pools?address=${mint}`, {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    
+    if (meteoraRes.ok) {
+      const pools = await meteoraRes.json();
+      console.log("=== METEORA AMM RESPONSE ===");
+      console.log(JSON.stringify(pools, null, 2));
+      
+      if (Array.isArray(pools) && pools.length > 0) {
+        for (const pool of pools) {
+          // Check if this pool contains our token
+          if (pool.pool_token_mints?.includes(mint) || 
+              pool.token_a_mint === mint || 
+              pool.token_b_mint === mint) {
+            
+            // Extract fees - Meteora uses different formats
+            let buyFee = 0;
+            let sellFee = 0;
+            
+            // Check for trade_fee_bps (basis points)
+            if (pool.trade_fee_bps !== undefined) {
+              buyFee = pool.trade_fee_bps / 100;
+              sellFee = pool.trade_fee_bps / 100;
+            }
+            
+            // Check for fees object
+            if (pool.fees) {
+              if (pool.fees.trade_fee_numerator && pool.fees.trade_fee_denominator) {
+                const feePercent = (pool.fees.trade_fee_numerator / pool.fees.trade_fee_denominator) * 100;
+                buyFee = feePercent;
+                sellFee = feePercent;
+              }
+              if (pool.fees.buy_fee !== undefined) buyFee = pool.fees.buy_fee;
+              if (pool.fees.sell_fee !== undefined) sellFee = pool.fees.sell_fee;
+            }
+            
+            // Check for creator_trade_fee_bps (memecoin launch fee)
+            if (pool.creator_trade_fee_bps !== undefined) {
+              buyFee = pool.creator_trade_fee_bps / 100;
+              sellFee = pool.creator_trade_fee_bps / 100;
+            }
+            
+            // Check config object
+            if (pool.config) {
+              if (pool.config.trade_fee_bps !== undefined) {
+                buyFee = pool.config.trade_fee_bps / 100;
+                sellFee = pool.config.trade_fee_bps / 100;
+              }
+            }
+            
+            if (buyFee > 0 || sellFee > 0) {
+              return {
+                buyFee,
+                sellFee,
+                poolAddress: pool.pool_address || pool.address || null,
+                dex: "Meteora"
+              };
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.log("Meteora AMM fetch failed:", err);
+  }
+  
+  // Try Meteora DLMM API
+  try {
+    const dlmmRes = await fetch(`https://dlmm-api.meteora.ag/pair/all_by_groups?include_pool_token=${mint}`, {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    
+    if (dlmmRes.ok) {
+      const dlmmData = await dlmmRes.json();
+      console.log("=== METEORA DLMM RESPONSE ===");
+      console.log(JSON.stringify(dlmmData, null, 2).slice(0, 2000));
+      
+      // Parse DLMM response for fees
+      if (dlmmData.groups) {
+        for (const group of dlmmData.groups) {
+          if (group.pairs) {
+            for (const pair of group.pairs) {
+              if (pair.mint_x === mint || pair.mint_y === mint) {
+                let buyFee = 0;
+                let sellFee = 0;
+                
+                // DLMM uses base_fee_percentage
+                if (pair.base_fee_percentage !== undefined) {
+                  buyFee = parseFloat(pair.base_fee_percentage);
+                  sellFee = parseFloat(pair.base_fee_percentage);
+                }
+                
+                if (pair.trade_fee_bps !== undefined) {
+                  buyFee = pair.trade_fee_bps / 100;
+                  sellFee = pair.trade_fee_bps / 100;
+                }
+                
+                if (buyFee > 0 || sellFee > 0) {
+                  return {
+                    buyFee,
+                    sellFee,
+                    poolAddress: pair.address || null,
+                    dex: "Meteora DLMM"
+                  };
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.log("Meteora DLMM fetch failed:", err);
+  }
+  
+  // Try Meteora memecoin pool API (different endpoint)
+  try {
+    const memeRes = await fetch(`https://memecoin-api.meteora.ag/pools?token_address=${mint}`, {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    
+    if (memeRes.ok) {
+      const memeData = await memeRes.json();
+      console.log("=== METEORA MEMECOIN RESPONSE ===");
+      console.log(JSON.stringify(memeData, null, 2));
+      
+      if (memeData.pool || memeData.pools) {
+        const pool = memeData.pool || memeData.pools?.[0];
+        if (pool) {
+          let buyFee = 0;
+          let sellFee = 0;
+          
+          if (pool.creator_fee_percent !== undefined) {
+            buyFee = pool.creator_fee_percent;
+            sellFee = pool.creator_fee_percent;
+          }
+          if (pool.buy_fee !== undefined) buyFee = pool.buy_fee;
+          if (pool.sell_fee !== undefined) sellFee = pool.sell_fee;
+          if (pool.trade_fee_bps !== undefined) {
+            buyFee = pool.trade_fee_bps / 100;
+            sellFee = pool.trade_fee_bps / 100;
+          }
+          
+          if (buyFee > 0 || sellFee > 0) {
+            return {
+              buyFee,
+              sellFee,
+              poolAddress: pool.address || null,
+              dex: "Meteora Memecoin"
+            };
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.log("Meteora memecoin fetch failed:", err);
+  }
+  
+  return null;
+}
+
+// Fetch DEX pool fees from multiple sources (Meteora, Raydium, Pump.fun, etc.)
+async function fetchDexPoolFees(mint: string): Promise<{
+  buyFee: number;
+  sellFee: number;
+  poolAddress: string | null;
+  dex: string;
+  feesVerified: boolean;
+} | null> {
+  
+  // 1. Try Meteora first (has configurable creator fees)
+  const meteoraFees = await fetchMeteoraPoolFees(mint);
+  if (meteoraFees && (meteoraFees.buyFee > 0 || meteoraFees.sellFee > 0)) {
+    return { ...meteoraFees, feesVerified: true };
+  }
+  
+  // 2. Try Raydium API
+  try {
+    const raydiumRes = await fetch(`https://api-v3.raydium.io/pools/info/mint?mint1=${mint}&poolType=all&poolSortField=liquidity&sortType=desc&pageSize=10&page=1`, {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    
+    if (raydiumRes.ok) {
+      const raydiumData = await raydiumRes.json();
+      console.log("=== RAYDIUM RESPONSE ===");
+      console.log(JSON.stringify(raydiumData, null, 2).slice(0, 2000));
+      
+      if (raydiumData.data?.data && raydiumData.data.data.length > 0) {
+        const pool = raydiumData.data.data[0];
+        
+        // Raydium standard pools have LP fees
+        let tradeFee = 0;
+        
+        if (pool.feeRate !== undefined) {
+          tradeFee = pool.feeRate * 100;
+        }
+        if (pool.tradeFeeRate !== undefined) {
+          tradeFee = pool.tradeFeeRate * 100;
+        }
+        if (pool.lpFee !== undefined) {
+          tradeFee = pool.lpFee;
+        }
+        
+        // Only report if higher than standard 0.25% LP fee
+        if (tradeFee > 0.3) {
+          return {
+            buyFee: tradeFee,
+            sellFee: tradeFee,
+            poolAddress: pool.id || pool.poolId || null,
+            dex: "Raydium",
+            feesVerified: true
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.log("Raydium fetch failed:", err);
+  }
+  
+  // 3. Try Pump.fun check (they have 1% platform fee)
+  try {
+    const pumpRes = await fetch(`https://frontend-api.pump.fun/coins/${mint}`, {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    
+    if (pumpRes.ok) {
+      const pumpData = await pumpRes.json();
+      console.log("=== PUMP.FUN RESPONSE ===");
+      console.log(JSON.stringify(pumpData, null, 2).slice(0, 1000));
+      
+      if (pumpData.mint === mint || pumpData.address === mint) {
+        // Pump.fun has a 1% fee on trades
+        return {
+          buyFee: 1,
+          sellFee: 1,
+          poolAddress: null,
+          dex: "Pump.fun",
+          feesVerified: true
+        };
+      }
+    }
+  } catch (err) {
+    console.log("Pump.fun fetch failed:", err);
+  }
+  
+  // 4. Check DexScreener for any fee info
+  try {
+    const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    
+    if (dexRes.ok) {
+      const dexData = await dexRes.json();
+      const pairs = dexData.pairs || [];
+      
+      if (pairs.length > 0) {
+        const bestPair = pairs.sort((a: any, b: any) => 
+          (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
+        )[0];
+        
+        // DexScreener sometimes has fee info
+        if (bestPair.info?.buyTax !== undefined || bestPair.info?.sellTax !== undefined) {
+          return {
+            buyFee: bestPair.info.buyTax || 0,
+            sellFee: bestPair.info.sellTax || 0,
+            poolAddress: bestPair.pairAddress || null,
+            dex: bestPair.dexId || "Unknown",
+            feesVerified: true
+          };
+        }
+        
+        // Check labels for tax indication
+        if (bestPair.labels?.some((l: string) => l.toLowerCase().includes('tax'))) {
+          return {
+            buyFee: -1, // -1 means "has tax but unknown amount"
+            sellFee: -1,
+            poolAddress: bestPair.pairAddress || null,
+            dex: bestPair.dexId || "Unknown",
+            feesVerified: false
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.log("DexScreener fee check failed:", err);
+  }
+  
+  return null;
+}
+
 // Analyze Token-2022 extensions for dangerous patterns
 function analyzeToken2022Extensions(extensions: any[]): Token2022Extension[] {
   const results: Token2022Extension[] = [];
@@ -218,8 +525,46 @@ function analyzeToken2022Extensions(extensions: any[]): Token2022Extension[] {
         break;
         
       case "transferFeeConfig":
-        const feeBps = ext.state?.newerTransferFee?.transferFeeBasisPoints || 
-                       ext.state?.olderTransferFee?.transferFeeBasisPoints || 0;
+        console.log("=== TRANSFER FEE CONFIG RAW ===");
+        console.log(JSON.stringify(ext, null, 2));
+        console.log("=== END TRANSFER FEE CONFIG ===");
+        
+        // Try multiple paths to find the fee
+        let feeBps = 0;
+        
+        // Standard paths
+        if (ext.state?.newerTransferFee?.transferFeeBasisPoints) {
+          feeBps = ext.state.newerTransferFee.transferFeeBasisPoints;
+        } else if (ext.state?.olderTransferFee?.transferFeeBasisPoints) {
+          feeBps = ext.state.olderTransferFee.transferFeeBasisPoints;
+        }
+        // Alternative paths that might exist
+        else if (ext.state?.transferFeeBasisPoints) {
+          feeBps = ext.state.transferFeeBasisPoints;
+        } else if (ext.transferFeeBasisPoints) {
+          feeBps = ext.transferFeeBasisPoints;
+        }
+        // Check for percentage format
+        else if (ext.state?.newerTransferFee?.transferFeePercent) {
+          feeBps = ext.state.newerTransferFee.transferFeePercent * 100;
+        } else if (ext.state?.transferFeePercent) {
+          feeBps = ext.state.transferFeePercent * 100;
+        }
+        // Check withheld amount which indicates fees are being collected
+        else if (ext.state?.withheldAmount && Number(ext.state.withheldAmount) > 0) {
+          // Has withheld fees but we don't know the rate - flag it
+          results.push({
+            name: "Transfer Fee (Unknown Rate)",
+            enabled: true,
+            riskLevel: "MEDIUM",
+            description: "Token has transfer fees but rate could not be determined",
+            details: `Withheld: ${ext.state.withheldAmount}`,
+          });
+          break;
+        }
+        
+        console.log("Parsed feeBps:", feeBps);
+        
         if (feeBps > 0) {
           results.push({
             name: "Transfer Fee",
@@ -277,7 +622,8 @@ async function analyzeHoneypot(
   mint: string,
   extensions: Token2022Extension[],
   mintAuthority: string | null,
-  freezeAuthority: string | null
+  freezeAuthority: string | null,
+  dexFees?: { buyFee: number; sellFee: number; poolAddress: string | null; dex: string; feesVerified: boolean; } | null
 ): Promise<{
   canBuy: boolean;
   canSell: boolean;
@@ -285,11 +631,24 @@ async function analyzeHoneypot(
   sellTax: number;
   isHoneypot: boolean;
   honeypotReason?: string;
+  taxSource?: string;
+  feesVerified: boolean;
 }> {
   let isHoneypot = false;
   let honeypotReason: string | undefined;
+  let taxSource: string | undefined;
+  let feesVerified = false;
+  
+  // Start with DEX pool fees if available
   let buyTax = 0;
   let sellTax = 0;
+  
+  if (dexFees && dexFees.buyFee >= 0 && dexFees.sellFee >= 0) {
+    buyTax = dexFees.buyFee;
+    sellTax = dexFees.sellFee;
+    taxSource = dexFees.dex;
+    feesVerified = dexFees.feesVerified;
+  }
   
   // Check for critical extensions that indicate honeypot
   const hasTransferHook = extensions.some(e => e.name === "Transfer Hook");
@@ -297,12 +656,15 @@ async function analyzeHoneypot(
   const isNonTransferable = extensions.some(e => e.name === "Non-Transferable");
   const isFrozenByDefault = extensions.some(e => e.name.includes("Default Account State: Frozen"));
   
-  // Check for transfer fee
+  // Check for transfer fee from Token-2022 extension (ADD to Meteora fees, don't replace)
   const transferFeeExt = extensions.find(e => e.name === "Transfer Fee");
   if (transferFeeExt && transferFeeExt.details) {
     const bps = parseInt(transferFeeExt.details) || 0;
-    buyTax = bps / 100;
-    sellTax = bps / 100;
+    const token2022Fee = bps / 100;
+    // Token-2022 transfer fee applies to ALL transfers (including wallet-to-wallet)
+    // This is in addition to any DEX-level fees
+    buyTax += token2022Fee;
+    sellTax += token2022Fee;
   }
   
   if (hasTransferHook) {
@@ -322,7 +684,7 @@ async function analyzeHoneypot(
     // Could freeze your account after you buy
   }
   
-  // Check RugCheck for additional honeypot signals
+  // Check RugCheck for additional honeypot signals and buy/sell tax
   try {
     const rugRes = await fetch(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, {
       headers: { 'Accept': 'application/json' },
@@ -332,19 +694,110 @@ async function analyzeHoneypot(
     if (rugRes.ok) {
       const rugData = await rugRes.json();
       
-      // Check for risks array
-      if (rugData.risks && Array.isArray(rugData.risks)) {
-        for (const risk of rugData.risks) {
-          const riskName = (risk.name || "").toLowerCase();
-          if (riskName.includes("honeypot") || riskName.includes("cannot sell")) {
-            isHoneypot = true;
-            honeypotReason = risk.description || "Honeypot detected by RugCheck";
-            break;
+      // Debug logging - remove in production
+      console.log("=== RUGCHECK RAW DATA ===");
+      console.log("transferFee:", JSON.stringify(rugData.transferFee));
+      console.log("markets:", JSON.stringify(rugData.markets?.map((m: any) => ({ 
+        lp: m.lp, 
+        buyFee: m.buyFee, 
+        sellFee: m.sellFee,
+        tradeFee: m.tradeFee 
+      }))));
+      console.log("fileMeta:", JSON.stringify(rugData.fileMeta));
+      console.log("tokenMeta:", JSON.stringify(rugData.tokenMeta));
+      console.log("risks:", JSON.stringify(rugData.risks));
+      console.log("=== END RUGCHECK DATA ===");
+      
+      // Extract buy/sell tax from markets data
+      if (rugData.markets && Array.isArray(rugData.markets)) {
+        for (const market of rugData.markets) {
+          // Check for LP fees
+          if (market.lp) {
+            // Some pools have fee info
+            if (market.lp.buyFee !== undefined) {
+              buyTax = Math.max(buyTax, market.lp.buyFee);
+            }
+            if (market.lp.sellFee !== undefined) {
+              sellTax = Math.max(sellTax, market.lp.sellFee);
+            }
+          }
+          
+          // Check market-level fees
+          if (market.buyFee !== undefined) {
+            buyTax = Math.max(buyTax, market.buyFee);
+          }
+          if (market.sellFee !== undefined) {
+            sellTax = Math.max(sellTax, market.sellFee);
+          }
+          if (market.tradeFee !== undefined && buyTax === 0 && sellTax === 0) {
+            buyTax = market.tradeFee;
+            sellTax = market.tradeFee;
           }
         }
       }
       
-      // Check score
+      // Check fileMeta for token fees (some tokens store fees here)
+      if (rugData.fileMeta) {
+        const meta = rugData.fileMeta;
+        if (meta.buyTax !== undefined) buyTax = Math.max(buyTax, meta.buyTax);
+        if (meta.sellTax !== undefined) sellTax = Math.max(sellTax, meta.sellTax);
+        if (meta.tax !== undefined && buyTax === 0 && sellTax === 0) {
+          buyTax = meta.tax;
+          sellTax = meta.tax;
+        }
+      }
+      
+      // Check tokenMeta for fees
+      if (rugData.tokenMeta) {
+        const tokenMeta = rugData.tokenMeta;
+        if (tokenMeta.buyFee !== undefined) buyTax = Math.max(buyTax, tokenMeta.buyFee);
+        if (tokenMeta.sellFee !== undefined) sellTax = Math.max(sellTax, tokenMeta.sellFee);
+      }
+      
+      // Check risks array for fee-related risks and honeypot
+      if (rugData.risks && Array.isArray(rugData.risks)) {
+        for (const risk of rugData.risks) {
+          const riskName = (risk.name || "").toLowerCase();
+          const riskDesc = (risk.description || "").toLowerCase();
+          
+          if (riskName.includes("honeypot") || riskName.includes("cannot sell")) {
+            isHoneypot = true;
+            honeypotReason = risk.description || "Honeypot detected by RugCheck";
+          }
+          
+          // Check for tax/fee related risks
+          if (riskName.includes("tax") || riskName.includes("fee")) {
+            // Try to extract percentage from description
+            const percentMatch = riskDesc.match(/(\d+(?:\.\d+)?)\s*%/);
+            if (percentMatch) {
+              const percent = parseFloat(percentMatch[1]);
+              if (riskName.includes("buy")) {
+                buyTax = Math.max(buyTax, percent);
+              } else if (riskName.includes("sell")) {
+                sellTax = Math.max(sellTax, percent);
+              } else {
+                buyTax = Math.max(buyTax, percent);
+                sellTax = Math.max(sellTax, percent);
+              }
+            }
+          }
+        }
+      }
+      
+      // Check for transfer fee config in the response
+      if (rugData.transferFee) {
+        if (rugData.transferFee.pct !== undefined) {
+          buyTax = Math.max(buyTax, rugData.transferFee.pct);
+          sellTax = Math.max(sellTax, rugData.transferFee.pct);
+        }
+        if (rugData.transferFee.bps !== undefined) {
+          const pct = rugData.transferFee.bps / 100;
+          buyTax = Math.max(buyTax, pct);
+          sellTax = Math.max(sellTax, pct);
+        }
+      }
+      
+      // Check score - very low score might indicate issues
       if (rugData.score !== undefined && rugData.score < 200) {
         // Very low score might indicate issues
       }
@@ -360,6 +813,8 @@ async function analyzeHoneypot(
     sellTax,
     isHoneypot,
     honeypotReason,
+    taxSource,
+    feesVerified,
   };
 }
 
@@ -423,11 +878,18 @@ export async function POST(req: Request) {
 
     // Get extensions for Token-2022
     const extensions = (mintInfo.value.data as any).parsed?.info?.extensions || [];
+    
+    // Debug logging for extensions
+    console.log("=== ON-CHAIN TOKEN DATA ===");
+    console.log("isToken2022:", isToken2022);
+    console.log("Raw extensions:", JSON.stringify(extensions, null, 2));
+    console.log("=== END ON-CHAIN DATA ===");
 
     // 2. Fetch data from multiple sources in parallel
-    const [dexScreenerData, rugCheckLP] = await Promise.all([
+    const [dexScreenerData, rugCheckLP, dexFees] = await Promise.all([
       fetchDexScreenerData(mint),
       fetchRugCheckLP(mint),
+      fetchDexPoolFees(mint),
     ]);
 
     let name = dexScreenerData.name;
@@ -436,6 +898,15 @@ export async function POST(req: Request) {
     let createdAt = dexScreenerData.createdAt;
     
     let lpInfo = rugCheckLP || dexScreenerData.lpInfo;
+    
+    // Log DEX fees if found
+    if (dexFees) {
+      console.log("=== DEX FEES FOUND ===");
+      console.log(`Buy Fee: ${dexFees.buyFee}%, Sell Fee: ${dexFees.sellFee}%`);
+      console.log(`Pool: ${dexFees.poolAddress}, DEX: ${dexFees.dex}, Verified: ${dexFees.feesVerified}`);
+    } else {
+      console.log("=== NO DEX FEES FOUND ===");
+    }
 
     // 3. Get top holders using Helius
     let topHolders: { wallet: string; percentage: number; }[] = [];
@@ -537,12 +1008,13 @@ export async function POST(req: Request) {
       token2022Extensions = analyzeToken2022Extensions(extensions);
       console.log("Token-2022 extensions found:", token2022Extensions.length);
       
-      // Run honeypot analysis
+      // Run honeypot analysis (pass DEX fees for pool-level tax detection)
       honeypotAnalysis = await analyzeHoneypot(
         mint,
         token2022Extensions,
         mintAuthority,
-        freezeAuthority
+        freezeAuthority,
+        dexFees
       );
       console.log("Honeypot analysis:", honeypotAnalysis);
     }
