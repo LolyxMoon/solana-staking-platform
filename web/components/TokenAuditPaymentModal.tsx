@@ -144,14 +144,18 @@ export default function TokenAuditPaymentModal({
         throw new Error("Insufficient SPT balance to burn");
       }
       
-      console.log("🔥 Burning", sptBalance, "SPT tokens...");
+      // Only burn the swapped amount, NOT entire balance
+      const expectedBurnAmount = Math.floor(sptAmount! * 1e9 * 0.97);
+      const burnAmount = Math.min(sptBalance, expectedBurnAmount);
+      
+      console.log("🔥 Burning", burnAmount, "SPT tokens (swapped amount, not full balance of", sptBalance, ")");
       
       // Create burn instruction
       const burnIx = createBurnInstruction(
         sptAta,
         SPT_MINT,
         publicKey,
-        sptBalance,
+        burnAmount,
         [],
         TOKEN_2022_PROGRAM_ID
       );
