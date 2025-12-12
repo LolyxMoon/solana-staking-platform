@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddress, getAccount } from "@solana/spl-token";
@@ -14,10 +14,13 @@ import {
   AlertTriangle,
   DollarSign,
   TrendingUp,
-  Search
+  Search,
+  Zap
 } from "lucide-react";
 import UserWalletManager from "./UserWalletManager";
 import { useAdminProgram } from "@/hooks/useAdminProgram";
+
+const ADMIN_WALLET = new PublicKey("ecfvkqWdJiYJRyUtWvuYpPWP5faf9GBcA1K6TaDW7wS");
 
 interface Pool {
   id: string;
@@ -55,6 +58,12 @@ interface Pool {
   views?: number;
   createdAt?: string;
   transferTaxBps?: number;
+  // ✅ NEW: Rate mode fields from database
+  rateMode?: number;  // 0 = Fixed APY, 1 = Variable/Dynamic
+  rateBpsPerYear?: number;  // For Fixed APY mode
+  rewardAmount?: string;  // For Variable mode
+  poolDurationSeconds?: number;  // For Variable mode
+  lockupSeconds?: number;
 }
 
 export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; onUpdate: () => void }) {
@@ -84,17 +93,60 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   
-  const [apy, setApy] = useState(
-    pool?.apy ? (typeof pool.apy === 'string' ? parseFloat(pool.apy.replace('%', '')) : pool.apy) : 10
-  );
-  const [lockPeriod, setLockPeriod] = useState(
-    pool?.lockPeriod ? (typeof pool.lockPeriod === 'string' ? parseInt(pool.lockPeriod) : pool.lockPeriod) : 0
-  );
+  // ✅ UPDATED: Initialize state from pool database values
+  const getInitialApy = () => {
+    if (pool?.rateBpsPerYear) {
+      return pool.rateBpsPerYear / 100;  // Convert bps to percentage
+    }
+    if (pool?.apy) {
+      const apyValue = typeof pool.apy === 'string' ? parseFloat(pool.apy.replace('%', '')) : pool.apy;
+      return apyValue || 10;
+    }
+    return 10;
+  };
+
+  const getInitialLockPeriod = () => {
+    if (pool?.lockupSeconds) {
+      return Math.round(pool.lockupSeconds / 86400);  // Convert seconds to days
+    }
+    if (pool?.lockPeriod) {
+      return typeof pool.lockPeriod === 'string' ? parseInt(pool.lockPeriod) : pool.lockPeriod;
+    }
+    return 0;
+  };
+
+  const getInitialDuration = () => {
+    if (pool?.poolDurationSeconds) {
+      return Math.round(pool.poolDurationSeconds / 86400);  // Convert seconds to days
+    }
+    return 90;  // Default 90 days
+  };
+
+  const getInitialRewardAmount = () => {
+    if (pool?.rewardAmount) {
+      return parseFloat(pool.rewardAmount) || 1000;
+    }
+    return 1000;
+  };
+
+  const [apy, setApy] = useState(getInitialApy());
+  const [lockPeriod, setLockPeriod] = useState(getInitialLockPeriod());
   const [minStake, setMinStake] = useState(pool?.minStake || 10);
-  const [duration, setDuration] = useState(30);
-  const [reflectionEnabled, setReflectionEnabled] = useState(false);
-  const [reflectionType, setReflectionType] = useState<"self" | "external">("self");
-  const [externalReflectionMint, setExternalReflectionMint] = useState("");
+  const [duration, setDuration] = useState(getInitialDuration());
+  const [variableRewardAmount, setVariableRewardAmount] = useState(getInitialRewardAmount());
+  
+  // ✅ NEW: Track rate mode from database
+  const poolRateMode = pool?.rateMode ?? 0;  // Default to Fixed APY if not set
+  
+  const [reflectionEnabled, setReflectionEnabled] = useState(
+    pool?.hasSelfReflections || pool?.hasExternalReflections || false
+  );
+  const [reflectionType, setReflectionType] = useState<"self" | "external">(
+    pool?.hasExternalReflections ? "external" : "self"
+  );
+  const [externalReflectionMint, setExternalReflectionMint] = useState(
+    pool?.externalReflectionMint || ""
+  );
   const [maxStake, setMaxStake] = useState(pool?.maxStake || 10000);
   const [platformFee, setPlatformFee] = useState(pool?.platformFeePercent || 2);
   const [flatFee, setFlatFee] = useState(pool?.flatSolFee || 0.005);
@@ -130,6 +182,17 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
     title: '',
     message: '',
   });
+
+  // ✅ Update state when pool prop changes
+  useEffect(() => {
+    setApy(getInitialApy());
+    setLockPeriod(getInitialLockPeriod());
+    setDuration(getInitialDuration());
+    setVariableRewardAmount(getInitialRewardAmount());
+    setReflectionEnabled(pool?.hasSelfReflections || pool?.hasExternalReflections || false);
+    setReflectionType(pool?.hasExternalReflections ? "external" : "self");
+    setExternalReflectionMint(pool?.externalReflectionMint || "");
+  }, [pool?.id, pool?.rateMode, pool?.rateBpsPerYear, pool?.lockupSeconds, pool?.poolDurationSeconds]);
 
   const showMessage = (type: "success" | "error", message: string) => {
     if (type === "success") {
@@ -174,110 +237,112 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
   };
 
   const syncPoolStatusToDB = async () => {
-  if (!tokenMint || !pool?.id) {
-    showMessage("error", "❌ Pool ID or token mint missing");
-    return;
-  }
+    if (!tokenMint || !pool?.id) {
+      showMessage("error", "❌ Pool ID or token mint missing");
+      return;
+    }
 
-  setSyncing(true);
+    setSyncing(true);
 
-  try {
-    const info = await getProjectInfo(tokenMint, pool?.poolId ?? 0);
-    
-    const safeToNumber = (val: any) => {
-      if (!val) return 0;
-      if (typeof val === 'number') return val;
-      if (typeof val === 'object' && val.toNumber) return val.toNumber();
-      if (typeof val === 'string') return parseFloat(val) || 0;
-      return 0;
-    };
-    
-    const apyBps = safeToNumber(info.rateBpsPerYear);
-    const lockSeconds = safeToNumber(info.lockupSeconds);
-    const isPausedValue = Boolean(info.isPaused);
-    
-    let reflectionTokenSymbol = null;
-    let reflectionTokenDecimals = null;
-    
-    // ✅ FETCH REFLECTION TOKEN METADATA IF IT EXISTS
-    if (info.reflectionToken && info.reflectionVault) {
-      try {
-        const reflectionMintPubkey = new PublicKey(info.reflectionToken.toString());
-        const mintInfo = await connection.getParsedAccountInfo(reflectionMintPubkey);
-        
-        if (mintInfo.value && 'parsed' in mintInfo.value.data) {
-          const parsedData = mintInfo.value.data.parsed;
-          reflectionTokenDecimals = parsedData.info.decimals;
+    try {
+      const info = await getProjectInfo(tokenMint, pool?.poolId ?? 0);
+      
+      const safeToNumber = (val: any) => {
+        if (!val) return 0;
+        if (typeof val === 'number') return val;
+        if (typeof val === 'object' && val.toNumber) return val.toNumber();
+        if (typeof val === 'string') return parseFloat(val) || 0;
+        return 0;
+      };
+      
+      const apyBps = safeToNumber(info.rateBpsPerYear);
+      const lockSeconds = safeToNumber(info.lockupSeconds);
+      const durationSeconds = safeToNumber(info.poolDurationSeconds);
+      const isPausedValue = Boolean(info.isPaused);
+      const rateMode = safeToNumber(info.rateMode);
+      
+      let reflectionTokenSymbol = null;
+      let reflectionTokenDecimals = null;
+      
+      // Fetch reflection token metadata if exists
+      if (info.reflectionToken && info.reflectionVault) {
+        try {
+          const reflectionMintPubkey = new PublicKey(info.reflectionToken.toString());
+          const mintInfo = await connection.getParsedAccountInfo(reflectionMintPubkey);
           
-          // Try to get token symbol from metadata
-          try {
-            // Use Metaplex to get token metadata
-            const metadataPDA = PublicKey.findProgramAddressSync(
-              [
-                Buffer.from('metadata'),
-                new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s').toBuffer(),
-                reflectionMintPubkey.toBuffer(),
-              ],
-              new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s')
-            )[0];
+          if (mintInfo.value && 'parsed' in mintInfo.value.data) {
+            const parsedData = mintInfo.value.data.parsed;
+            reflectionTokenDecimals = parsedData.info.decimals;
             
-            const metadataAccount = await connection.getAccountInfo(metadataPDA);
-            if (metadataAccount) {
-              // Parse metadata (simplified - you might need a proper parser)
-              const metadata = metadataAccount.data;
-              // This is a simplified extraction - proper metadata parsing would be better
-              const symbolStart = 65; // Approximate offset for symbol in metadata
-              const symbolBytes = metadata.slice(symbolStart, symbolStart + 10);
-              const symbol = new TextDecoder().decode(symbolBytes).replace(/\0/g, '').trim();
-              if (symbol) {
-                reflectionTokenSymbol = symbol;
+            try {
+              const metadataPDA = PublicKey.findProgramAddressSync(
+                [
+                  Buffer.from('metadata'),
+                  new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s').toBuffer(),
+                  reflectionMintPubkey.toBuffer(),
+                ],
+                new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s')
+              )[0];
+              
+              const metadataAccount = await connection.getAccountInfo(metadataPDA);
+              if (metadataAccount) {
+                const metadata = metadataAccount.data;
+                const symbolStart = 65;
+                const symbolBytes = metadata.slice(symbolStart, symbolStart + 10);
+                const symbol = new TextDecoder().decode(symbolBytes).replace(/\0/g, '').trim();
+                if (symbol) {
+                  reflectionTokenSymbol = symbol;
+                }
               }
+            } catch (metadataErr) {
+              console.log('Could not fetch token metadata:', metadataErr);
             }
-          } catch (metadataErr) {
-            console.log('Could not fetch token metadata:', metadataErr);
           }
+        } catch (err) {
+          console.error('Error fetching reflection token info:', err);
         }
-      } catch (err) {
-        console.error('Error fetching reflection token info:', err);
       }
+      
+      const updateData = {
+        id: pool.id,
+        isInitialized: true,
+        apy: (apyBps / 100),
+        apr: (apyBps / 100).toString(),
+        lockPeriod: Math.round(lockSeconds / 86400),
+        isPaused: isPausedValue,
+        rateMode: rateMode,
+        rateBpsPerYear: apyBps,
+        lockupSeconds: lockSeconds,
+        poolDurationSeconds: durationSeconds,
+        hasExternalReflections: !!(info.reflectionToken && info.reflectionVault),
+        externalReflectionMint: info.reflectionToken?.toString() || null,
+        reflectionTokenAccount: info.reflectionVault?.toString() || null,
+        reflectionTokenSymbol: reflectionTokenSymbol,
+        reflectionTokenDecimals: reflectionTokenDecimals,
+      };
+      
+      const response = await fetch(`/api/admin/pools`, {
+        method: "PATCH",
+        headers: { 
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify(updateData)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Database update failed`);
+      }
+      
+      showMessage("success", "✅ Status synced with blockchain data!");
+      setTimeout(() => onUpdate(), 500);
+      
+    } catch (error: any) {
+      showMessage("error", `❌ Sync failed: ${error.message}`);
+    } finally {
+      setSyncing(false);
     }
-    
-    const updateData = {
-      id: pool.id,
-      isInitialized: true,
-      apy: (apyBps / 100),
-      apr: (apyBps / 100).toString(),
-      lockPeriod: Math.round(lockSeconds / 86400),
-      isPaused: isPausedValue,
-      hasExternalReflections: !!(info.reflectionToken && info.reflectionVault),
-      externalReflectionMint: info.reflectionToken?.toString() || null,
-      reflectionTokenAccount: info.reflectionVault?.toString() || null,
-      reflectionTokenSymbol: reflectionTokenSymbol,
-      reflectionTokenDecimals: reflectionTokenDecimals,
-    };
-    
-    const response = await fetch(`/api/admin/pools`, {
-      method: "PATCH",
-      headers: { 
-        "Content-Type": "application/json",
-        ...getAuthHeaders(),
-      },
-      body: JSON.stringify(updateData)
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Database update failed`);
-    }
-    
-    showMessage("success", "✅ Status synced with reflection token details!");
-    setTimeout(() => onUpdate(), 500);
-    
-  } catch (error: any) {
-    showMessage("error", `❌ Sync failed: ${error.message}`);
-  } finally {
-    setSyncing(false);
-  }
-};
+  };
 
   const checkPoolStatus = async () => {
     setCheckingStatus(true);
@@ -295,6 +360,7 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
         reflectionVault: info.reflectionVault?.toString() || "None",
         isInitialized: info.isInitialized,
         rateBpsPerYear: info.rateBpsPerYear?.toString(),
+        rateMode: info.rateMode,
         lockupSeconds: info.lockupSeconds?.toString(),
         poolDurationSeconds: info.poolDurationSeconds?.toString(),
       });
@@ -318,6 +384,7 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       const durationSeconds = safeToNumber(info.poolDurationSeconds);
       const totalStaked = safeToString(info.totalStaked);
       const totalRewards = safeToString(info.totalRewardsDistributed);
+      const rateMode = safeToNumber(info.rateMode);
       
       const depositsPaused = Boolean(info.depositsPaused);
       const withdrawalsPaused = Boolean(info.withdrawalsPaused);
@@ -330,7 +397,8 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
         tokenMint: safeToString(info.tokenMint),
         apy: apyBps,
         apyPercent: (apyBps / 100).toFixed(2),
-        rateMode: info.rateMode || 0,
+        rateMode: rateMode,
+        rateModeLabel: rateMode === 0 ? "Fixed APY" : "Variable/Dynamic",
         lockPeriod: lockSeconds,
         lockPeriodDays: (lockSeconds / 86400).toFixed(2),
         poolDuration: durationSeconds,
@@ -387,10 +455,9 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
     
     try {
       const tokenMintPubkey = new PublicKey(tokenMint);
-      const programId = new PublicKey("gLHaGJsZ6G7AXZxoDL9EsSWkRbKAWhFHi73gVfNXuzK");
+      const programId = new PublicKey("HS4LXq85DpjDDctwMQcioDyQWFo4oQu9SYxDpQKX29Pm");
       const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
       
-      // Derive PDAs
       const [projectPDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("project"), tokenMintPubkey.toBuffer()],
         programId
@@ -405,7 +472,6 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       console.log("Project PDA:", projectPDA.toString());
       console.log("Staking Vault PDA:", stakingVaultPDA.toString());
       
-      // Check if account exists
       const accountInfo = await connection.getAccountInfo(stakingVaultPDA);
       
       if (!accountInfo) {
@@ -419,21 +485,18 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       console.log("   Data Length:", accountInfo.data.length);
       console.log("   Lamports:", accountInfo.lamports);
       
-      // Check if it's owned by Token Program
       if (accountInfo.owner.toString() !== TOKEN_PROGRAM.toString()) {
         showMessage("error", `❌ Wrong owner! Expected Token Program, got: ${accountInfo.owner.toString()}`);
         console.log("❌ Account is not owned by Token Program");
         return;
       }
       
-      // Check if it has correct size for token account (165 bytes)
       if (accountInfo.data.length !== 165) {
         showMessage("error", `❌ Wrong data size! Expected 165 bytes, got: ${accountInfo.data.length}`);
         console.log("❌ Account has wrong data length");
         return;
       }
       
-      // Try to parse as token account
       try {
         const tokenAccount = await getAccount(connection, stakingVaultPDA);
         console.log("✅ Successfully parsed as token account");
@@ -472,6 +535,7 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       console.log("📊 KEY FIELDS:", {
         isInitialized: info.isInitialized,
         isActive: info.isActive,
+        rateMode: info.rateMode,
         rateBpsPerYear: info.rateBpsPerYear?.toString(),
         lockupSeconds: info.lockupSeconds?.toString(),
         poolDurationSeconds: info.poolDurationSeconds?.toString(),
@@ -487,7 +551,7 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
     }
   };
 
-    const debugVaultPDAs = async () => {
+  const debugVaultPDAs = async () => {
     if (!tokenMint) {
       console.error("❌ No token mint");
       showMessage("error", "❌ No token mint set");
@@ -498,79 +562,32 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       console.log("🔍 TOKEN MINT:", tokenMint);
       console.log("🔢 POOL ID:", pool?.poolId ?? 0);
       
-      // ✅ USE getVaultInfo() instead of manual derivation!
       const vaultInfo = await getVaultInfo(tokenMint, pool?.poolId ?? 0);
       
       console.log("\n📦 VAULT INFORMATION:");
       console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       
-      // Staking Vault
       console.log("\n💰 STAKING VAULT:");
       console.log("   Address:", vaultInfo.stakingVault.address);
       console.log("   Exists:", vaultInfo.stakingVault.exists ? "✅ YES" : "❌ NO");
       console.log("   Balance:", vaultInfo.stakingVault.balance.toLocaleString(), "tokens");
       
-      // Reward Vault
       console.log("\n🎁 REWARD VAULT:");
       console.log("   Address:", vaultInfo.rewardVault.address);
       console.log("   Exists:", vaultInfo.rewardVault.exists ? "✅ YES" : "❌ NO");
       console.log("   Balance:", vaultInfo.rewardVault.balance.toLocaleString(), "tokens");
       
-      // Reflection Vault
       console.log("\n✨ REFLECTION VAULT:");
       if (vaultInfo.reflectionVault.tokenMint) {
         console.log("   Token Account:", vaultInfo.reflectionVault.tokenAccount);
         console.log("   Token Mint:", vaultInfo.reflectionVault.tokenMint);
         console.log("   Exists:", vaultInfo.reflectionVault.exists ? "✅ YES" : "⚠️ NOT INITIALIZED");
         console.log("   Balance:", vaultInfo.reflectionVault.balance.toLocaleString(), "tokens");
-        
-        // ✅ Check actual on-chain balance
-        try {
-          const reflectionVaultPubkey = new PublicKey(vaultInfo.reflectionVault.tokenAccount);
-          const accountInfo = await connection.getParsedAccountInfo(reflectionVaultPubkey);
-          
-          if (accountInfo.value) {
-            console.log("   ✅ Account exists on-chain");
-            console.log("   Owner:", accountInfo.value.owner.toString());
-            console.log("   Lamports:", accountInfo.value.lamports);
-            
-            try {
-              if ('parsed' in accountInfo.value.data) {
-                const parsed = accountInfo.value.data.parsed.info;
-                const tokenAmount = parsed.tokenAmount;
-                const balance = tokenAmount.amount;
-                const decimals = tokenAmount.decimals;
-                const readableBalance = (Number(balance) / Math.pow(10, decimals)).toLocaleString();
-                console.log("   💰 ACTUAL TOKEN BALANCE:", readableBalance, "tokens");
-              } else {
-                console.log("   ⚠️ Could not parse as token account: Not a parsed account");
-              }
-            } catch (tokenErr: any) {
-              console.log("   ⚠️ Could not parse as token account:", tokenErr.message);
-            }
-          } else {
-            console.log("   ❌ Account does NOT exist on-chain");
-          }
-        } catch (checkErr: any) {
-          console.log("   ❌ Error checking account:", checkErr.message);
-        }
       } else {
         console.log("   ❌ Not configured (reflections disabled)");
       }
       
       console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      
-      if (publicKey) {
-        console.log("\n📜 Your recent transactions:");
-        try {
-          const signatures = await connection.getSignaturesForAddress(publicKey, { limit: 5 });
-          signatures.forEach((sig, i) => {
-            console.log(`   ${i + 1}. ${sig.signature.slice(0, 20)}... (${new Date(sig.blockTime! * 1000).toLocaleString()})`);
-          });
-        } catch (e) {
-          console.log("   Could not fetch recent transactions");
-        }
-      }
       
       showMessage("success", "✅ Check browser console (F12) for complete vault info");
       
@@ -647,39 +664,38 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
   };
 
   const checkRewardVaultBalance = async () => {
-  if (!tokenMint) {
-    showMessage("error", "❌ Token mint missing");
-    return;
-  }
-  
-  setCheckingRewardVault(true);
-  
-  try {
-    // ✅ USE THE EXISTING getVaultInfo FUNCTION!
-    const vaultInfo = await getVaultInfo(tokenMint, pool?.poolId ?? 0);
-    
-    const balance = vaultInfo.rewardVault.balance;
-    const readableBalance = balance.toLocaleString();
-    
-    setRewardVaultBalance(readableBalance);
-    
-    showMessage("success", `✅ Reward Vault: ${readableBalance} tokens`);
-    
-  } catch (error: any) {
-    console.error("Reward vault check error:", error);
-    
-    if (error.name === "TokenAccountNotFoundError" || error.message?.includes("could not find")) {
-      setRewardVaultBalance("0");
-      showMessage("error", "❌ Reward vault token account not found. Try depositing rewards first.");
-    } else if (error.message?.includes("Invalid")) {
-      showMessage("error", "❌ Invalid account. Make sure the pool is created.");
-    } else {
-      showMessage("error", `❌ Error: ${error.message}`);
+    if (!tokenMint) {
+      showMessage("error", "❌ Token mint missing");
+      return;
     }
-  } finally {
-    setCheckingRewardVault(false);
-  }
-};
+    
+    setCheckingRewardVault(true);
+    
+    try {
+      const vaultInfo = await getVaultInfo(tokenMint, pool?.poolId ?? 0);
+      
+      const balance = vaultInfo.rewardVault.balance;
+      const readableBalance = balance.toLocaleString();
+      
+      setRewardVaultBalance(readableBalance);
+      
+      showMessage("success", `✅ Reward Vault: ${readableBalance} tokens`);
+      
+    } catch (error: any) {
+      console.error("Reward vault check error:", error);
+      
+      if (error.name === "TokenAccountNotFoundError" || error.message?.includes("could not find")) {
+        setRewardVaultBalance("0");
+        showMessage("error", "❌ Reward vault token account not found. Try depositing rewards first.");
+      } else if (error.message?.includes("Invalid")) {
+        showMessage("error", "❌ Invalid account. Make sure the pool is created.");
+      } else {
+        showMessage("error", `❌ Error: ${error.message}`);
+      }
+    } finally {
+      setCheckingRewardVault(false);
+    }
+  };
 
   const handleToggleDeposits = async () => {
     if (!publicKey || !tokenMint) {
@@ -700,9 +716,10 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       await fetch(`/api/admin/pools`, {
         method: "PATCH",
         headers: { 
-  "Content-Type": "application/json",
-  ...getAuthHeaders(),
-},        body: JSON.stringify({ id: pool?.id, depositsPaused: !isPaused }),
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ id: pool?.id, depositsPaused: !isPaused }),
       });
       
       await checkPoolStatus();
@@ -733,9 +750,10 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       await fetch(`/api/admin/pools`, {
         method: "PATCH",
         headers: { 
-  "Content-Type": "application/json",
-  ...getAuthHeaders(),
-},        body: JSON.stringify({ id: pool?.id, withdrawalsPaused: !isPaused }),
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ id: pool?.id, withdrawalsPaused: !isPaused }),
       });
       await checkPoolStatus();
       onUpdate();
@@ -765,9 +783,10 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       await fetch(`/api/admin/pools`, {
         method: "PATCH",
         headers: { 
-  "Content-Type": "application/json",
-  ...getAuthHeaders(),
-},        body: JSON.stringify({ id: pool?.id, claimsPaused: !isPaused }),
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ id: pool?.id, claimsPaused: !isPaused }),
       });
       await checkPoolStatus();
       onUpdate();
@@ -802,9 +821,10 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       await fetch(`/api/admin/pools`, {
         method: "PATCH",
         headers: { 
-  "Content-Type": "application/json",
-  ...getAuthHeaders(),
-},        body: JSON.stringify({ id: pool?.id, isPaused: !isPaused }),
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ id: pool?.id, isPaused: !isPaused }),
       });
       
       showTxModal('success', 'Pool Status Updated!', `Pool is now ${isPaused ? 'ACTIVE' : 'PAUSED'}`, txSignature);
@@ -867,9 +887,10 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       await fetch(`/api/admin/pools`, {
         method: "PATCH",
         headers: { 
-  "Content-Type": "application/json",
-  ...getAuthHeaders(),
-},        body: JSON.stringify({ id: pool?.id, isEmergencyUnlocked: true, lockPeriod: 0 }),
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ id: pool?.id, isEmergencyUnlocked: true, lockPeriod: 0 }),
       });
       showMessage("success", "✅ Pool emergency unlocked!");
       setActiveModal(null);
@@ -894,9 +915,10 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       await fetch(`/api/admin/pools`, {
         method: "PATCH",
         headers: { 
-  "Content-Type": "application/json",
-  ...getAuthHeaders(),
-},        body: JSON.stringify({ id: pool?.id, projectCreated: true, projectPda: result.projectPda }),
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ id: pool?.id, projectCreated: true, projectPda: result.projectPda }),
       });
       onUpdate();
     } catch (err: any) {
@@ -907,18 +929,36 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
     }
   };
 
+  // ✅ UPDATED: handleInitializePool now properly uses database rateMode
   const handleInitializePool = async () => {
     if (!publicKey || !tokenMint) {
       showMessage("error", "❌ Token mint address is required");
       return;
     }
     setIsProcessing(true);
+    
     try {
-      const txSignature = await initializePool({
+      // ✅ Calculate rateBpsPerYear based on rate mode
+      let rateBpsPerYear: number;
+      let rateMode: number;
+      
+      if (poolRateMode === 0) {
+        // Fixed APY mode: Use the APY percentage
+        rateBpsPerYear = Math.round(apy * 100);  // Convert percentage to basis points
+        rateMode = 0;
+        console.log(`📊 Fixed APY Mode: ${apy}% = ${rateBpsPerYear} bps`);
+      } else {
+        // Variable/Dynamic mode: Rate is 0, APY calculated from deposited rewards
+        rateBpsPerYear = 0;
+        rateMode = 1;
+        console.log(`📊 Variable Mode: APY will be calculated from deposited rewards`);
+      }
+      
+      const initParams = {
         tokenMint: tokenMint,
         poolId: pool?.poolId ?? 0,
-        rateBpsPerYear: apy * 100,
-        rateMode: pool?.rateMode ?? (lockPeriod > 0 ? 0 : 1),  // ✅ Read from database, fallback to old logic
+        rateBpsPerYear: rateBpsPerYear,
+        rateMode: rateMode,
         lockupSeconds: lockPeriod * 86400,
         poolDurationSeconds: duration * 86400,
         referrer: referralEnabled ? referralWallet : null,
@@ -927,13 +967,17 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
         reflectionToken: reflectionEnabled 
           ? (reflectionType === "external" ? externalReflectionMint : tokenMint)
           : null,
-        poolTokenFeeBps: platformFee * 100,      // ✅ ADD THIS
-        poolSolFee: flatFee * 1_000_000_000,     // ✅ ADD THIS
-      });
+        poolTokenFeeBps: platformFee * 100,
+        poolSolFee: flatFee * 1_000_000_000,
+      };
+      
+      console.log("🚀 Initializing pool with params:", initParams);
+      
+      const txSignature = await initializePool(initParams);
       
       console.log("✅ Pool initialization transaction:", txSignature);
       
-      showMessage("success", "✅ Transaction sent! Click 'Check Status' to verify initialization, then 'Sync to DB'");
+      showMessage("success", "✅ Transaction sent! Click 'Check Status' to verify, then 'Sync to DB'");
       setActiveModal(null);
       
     } catch (err: any) {
@@ -959,7 +1003,6 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
     let txSignature = "";
     
     try {
-      // Fetch token decimals
       const tokenMintPubkey = new PublicKey(tokenMint);
       const mintInfo = await connection.getParsedAccountInfo(tokenMintPubkey);
 
@@ -1024,9 +1067,10 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       await fetch(`/api/admin/pools`, {
         method: "PATCH",
         headers: { 
-  "Content-Type": "application/json",
-  ...getAuthHeaders(),
-},        body: JSON.stringify({ id: pool?.id, platformFeePercent: platformFee, flatSolFee: flatFee }),
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ id: pool?.id, platformFeePercent: platformFee, flatSolFee: flatFee }),
       });
       showMessage("success", "✅ Fees updated!");
       setActiveModal(null);
@@ -1058,9 +1102,10 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       await fetch(`/api/admin/pools`, {
         method: "PATCH",
         headers: { 
-  "Content-Type": "application/json",
-  ...getAuthHeaders(),
-},        body: JSON.stringify({ 
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ 
           id: pool?.id,
           referralEnabled,
           referralWallet: referralEnabled ? referralWallet : null,
@@ -1087,13 +1132,39 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
         <div className="bg-red-500/20 border border-red-500/50 text-red-300 px-4 py-2 rounded-lg animate-pulse">{errorMsg}</div>
       )}
 
+      {/* ✅ NEW: Rate Mode Indicator */}
+      <div className={`border rounded-lg p-3 ${
+        poolRateMode === 0 
+          ? "bg-blue-500/10 border-blue-500/30" 
+          : "bg-purple-500/10 border-purple-500/30"
+      }`}>
+        <div className="flex items-center gap-3">
+          {poolRateMode === 0 ? (
+            <TrendingUp className="w-5 h-5 text-blue-400" />
+          ) : (
+            <Zap className="w-5 h-5 text-purple-400" />
+          )}
+          <div>
+            <span className={`font-semibold ${poolRateMode === 0 ? "text-blue-300" : "text-purple-300"}`}>
+              {poolRateMode === 0 ? "Fixed APY Mode" : "Variable/Dynamic Mode"}
+            </span>
+            <p className="text-xs text-gray-400">
+              {poolRateMode === 0 
+                ? `Set rate: ${pool?.rateBpsPerYear ? (pool.rateBpsPerYear / 100).toFixed(2) : apy}% APY`
+                : "APY calculated from deposited rewards ÷ total staked"
+              }
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4 hover:bg-white/[0.04] transition-all">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-semibold text-blue-300 flex items-center gap-2">
             <Search className="w-5 h-5" />
             Pool Status Checker
           </h3>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button
               onClick={checkPoolStatus}
               disabled={checkingStatus || !publicKey}
@@ -1108,16 +1179,7 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
               className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors text-sm"
               title="Check if staking vault is properly initialized"
             >
-              🔧 Check Staking Vault
-            </button>
-            
-            <button
-              onClick={debugRawAccountData}
-              disabled={!publicKey || !tokenMint}
-              className="px-3 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors text-sm"
-              title="Debug: Show raw blockchain data in console"
-            >
-              🔍 Debug
+              🔧 Check Vault
             </button>
             
             <button
@@ -1153,12 +1215,22 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
                     <div className="font-mono text-xs text-white mt-1">{poolStatus.admin.slice(0, 20)}...</div>
                   </div>
                   <div>
+                    <span className="text-gray-400">Rate Mode:</span>
+                    <div className={`mt-1 font-semibold ${poolStatus.rateMode === 0 ? 'text-blue-400' : 'text-purple-400'}`}>
+                      {poolStatus.rateModeLabel}
+                    </div>
+                  </div>
+                  <div>
                     <span className="text-gray-400">APY:</span>
-                    <div className="text-white mt-1">{poolStatus.apyPercent}%</div>
+                    <div className="text-white mt-1">
+                      {poolStatus.rateMode === 0 ? `${poolStatus.apyPercent}%` : 'Dynamic'}
+                    </div>
                   </div>
                   <div>
                     <span className="text-gray-400">Lock Period:</span>
-                    <div className="text-white mt-1">{poolStatus.lockPeriodDays} days</div>
+                    <div className="text-white mt-1">
+                      {parseFloat(poolStatus.lockPeriodDays) > 0 ? `${poolStatus.lockPeriodDays} days` : 'Unlocked (Flexible)'}
+                    </div>
                   </div>
                   <div>
                     <span className="text-gray-400">Pool Duration:</span>
@@ -1276,80 +1348,21 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
         )}
       </div>
 
-      {/* VAULT INFORMATION DISPLAY */}
+      {/* Vault Information Display */}
       <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-semibold text-[#fb57ff] flex items-center gap-2">
             <Wallet className="w-5 h-5" />
             Vault Information
           </h3>
-          <div className="flex gap-2">
-            <button
-              onClick={loadVaultInfo}
-              disabled={loadingVaultInfo || !tokenMint}
-              className="px-4 py-2 bg-[#fb57ff] text-white rounded-lg hover:bg-[#fb57ff]/90 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
-            >
-              {loadingVaultInfo ? "Loading..." : "🔄 Load Vaults"}
-            </button>
-            <button
-              onClick={async () => {
-                try {
-                  if (!tokenMint || !publicKey) {
-                    alert("Connect wallet and select token first");
-                    return;
-                  }
-
-                  // Get project info and vault info
-                  const projectInfo = await getProjectInfo(tokenMint, pool?.poolId ?? 0);
-                  const vaultInfoData = await getVaultInfo(tokenMint, pool?.poolId ?? 0);
-                  
-                  const totalStaked = projectInfo.totalStaked || 0;
-                  const storedPerToken = projectInfo.reflectionPerTokenStored || 0;
-                  const vaultBalance = vaultInfoData.reflectionVault.balance;
-                  
-                  const calculatedPerToken = totalStaked > 0 
-                    ? Math.floor((vaultBalance * 1_000_000_000) / totalStaked)
-                    : 0;
-                  
-                  const message = `
-🔍 REFLECTION DEBUG:
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-Vault Balance: ${vaultBalance} tokens
-Total Staked: ${totalStaked} tokens
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-OLD Stored Per Token: ${storedPerToken}
-NEW Calculated Per Token: ${calculatedPerToken}
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-${calculatedPerToken > storedPerToken 
-  ? '✅ WILL UPDATE (new > old)' 
-  : '❌ WON\'T UPDATE (new <= old)\n\nThis is why reflections show 0!\nThe contract rejects updates when\nnew value is lower than stored value.'}
-                  `.trim();
-                  
-                  console.log(message);
-                  alert(message);
-                  
-                } catch (error: any) {
-                  console.error("Debug error:", error);
-                  alert(`Error: ${error.message}`);
-                }
-              }}
-              disabled={!tokenMint || !publicKey}
-              className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors text-sm"
-            >
-              🔍 Debug Reflection Math
-            </button>
-          </div>
+          <button
+            onClick={loadVaultInfo}
+            disabled={loadingVaultInfo || !tokenMint}
+            className="px-4 py-2 bg-[#fb57ff] text-white rounded-lg hover:bg-[#fb57ff]/90 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
+          >
+            {loadingVaultInfo ? "Loading..." : "🔄 Load Vaults"}
+          </button>
         </div>
-        
-        {loadingVaultInfo && (
-          <div className="mt-3 p-4 bg-white/[0.03] rounded-lg border border-white/[0.05]">
-            <div className="animate-pulse space-y-3">
-              <div className="h-4 bg-gray-700 rounded"></div>
-              <div className="h-4 bg-gray-700 rounded"></div>
-              <div className="h-4 bg-gray-700 rounded"></div>
-            </div>
-          </div>
-        )}
         
         {vaultInfo && !loadingVaultInfo && (
           <div className="mt-3 space-y-3">
@@ -1368,20 +1381,9 @@ ${calculatedPerToken > storedPerToken
               <div className="space-y-2 text-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-gray-400">Address:</span>
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs text-gray-300">
-                      {vaultInfo.stakingVault.address.slice(0, 8)}...{vaultInfo.stakingVault.address.slice(-8)}
-                    </code>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(vaultInfo.stakingVault.address);
-                        showMessage("success", "📋 Copied!");
-                      }}
-                      className="p-1 hover:bg-gray-700 rounded text-xs"
-                    >
-                      📋
-                    </button>
-                  </div>
+                  <code className="text-xs text-gray-300">
+                    {vaultInfo.stakingVault.address.slice(0, 8)}...{vaultInfo.stakingVault.address.slice(-8)}
+                  </code>
                 </div>
                 <div className="flex items-center justify-between pt-2 border-t border-gray-700">
                   <span className="text-gray-400">Balance:</span>
@@ -1389,14 +1391,6 @@ ${calculatedPerToken > storedPerToken
                     {vaultInfo.stakingVault.balance.toLocaleString()} tokens
                   </span>
                 </div>
-                <a
-                  href={`https://explorer.solana.com/address/${vaultInfo.stakingVault.address}?cluster=devnet`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-[#fb57ff] hover:text-blue-300 mt-2"
-                >
-                  View on Explorer ↗
-                </a>
               </div>
             </div>
 
@@ -1415,20 +1409,9 @@ ${calculatedPerToken > storedPerToken
               <div className="space-y-2 text-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-gray-400">Address:</span>
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs text-gray-300">
-                      {vaultInfo.rewardVault.address.slice(0, 8)}...{vaultInfo.rewardVault.address.slice(-8)}
-                    </code>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(vaultInfo.rewardVault.address);
-                        showMessage("success", "📋 Copied!");
-                      }}
-                      className="p-1 hover:bg-gray-700 rounded text-xs"
-                    >
-                      📋
-                    </button>
-                  </div>
+                  <code className="text-xs text-gray-300">
+                    {vaultInfo.rewardVault.address.slice(0, 8)}...{vaultInfo.rewardVault.address.slice(-8)}
+                  </code>
                 </div>
                 <div className="flex items-center justify-between pt-2 border-t border-gray-700">
                   <span className="text-gray-400">Balance:</span>
@@ -1436,14 +1419,6 @@ ${calculatedPerToken > storedPerToken
                     {vaultInfo.rewardVault.balance.toLocaleString()} tokens
                   </span>
                 </div>
-                <a
-                  href={`https://explorer.solana.com/address/${vaultInfo.rewardVault.address}?cluster=devnet`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-[#fb57ff] hover:text-[#fb57ff] mt-2"
-                >
-                  View on Explorer ↗
-                </a>
               </div>
             </div>
 
@@ -1468,71 +1443,17 @@ ${calculatedPerToken > storedPerToken
               {vaultInfo.reflectionVault.tokenMint ? (
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-400">Address:</span>
-                    <div className="flex items-center gap-2">
-                      <code className="text-xs text-gray-300">
-                        {vaultInfo.reflectionVault.tokenAccount.slice(0, 8)}...{vaultInfo.reflectionVault.tokenAccount.slice(-8)}
-                      </code>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(vaultInfo.reflectionVault.tokenAccount);
-                          showMessage("success", "📋 Copied!");
-                        }}
-                        className="p-1 hover:bg-gray-700 rounded text-xs"
-                      >
-                        📋
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
                     <span className="text-gray-400">Token Mint:</span>
-                    <div className="flex items-center gap-2">
-                      <code className="text-xs text-gray-300">
-                        {vaultInfo.reflectionVault.tokenMint.slice(0, 8)}...{vaultInfo.reflectionVault.tokenMint.slice(-8)}
-                      </code>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(vaultInfo.reflectionVault.tokenMint);
-                          showMessage("success", "📋 Copied!");
-                        }}
-                        className="p-1 hover:bg-gray-700 rounded text-xs"
-                      >
-                        📋
-                      </button>
-                    </div>
+                    <code className="text-xs text-gray-300">
+                      {vaultInfo.reflectionVault.tokenMint.slice(0, 8)}...{vaultInfo.reflectionVault.tokenMint.slice(-8)}
+                    </code>
                   </div>
-                  
-                  {/* ✅ IMPROVED BALANCE DISPLAY WITH DECIMALS & SYMBOL */}
                   <div className="flex items-center justify-between pt-2 border-t border-gray-700">
                     <span className="text-gray-400">Balance:</span>
-                    <div className="text-right">
-                      <div className="text-lg font-bold text-[#fb57ff]">
-                        {vaultInfo.reflectionVault.balance.toLocaleString(undefined, {
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: vaultInfo.reflectionVault.decimals || 9,
-                        })}
-                        {vaultInfo.reflectionVault.symbol && (
-                          <span className="text-sm ml-1">{vaultInfo.reflectionVault.symbol}</span>
-                        )}
-                      </div>
-                      {vaultInfo.reflectionVault.decimals && (
-                        <div className="text-xs text-gray-500 mt-1">
-                          ({vaultInfo.reflectionVault.decimals} decimals)
-                        </div>
-                      )}
-                    </div>
+                    <span className="text-lg font-bold text-[#fb57ff]">
+                      {vaultInfo.reflectionVault.balance.toLocaleString()} tokens
+                    </span>
                   </div>
-                  
-                  {vaultInfo.reflectionVault.exists && (
-                   <a 
-                      href={`https://explorer.solana.com/address/${vaultInfo.reflectionVault.tokenAccount}?cluster=devnet`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-[#fb57ff] hover:text-[#fb57ff] mt-2"
-                    >
-                      View on Explorer ↗
-                    </a>
-                  )}
                 </div>
               ) : (
                 <p className="text-sm text-gray-500">
@@ -1544,82 +1465,7 @@ ${calculatedPerToken > storedPerToken
         )}
       </div>
 
-      {/* FORCE RE-INIT BANNER - Shows when pool is initialized but may have vault issues */}
-      {pool?.isInitialized && (
-        <div className="bg-orange-900/30 border-2 border-orange-500/50 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="font-bold text-orange-300 mb-1 flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5" />
-                🔧 Staking Vault Issue?
-              </h4>
-              <p className="text-sm text-gray-400">
-                If you're getting "AccountNotInitialized" errors, click to re-run initialization with fixed vault accounts.
-              </p>
-            </div>
-            <button
-              onClick={async () => {
-                if (!publicKey || !tokenMint) {
-                  showMessage("error", "❌ Wallet or token mint missing");
-                  return;
-                }
-                
-                const confirmed = window.confirm(
-                  "⚠️ Re-initialize pool with FIXED vault accounts?\n\n" +
-                  "This will properly create the staking vault.\n\n" +
-                  "APY: " + apy + "%\n" +
-                  "Lock: " + lockPeriod + " days\n" +
-                  "Duration: " + duration + " days\n\n" +
-                  "Continue?"
-                );
-                
-                if (!confirmed) return;
-                
-                setIsProcessing(true);
-                showTxModal('pending', 'Re-Initializing Pool', 'Fixing staking vault initialization...');
-                
-                try {
-                  const tx = await initializePool({
-                    tokenMint: tokenMint,
-                    rateBpsPerYear: apy * 100,
-                    rateMode: lockPeriod > 0 ? 0 : 1,
-                    lockupSeconds: lockPeriod * 86400,
-                    poolDurationSeconds: duration * 86400,
-                    referrer: referralEnabled ? referralWallet : null,
-                    referrerSplitBps: referralEnabled ? referralSplit * 100 : null,
-                    enableReflections: reflectionEnabled,
-                    reflectionToken: reflectionEnabled 
-                      ? (reflectionType === "external" ? externalReflectionMint : tokenMint)
-                      : null,
-                  });
-                  
-                  showTxModal('success', 'Pool Re-Initialized!', 'Click "🔧 Check Staking Vault" to verify, then try staking again', tx);
-                  setTimeout(() => {
-                    checkPoolStatus();
-                    checkStakingVaultInitialization();
-                  }, 2000);
-                  
-                } catch (err: any) {
-                  console.error("Re-init error:", err);
-                  
-                  if (err.message?.includes("already in use") || err.message?.includes("already initialized")) {
-                    showTxModal('error', 'Already Initialized', 'Pool may already be properly initialized. Click "🔧 Check Staking Vault" to verify.');
-                  } else {
-                    showTxModal('error', 'Re-initialization Failed', err.message);
-                  }
-                } finally {
-                  setIsProcessing(false);
-                }
-              }}
-              disabled={isProcessing}
-              className="px-6 py-3 bg-[#fb57ff] hover:bg-[#fb57ff]/90 rounded-lg font-semibold disabled:opacity-50 transition-colors whitespace-nowrap"
-            >
-              🔧 Fix Vault Init
-            </button>
-          </div>
-        </div>
-      )}
-
+      {/* Current Pool Settings Summary */}
       <div className="bg-white/[0.04] rounded-lg p-4 text-sm">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div>
@@ -1629,12 +1475,16 @@ ${calculatedPerToken > storedPerToken
             </span>
           </div>
           <div>
-            <span className="text-gray-400">APY:</span>
-            <span className="ml-2 font-semibold">{pool?.apy || apy}%</span>
+            <span className="text-gray-400">Rate:</span>
+            <span className="ml-2 font-semibold">
+              {poolRateMode === 0 ? `${apy}% APY` : "Dynamic"}
+            </span>
           </div>
           <div>
             <span className="text-gray-400">Lock:</span>
-            <span className="ml-2 font-semibold">{pool?.lockPeriod || lockPeriod} days</span>
+            <span className="ml-2 font-semibold">
+              {lockPeriod > 0 ? `${lockPeriod} days` : "Unlocked"}
+            </span>
           </div>
           <div>
             <span className="text-gray-400">Token:</span>
@@ -1650,6 +1500,7 @@ ${calculatedPerToken > storedPerToken
         )}
       </div>
 
+      {/* Action Buttons */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {!pool?.isInitialized && (
           <>
@@ -1731,473 +1582,512 @@ ${calculatedPerToken > storedPerToken
         </button>
       </div>
 
-{activeModal && (
-  <div className="fixed inset-0 flex items-center justify-center bg-black/70 z-50 p-4">
-    <div className="bg-white/[0.03] p-6 rounded-xl shadow-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
-      
-     {activeModal === "initialize" && (
-  <>
-    <h2 className="text-xl font-bold mb-4">🚀 Step 2: Initialize Pool</h2>
-    <div className="bg-blue-500/10 border border-[#fb57ff]/20 rounded p-3 mb-4">
-      <p className="text-blue-300 text-xs">
-        ℹ️ After clicking Initialize, use "Check Status" to verify, then "Sync to DB"
-      </p>
-    </div>
-    <div className="bg-yellow-500/10 border border-[#fb57ff]/20 rounded p-3 mb-4">
-      <p className="text-[#fb57ff] text-xs">
-        ⚠️ Min/Max stake are UI-only validations.
-      </p>
-    </div>
-    <div className="space-y-3 mb-6">
-      <div>
-        <label className="block text-sm text-gray-400 mb-1">APY (%)</label>
-        <input
-          type="number"
-          step="0.1"
-          value={apy}
-          onChange={(e) => setApy(Number(e.target.value))}
-          className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-        />
-      </div>
-      <div>
-        <label className="block text-sm text-gray-400 mb-1">Lock Period (days)</label>
-        <input
-          type="number"
-          value={lockPeriod}
-          onChange={(e) => setLockPeriod(Number(e.target.value))}
-          className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-        />
-      </div>
-      <div>
-        <label className="block text-sm text-gray-400 mb-1">Duration (days)</label>
-        <input
-          type="number"
-          value={duration}
-          onChange={(e) => setDuration(Number(e.target.value))}
-          className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-        />
-      </div>
-
-      {/* ✅ NEW: Pool Fee Settings */}
-      <div className="border-t border-white/[0.05] pt-3 mt-3">
-        <h3 className="text-sm font-semibold text-[#fb57ff] mb-2">💰 Pool Fee Settings</h3>
-        <p className="text-xs text-gray-400 mb-3">These fees apply only to this pool</p>
-        <div className="space-y-2">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Token Fee (%)</label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              max="10"
-              value={platformFee}
-              onChange={(e) => setPlatformFee(Number(e.target.value))}
-              className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-            />
-            <p className="text-xs text-gray-500 mt-1">Applied to deposits and withdrawals</p>
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">SOL Fee (per transaction)</label>
-            <input
-              type="number"
-              step="0.001"
-              min="0"
-              value={flatFee}
-              onChange={(e) => setFlatFee(Number(e.target.value))}
-              className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-            />
-            <p className="text-xs text-gray-500 mt-1">Applied to all operations</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="border-t border-white/[0.05] pt-3">
-        <p className="text-xs text-gray-400 mb-2">UI Validation Only:</p>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Min</label>
-            <input
-              type="number"
-              value={minStake}
-              onChange={(e) => setMinStake(Number(e.target.value))}
-              className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Max</label>
-            <input
-              type="number"
-              value={maxStake}
-              onChange={(e) => setMaxStake(Number(e.target.value))}
-              className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-            />
-          </div>
-        </div>
-      </div>
-      <div className="border-t border-white/[0.05] pt-3">
-        <label className="flex items-center gap-2 cursor-pointer mb-2">
-          <input
-            type="checkbox"
-            checked={referralEnabled}
-            onChange={(e) => setReferralEnabled(e.target.checked)}
-            className="w-4 h-4"
-          />
-          <span className="text-sm">Enable Referral</span>
-        </label>
-        {referralEnabled && (
-          <div className="space-y-2">
-            <input
-              type="text"
-              value={referralWallet}
-              onChange={(e) => setReferralWallet(e.target.value)}
-              placeholder="Referrer wallet"
-              className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700 text-xs"
-            />
-            <input
-              type="number"
-              value={referralSplit}
-              onChange={(e) => setReferralSplit(Number(e.target.value))}
-              placeholder="Split %"
-              className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-            />
-          </div>
-        )}
-      </div>
-      <div className="border-t border-white/[0.05] pt-3">
-        <label className="flex items-center gap-2 cursor-pointer mb-2">
-          <input
-            type="checkbox"
-            checked={reflectionEnabled}
-            onChange={(e) => setReflectionEnabled(e.target.checked)}
-            className="w-4 h-4"
-          />
-          <span className="text-sm">Enable Reflections</span>
-        </label>
-        {reflectionEnabled && (
-          <div className="space-y-2">
-            <select
-              value={reflectionType}
-              onChange={(e) => setReflectionType(e.target.value as "self" | "external")}
-              className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700 text-sm"
-            >
-              <option value="self">Self</option>
-              <option value="external">External</option>
-            </select>
-            {reflectionType === "external" && (
-              <input
-                type="text"
-                value={externalReflectionMint}
-                onChange={(e) => setExternalReflectionMint(e.target.value)}
-                placeholder="Token mint"
-                className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700 text-xs"
-              />
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-    <div className="flex gap-3">
-      <button
-        onClick={handleInitializePool}
-        disabled={isProcessing}
-        className="flex-1 px-4 py-2 bg-[#fb57ff] hover:bg-[#fb57ff]/90 rounded disabled:opacity-50"
-      >
-        {isProcessing ? "⏳ Initializing..." : "Initialize"}
-      </button>
-      <button
-        onClick={() => setActiveModal(null)}
-        className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded"
-      >
-        Cancel
-      </button>
-    </div>
-  </>
-)}
-
-      {activeModal === "depositRewards" && (
-        <>
-          <h2 className="text-xl font-bold mb-4">💰 Deposit Rewards</h2>
-          {isProcessing && (
-            <div className="mb-4 p-3 bg-white/[0.02] border border-white/[0.05] rounded text-gray-300 text-sm">
-              ⏳ Processing transaction... Please wait and check your wallet.
-            </div>
-          )}
-          <div className="space-y-4 mb-6">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Amount (tokens)</label>
-              <input
-                type="number"
-                value={rewardAmount}
-                onChange={(e) => setRewardAmount(Number(e.target.value))}
-                disabled={isProcessing}
-                className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700 disabled:opacity-50"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Will deposit: {(rewardAmount * 1_000_000_000).toLocaleString()} lamports
-              </p>
-            </div>
-            {tokenBalance && (
-              <div className="p-3 bg-green-900/20 border border-green-500/30 rounded text-[#fb57ff] text-sm">
-                💰 Your balance: {tokenBalance} tokens
-              </div>
-            )}
-            {pool?.transferTaxBps > 0 && (
-              <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded text-yellow-300 text-sm">
-                ⚠️ This token has a {(pool.transferTaxBps / 100).toFixed(1)}% transfer tax.
-                Depositing {rewardAmount} will result in ~{(rewardAmount * (1 - pool.transferTaxBps / 10000)).toFixed(4)} tokens in the vault.
-              </div>
-            )}
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={handleDepositRewards}
-              disabled={isProcessing || rewardAmount <= 0}
-              className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isProcessing ? "⏳ Processing..." : "💰 Deposit"}
-            </button>
-            <button 
-              onClick={() => {
-                setActiveModal(null);
-                setRewardAmount(1000);
-              }}
-              disabled={isProcessing}
-              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded disabled:opacity-50 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </>
-      )}
-
-      {activeModal === "fees" && (
-        <>
-          <h2 className="text-xl font-bold mb-4">💰 Fee Settings</h2>
-          <div className="space-y-4 mb-6">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Token Fee (%)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={platformFee}
-                onChange={(e) => setPlatformFee(Number(e.target.value))}
-                className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Flat SOL Fee</label>
-              <input
-                type="number"
-                step="0.001"
-                value={flatFee}
-                onChange={(e) => setFlatFee(Number(e.target.value))}
-                className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-              />
-            </div>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={handleUpdateFees}
-              disabled={isProcessing}
-              className="flex-1 px-4 py-2 bg-[#fb57ff] hover:bg-[#fb57ff]/90 rounded disabled:opacity-50"
-            >
-              {isProcessing ? "⏳ Updating..." : "Update"}
-            </button>
-            <button onClick={() => setActiveModal(null)} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded">
-              Cancel
-            </button>
-          </div>
-        </>
-      )}
-
-      {activeModal === "referral" && (
-        <>
-          <h2 className="text-xl font-bold mb-4">👥 Referral Settings</h2>
-          <div className="space-y-4 mb-6">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={referralEnabled}
-                onChange={(e) => setReferralEnabled(e.target.checked)}
-                className="w-5 h-5"
-              />
-              <span>Enable Referral</span>
-            </label>
-            {referralEnabled && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">Wallet</label>
-                  <input
-                    type="text"
-                    value={referralWallet}
-                    onChange={(e) => setReferralWallet(e.target.value)}
-                    className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-                  />
+      {/* ✅ UPDATED: Initialize Pool Modal with Rate Mode Support */}
+      {activeModal && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/70 z-50 p-4">
+          <div className="bg-white/[0.03] p-6 rounded-xl shadow-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
+            
+            {activeModal === "initialize" && (
+              <>
+                <h2 className="text-xl font-bold mb-4">🚀 Step 2: Initialize Pool</h2>
+                
+                {/* ✅ Rate Mode Display */}
+                <div className={`border rounded-lg p-3 mb-4 ${
+                  poolRateMode === 0 
+                    ? "bg-blue-500/10 border-blue-500/30" 
+                    : "bg-purple-500/10 border-purple-500/30"
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {poolRateMode === 0 ? (
+                      <TrendingUp className="w-5 h-5 text-blue-400" />
+                    ) : (
+                      <Zap className="w-5 h-5 text-purple-400" />
+                    )}
+                    <span className={`font-semibold ${poolRateMode === 0 ? "text-blue-300" : "text-purple-300"}`}>
+                      {poolRateMode === 0 ? "Fixed APY Mode" : "Variable/Dynamic Mode"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1 ml-7">
+                    {poolRateMode === 0 
+                      ? "Rate is set as a fixed percentage APY"
+                      : "APY is calculated from deposited rewards ÷ total staked"
+                    }
+                  </p>
                 </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">Split (%)</label>
-                  <input
-                    type="number"
-                    value={referralSplit}
-                    onChange={(e) => setReferralSplit(Number(e.target.value))}
-                    className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-                  />
+
+                <div className="bg-blue-500/10 border border-[#fb57ff]/20 rounded p-3 mb-4">
+                  <p className="text-blue-300 text-xs">
+                    ℹ️ After clicking Initialize, use "Check Status" to verify, then "Sync to DB"
+                  </p>
                 </div>
+                
+                <div className="space-y-3 mb-6">
+                  {/* ✅ Conditional APY field based on rate mode */}
+                  {poolRateMode === 0 ? (
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Fixed APY (%)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={apy}
+                        onChange={(e) => setApy(Number(e.target.value))}
+                        className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Will send: {Math.round(apy * 100)} basis points/year to blockchain
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-purple-500/10 border border-purple-500/30 rounded p-3">
+                      <p className="text-purple-300 text-sm font-semibold mb-1">Dynamic APY</p>
+                      <p className="text-xs text-gray-400">
+                        APY will be calculated automatically based on:
+                        <br />• Rewards deposited in the vault
+                        <br />• Total tokens staked by users
+                        <br />• Pool duration
+                      </p>
+                      <p className="text-xs text-purple-300 mt-2">
+                        Rate sent to blockchain: 0 bps (dynamic calculation)
+                      </p>
+                    </div>
+                  )}
+                  
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Lock Period (days)</label>
+                    <input
+                      type="number"
+                      value={lockPeriod}
+                      onChange={(e) => setLockPeriod(Number(e.target.value))}
+                      className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      {lockPeriod === 0 ? "🔓 Unlocked (Flexible staking)" : `🔒 Locked for ${lockPeriod} days`}
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Pool Duration (days)</label>
+                    <input
+                      type="number"
+                      value={duration}
+                      onChange={(e) => setDuration(Number(e.target.value))}
+                      className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      How long rewards will be distributed
+                    </p>
+                  </div>
+
+                  {/* Pool Fee Settings */}
+                  <div className="border-t border-white/[0.05] pt-3 mt-3">
+                    <h3 className="text-sm font-semibold text-[#fb57ff] mb-2">💰 Pool Fee Settings</h3>
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">Token Fee (%)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="10"
+                          value={platformFee}
+                          onChange={(e) => setPlatformFee(Number(e.target.value))}
+                          className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">SOL Fee (per tx)</label>
+                        <input
+                          type="number"
+                          step="0.001"
+                          min="0"
+                          value={flatFee}
+                          onChange={(e) => setFlatFee(Number(e.target.value))}
+                          className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Referral Settings */}
+                  <div className="border-t border-white/[0.05] pt-3">
+                    <label className="flex items-center gap-2 cursor-pointer mb-2">
+                      <input
+                        type="checkbox"
+                        checked={referralEnabled}
+                        onChange={(e) => setReferralEnabled(e.target.checked)}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm">Enable Referral</span>
+                    </label>
+                    {referralEnabled && (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={referralWallet}
+                          onChange={(e) => setReferralWallet(e.target.value)}
+                          placeholder="Referrer wallet"
+                          className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700 text-xs"
+                        />
+                        <input
+                          type="number"
+                          value={referralSplit}
+                          onChange={(e) => setReferralSplit(Number(e.target.value))}
+                          placeholder="Split %"
+                          className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
+                        />
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Reflection Settings */}
+                  <div className="border-t border-white/[0.05] pt-3">
+                    <label className="flex items-center gap-2 cursor-pointer mb-2">
+                      <input
+                        type="checkbox"
+                        checked={reflectionEnabled}
+                        onChange={(e) => setReflectionEnabled(e.target.checked)}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm">Enable Reflections</span>
+                    </label>
+                    {reflectionEnabled && (
+                      <div className="space-y-2">
+                        <select
+                          value={reflectionType}
+                          onChange={(e) => setReflectionType(e.target.value as "self" | "external")}
+                          className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700 text-sm"
+                        >
+                          <option value="self">Self (same token)</option>
+                          <option value="external">External (different token)</option>
+                        </select>
+                        {reflectionType === "external" && (
+                          <input
+                            type="text"
+                            value={externalReflectionMint}
+                            onChange={(e) => setExternalReflectionMint(e.target.value)}
+                            placeholder="External token mint address"
+                            className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700 text-xs"
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Summary before init */}
+                <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-3 mb-4">
+                  <h4 className="text-sm font-semibold text-gray-300 mb-2">Will Initialize With:</h4>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <span className="text-gray-400">Rate Mode:</span>
+                    <span className="text-white">{poolRateMode === 0 ? 'Fixed APY' : 'Variable'}</span>
+                    
+                    <span className="text-gray-400">APY/Rate:</span>
+                    <span className="text-white">
+                      {poolRateMode === 0 ? `${apy}% (${Math.round(apy * 100)} bps)` : 'Dynamic (0 bps)'}
+                    </span>
+                    
+                    <span className="text-gray-400">Lock Period:</span>
+                    <span className="text-white">{lockPeriod === 0 ? 'Unlocked' : `${lockPeriod} days`}</span>
+                    
+                    <span className="text-gray-400">Duration:</span>
+                    <span className="text-white">{duration} days</span>
+                    
+                    <span className="text-gray-400">Reflections:</span>
+                    <span className="text-white">{reflectionEnabled ? (reflectionType === 'external' ? 'External' : 'Self') : 'Disabled'}</span>
+                  </div>
+                </div>
+                
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleInitializePool}
+                    disabled={isProcessing}
+                    className="flex-1 px-4 py-2 bg-[#fb57ff] hover:bg-[#fb57ff]/90 rounded disabled:opacity-50"
+                  >
+                    {isProcessing ? "⏳ Initializing..." : "Initialize Pool"}
+                  </button>
+                  <button
+                    onClick={() => setActiveModal(null)}
+                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeModal === "depositRewards" && (
+              <>
+                <h2 className="text-xl font-bold mb-4">💰 Deposit Rewards</h2>
+                {isProcessing && (
+                  <div className="mb-4 p-3 bg-white/[0.02] border border-white/[0.05] rounded text-gray-300 text-sm">
+                    ⏳ Processing transaction... Please wait and check your wallet.
+                  </div>
+                )}
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Amount (tokens)</label>
+                    <input
+                      type="number"
+                      value={rewardAmount}
+                      onChange={(e) => setRewardAmount(Number(e.target.value))}
+                      disabled={isProcessing}
+                      className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700 disabled:opacity-50"
+                    />
+                  </div>
+                  {tokenBalance && (
+                    <div className="p-3 bg-green-900/20 border border-green-500/30 rounded text-[#fb57ff] text-sm">
+                      💰 Your balance: {tokenBalance} tokens
+                    </div>
+                  )}
+                  {pool?.transferTaxBps && pool.transferTaxBps > 0 && (
+                    <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded text-yellow-300 text-sm">
+                      ⚠️ This token has a {(pool.transferTaxBps / 100).toFixed(1)}% transfer tax.
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleDepositRewards}
+                    disabled={isProcessing || rewardAmount <= 0}
+                    className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50"
+                  >
+                    {isProcessing ? "⏳ Processing..." : "💰 Deposit"}
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setActiveModal(null);
+                      setRewardAmount(1000);
+                    }}
+                    disabled={isProcessing}
+                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeModal === "fees" && (
+              <>
+                <h2 className="text-xl font-bold mb-4">💰 Fee Settings</h2>
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Token Fee (%)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={platformFee}
+                      onChange={(e) => setPlatformFee(Number(e.target.value))}
+                      className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Flat SOL Fee</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={flatFee}
+                      onChange={(e) => setFlatFee(Number(e.target.value))}
+                      className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleUpdateFees}
+                    disabled={isProcessing}
+                    className="flex-1 px-4 py-2 bg-[#fb57ff] hover:bg-[#fb57ff]/90 rounded disabled:opacity-50"
+                  >
+                    {isProcessing ? "⏳ Updating..." : "Update"}
+                  </button>
+                  <button onClick={() => setActiveModal(null)} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded">
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeModal === "referral" && (
+              <>
+                <h2 className="text-xl font-bold mb-4">👥 Referral Settings</h2>
+                <div className="space-y-4 mb-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={referralEnabled}
+                      onChange={(e) => setReferralEnabled(e.target.checked)}
+                      className="w-5 h-5"
+                    />
+                    <span>Enable Referral</span>
+                  </label>
+                  {referralEnabled && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">Wallet</label>
+                        <input
+                          type="text"
+                          value={referralWallet}
+                          onChange={(e) => setReferralWallet(e.target.value)}
+                          className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">Split (%)</label>
+                        <input
+                          type="number"
+                          value={referralSplit}
+                          onChange={(e) => setReferralSplit(Number(e.target.value))}
+                          className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleUpdateReferral}
+                    disabled={isProcessing}
+                    className="flex-1 px-4 py-2 bg-[#fb57ff] hover:bg-[#fb57ff]/90 rounded disabled:opacity-50"
+                  >
+                    {isProcessing ? "⏳ Updating..." : "Update"}
+                  </button>
+                  <button onClick={() => setActiveModal(null)} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded">
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeModal === "unlock" && (
+              <>
+                <h2 className="text-xl font-bold mb-4">🔓 Emergency Unlock</h2>
+                <p className="text-gray-300 mb-6">Remove all time locks. Users can withdraw immediately.</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleEmergencyUnlock}
+                    disabled={isProcessing}
+                    className="flex-1 px-4 py-2 bg-[#fb57ff] hover:bg-[#fb57ff]/90 rounded disabled:opacity-50"
+                  >
+                    {isProcessing ? "⏳ Unlocking..." : "Unlock"}
+                  </button>
+                  <button onClick={() => setActiveModal(null)} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded">
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeModal === "claimUnclaimed" && (
+              <>
+                <h2 className="text-xl font-bold mb-4">💰 Claim Unclaimed</h2>
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Vault</label>
+                    <select
+                      value={vaultType}
+                      onChange={(e) => setVaultType(e.target.value as any)}
+                      className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
+                    >
+                      <option value="staking">Staking</option>
+                      <option value="reward">Reward</option>
+                      <option value="reflection">Reflection</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Amount</label>
+                    <input
+                      type="number"
+                      value={claimAmount}
+                      onChange={(e) => setClaimAmount(Number(e.target.value))}
+                      className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleClaimUnclaimed}
+                    disabled={isProcessing}
+                    className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50"
+                  >
+                    {isProcessing ? "⏳ Claiming..." : "Claim"}
+                  </button>
+                  <button onClick={() => setActiveModal(null)} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded">
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Transaction Modal */}
+      {txModal.show && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/80 z-[60] p-4">
+          <div className="bg-white/[0.03] p-6 rounded-xl shadow-2xl w-full max-w-md border-2 border-white/[0.05]">
+            {txModal.type === 'pending' && (
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                <h3 className="text-xl font-bold text-[#fb57ff] mb-2">{txModal.title}</h3>
+                <p className="text-gray-300">{txModal.message}</p>
+              </div>
+            )}
+
+            {txModal.type === 'success' && (
+              <div className="text-center">
+                <div className="bg-green-500/20 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-green-400 mb-2">{txModal.title}</h3>
+                <p className="text-gray-300 mb-4">{txModal.message}</p>
+                
+                {txModal.txSignature && (
+                  <div className="bg-white/[0.02] p-3 rounded-lg mb-4">
+                    <p className="text-xs text-gray-400 mb-1">Transaction Signature:</p>
+                    <p className="text-xs font-mono text-[#fb57ff] break-all">{txModal.txSignature}</p>
+                    <a
+                      href={`https://explorer.solana.com/tx/${txModal.txSignature}?cluster=mainnet`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#fb57ff] hover:text-blue-300 text-xs underline mt-2 inline-block"
+                    >
+                      View on Solana Explorer →
+                    </a>
+                  </div>
+                )}
+                
+                <button
+                  onClick={closeTxModal}
+                  className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            )}
+
+            {txModal.type === 'error' && (
+              <div className="text-center">
+                <div className="bg-red-500/20 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-red-400 mb-2">{txModal.title}</h3>
+                <p className="text-gray-300 mb-4">{txModal.message}</p>
+                
+                <button
+                  onClick={closeTxModal}
+                  className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                >
+                  Close
+                </button>
               </div>
             )}
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={handleUpdateReferral}
-              disabled={isProcessing}
-              className="flex-1 px-4 py-2 bg-[#fb57ff] hover:bg-[#fb57ff]/90 rounded disabled:opacity-50"
-            >
-              {isProcessing ? "⏳ Updating..." : "Update"}
-            </button>
-            <button onClick={() => setActiveModal(null)} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded">
-              Cancel
-            </button>
-          </div>
-        </>
-      )}
-
-      {activeModal === "unlock" && (
-        <>
-          <h2 className="text-xl font-bold mb-4">🔓 Emergency Unlock</h2>
-          <p className="text-gray-300 mb-6">Remove all time locks.</p>
-          <div className="flex gap-3">
-            <button
-              onClick={handleEmergencyUnlock}
-              disabled={isProcessing}
-              className="flex-1 px-4 py-2 bg-[#fb57ff] hover:bg-[#fb57ff]/90 rounded disabled:opacity-50"
-            >
-              {isProcessing ? "⏳ Unlocking..." : "Unlock"}
-            </button>
-            <button onClick={() => setActiveModal(null)} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded">
-              Cancel
-            </button>
-          </div>
-        </>
-      )}
-
-      {activeModal === "claimUnclaimed" && (
-        <>
-          <h2 className="text-xl font-bold mb-4">💰 Claim Unclaimed</h2>
-          <div className="space-y-4 mb-6">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Vault</label>
-              <select
-                value={vaultType}
-                onChange={(e) => setVaultType(e.target.value as any)}
-                className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-              >
-                <option value="staking">Staking</option>
-                <option value="reward">Reward</option>
-                <option value="reflection">Reflection</option>
-              </select>
-            </div>
-            {vaultType === "reflection" && (
-              <div className="bg-blue-500/10 border border-[#fb57ff]/20 rounded p-3">
-                <p className="text-blue-300 text-xs">
-                  ℹ️ Reflection vault: {pool?.externalReflectionMint ? "External token" : "Self token"}
-                </p>
-              </div>
-            )}
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Amount</label>
-              <input
-                type="number"
-                value={claimAmount}
-                onChange={(e) => setClaimAmount(Number(e.target.value))}
-                className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-              />
-            </div>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={handleClaimUnclaimed}
-              disabled={isProcessing}
-              className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50"
-            >
-              {isProcessing ? "⏳ Claiming..." : "Claim"}
-            </button>
-            <button onClick={() => setActiveModal(null)} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded">
-              Cancel
-            </button>
-          </div>
-        </>
-      )}
-
-    </div>
-  </div>
-)}
-
-{txModal.show && (
-  <div className="fixed inset-0 flex items-center justify-center bg-black/80 z-[60] p-4">
-    <div className="bg-white/[0.03] p-6 rounded-xl shadow-2xl w-full max-w-md border-2 border-white/[0.05]">
-      {txModal.type === 'pending' && (
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <h3 className="text-xl font-bold text-[#fb57ff] mb-2">{txModal.title}</h3>
-          <p className="text-gray-300">{txModal.message}</p>
-        </div>
-      )}
-
-      {txModal.type === 'success' && (
-        <div className="text-center">
-          <div className="bg-green-500/20 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <h3 className="text-xl font-bold text-green-400 mb-2">{txModal.title}</h3>
-          <p className="text-gray-300 mb-4">{txModal.message}</p>
-          
-          {txModal.txSignature && (
-            <div className="bg-white/[0.02] p-3 rounded-lg mb-4">
-              <p className="text-xs text-gray-400 mb-1">Transaction Signature:</p>
-              <p className="text-xs font-mono text-[#fb57ff] break-all">{txModal.txSignature}</p>
-              <a
-                href={`https://explorer.solana.com/tx/${txModal.txSignature}?cluster=devnet`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[#fb57ff] hover:text-blue-300 text-xs underline mt-2 inline-block"
-              >
-                View on Solana Explorer →
-              </a>
-            </div>
-          )}
-          
-          <button
-            onClick={closeTxModal}
-            className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
-          >
-            Close
-          </button>
-        </div>
-      )}
-
-      {txModal.type === 'error' && (
-        <div className="text-center">
-          <div className="bg-red-500/20 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </div>
-          <h3 className="text-xl font-bold text-red-400 mb-2">{txModal.title}</h3>
-          <p className="text-gray-300 mb-4">{txModal.message}</p>
-          
-          <button
-            onClick={closeTxModal}
-            className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-          >
-            Close
-          </button>
         </div>
       )}
     </div>
-  </div>
-)}
-</div>
-);
+  );
 }

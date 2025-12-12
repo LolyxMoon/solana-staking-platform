@@ -102,21 +102,40 @@ export default function AdminPage() {
   };
 
   const [form, setForm] = useState({
+    // Basic token info
     name: "",
     symbol: "",
-    apr: "",
-    apy: "",
-    type: "locked",
-    lockPeriod: "",
-    rewards: "",
     logo: "",
     mintAddress: "",
     pairAddress: "",
     poolId: 0,
-    rateMode: 0,  // ← ADD THIS LINE
+    
+    // Rate configuration
+    rateMode: 0 as 0 | 1,  // 0 = Fixed APY, 1 = Variable/Dynamic
+    
+    // Fixed APY mode fields
+    fixedApyPercent: "15",  // e.g., "15" for 15% APY
+    
+    // Variable mode fields
+    rewardAmount: "1000",
+    poolDuration: "90",  // days
+    
+    // Common fields
+    lockPeriod: "0",  // days, "0" for unlocked/flexible
+    type: "unlocked",
+    
+    // Display fields (legacy)
+    apr: "",
+    apy: "",
+    rewards: "",
+    
+    // Reflections
     hasSelfReflections: false,
     hasExternalReflections: false,
     externalReflectionMint: "",
+    
+    // Transfer tax
+    transferTaxPercent: "0",
   });
 
   const [pools, setPools] = useState<any[]>([]);
@@ -771,56 +790,53 @@ export default function AdminPage() {
         : "/api/admin/pools";
       const method = editingPool ? "PATCH" : "POST";
 
-      // ✅ FIX: Separate UI-only updates from full pool creation
+      // Calculate values based on rate mode
+      const lockupSeconds = parseInt(form.lockPeriod || "0") * 86400;
+      const poolDurationSeconds = parseInt(form.poolDuration || "90") * 86400;
+      
+      const rateBpsPerYear = form.rateMode === 0 
+        ? Math.round(parseFloat(form.fixedApyPercent || "0") * 100)
+        : 0;
+
       const payload = editingPool ? {
-        // ============================================
-        // EDITING EXISTING POOL - UI FIELDS ONLY
-        // ============================================
-        // These are safe to update without affecting blockchain:
+        // EDITING - UI fields only
         name: form.name,
         symbol: form.symbol,
         logo: form.logo,
         pairAddress: form.pairAddress,
-        rewards: form.rewards, // Display text only
-
-        // Reflection settings (UI display only - actual blockchain reflections handled in AdvancedPoolControls)
+        rewards: form.rewards,
         hasSelfReflections: form.hasSelfReflections,
         hasExternalReflections: form.hasExternalReflections,
         externalReflectionMint: form.externalReflectionMint,
-
-        // ⚠️ DO NOT SEND THESE WHEN EDITING:
-        // - tokenMint (can't change token for existing pool)
-        // - poolId (can't change pool ID)
-        // - apy/apr (must be updated via blockchain transaction)
-        // - lockPeriod (must be updated via blockchain transaction)
-        // - type (locked/unlocked - tied to blockchain config)
-        // - isInitialized (blockchain state, not UI state)
-
       } : {
-        // ============================================
-        // CREATING NEW POOL - SEND EVERYTHING
-        // ============================================
+        // CREATING - Full payload
         name: form.name,
         symbol: form.symbol,
-        apr: form.apr,
-        apy: form.apy,
-        type: form.type,
-        lockPeriod: form.lockPeriod,
-        rewards: form.rewards,
         logo: form.logo,
-        tokenMint: form.mintAddress, // ✅ Use tokenMint for new pools
+        tokenMint: form.mintAddress,
         pairAddress: form.pairAddress,
         poolId: form.poolId,
-        rateMode: form.rateMode,  // ← ADD THIS LINE
+        rateMode: form.rateMode,
+        rateBpsPerYear: rateBpsPerYear,
+        rewardAmount: form.rateMode === 1 ? form.rewardAmount : null,
+        poolDurationSeconds: form.rateMode === 1 ? poolDurationSeconds : null,
+        lockupSeconds: lockupSeconds,
+        lockPeriod: form.lockPeriod,
+        type: parseInt(form.lockPeriod || "0") > 0 ? "locked" : "unlocked",
+        apy: form.rateMode === 0 ? `${form.fixedApyPercent}%` : "Dynamic",
+        apr: form.rateMode === 0 ? `${form.fixedApyPercent}%` : "Dynamic",
+        rewards: form.symbol,
+        transferTaxBps: parseFloat(form.transferTaxPercent || "0") * 100,
         hasSelfReflections: form.hasSelfReflections,
         hasExternalReflections: form.hasExternalReflections,
-        externalReflectionMint: form.externalReflectionMint,
-        // New pools start as NOT initialized (must be initialized via AdvancedPoolControls)
+        externalReflectionMint: form.hasExternalReflections ? form.externalReflectionMint : null,
         isInitialized: false,
         isPaused: false,
         hidden: false,
         featured: false,
       };
+
+      console.log("📤 Submitting pool:", payload);
 
       const res = await authFetch(url, {
         method,
@@ -836,7 +852,6 @@ export default function AdminPage() {
       const updatedPool = await res.json();
 
       if (editingPool) {
-        // Update the pool in state
         setPools((prev) =>
           prev.map((p) => (p.id === updatedPool.id ? updatedPool : p))
         );
@@ -844,30 +859,33 @@ export default function AdminPage() {
         showSuccess("✅ Pool UI information updated successfully!");
         setActiveTab("pools");
       } else {
-        // Add new pool to state
         setPools((prev) => [...prev, updatedPool]);
         showSuccess("✅ Pool created! Now initialize it using Advanced Pool Controls.");
         setActiveTab("pools");
       }
 
-        // Reset form
-        setForm({
-          name: "",
-          symbol: "",
-          apr: "",
-          apy: "",
-          type: "locked",
-          lockPeriod: "",
-          rewards: "",
-          logo: "",
-          mintAddress: "",
-          pairAddress: "",
-          poolId: 0,
-          rateMode: 0,  // ← ADD THIS LINE
-          hasSelfReflections: false,
-          hasExternalReflections: false,
-          externalReflectionMint: "",
-        });
+      // Reset form
+      setForm({
+        name: "",
+        symbol: "",
+        logo: "",
+        mintAddress: "",
+        pairAddress: "",
+        poolId: 0,
+        rateMode: 0 as 0 | 1,
+        fixedApyPercent: "15",
+        rewardAmount: "1000",
+        poolDuration: "90",
+        lockPeriod: "0",
+        type: "unlocked",
+        apr: "",
+        apy: "",
+        rewards: "",
+        hasSelfReflections: false,
+        hasExternalReflections: false,
+        externalReflectionMint: "",
+        transferTaxPercent: "0",
+      });
     } catch (err: any) {
       console.error("Submit error:", err);
       showError(`❌ ${err.message || "Error creating/updating pool"}`);
@@ -879,19 +897,29 @@ export default function AdminPage() {
     setForm({
       name: pool.name || "",
       symbol: pool.symbol || "",
-      apr: pool.apr || "",
-      apy: pool.apy || "",
-      type: pool.type || "locked",
-      lockPeriod: pool.lockPeriod || "",
-      rewards: pool.rewards || "",
       logo: pool.logo || "",
-      mintAddress: pool.mintAddress || "",
+      mintAddress: pool.mintAddress || pool.tokenMint || "",
       pairAddress: pool.pairAddress || "",
       poolId: pool.poolId || 0,
-      rateMode: pool.rateMode || 0,  // ← ADD THIS LINE
+      rateMode: pool.rateMode || 0,
+      fixedApyPercent: pool.rateBpsPerYear 
+        ? (pool.rateBpsPerYear / 100).toString() 
+        : (pool.apy?.toString().replace('%', '') || "15"),
+      rewardAmount: pool.rewardAmount || "1000",
+      poolDuration: pool.poolDurationSeconds 
+        ? (pool.poolDurationSeconds / 86400).toString() 
+        : "90",
+      lockPeriod: pool.lockPeriod?.toString() || "0",
+      type: pool.type || "unlocked",
+      apr: pool.apr || "",
+      apy: pool.apy?.toString() || "",
+      rewards: pool.rewards || "",
       hasSelfReflections: pool.hasSelfReflections || false,
       hasExternalReflections: pool.hasExternalReflections || false,
       externalReflectionMint: pool.externalReflectionMint || "",
+      transferTaxPercent: pool.transferTaxBps 
+        ? (pool.transferTaxBps / 100).toString() 
+        : "0",
     });
     setActiveTab("create");
   };
@@ -1649,7 +1677,7 @@ export default function AdminPage() {
               {editingPool ? "✏️ Edit Pool" : "🎨 Create New Pool"}
             </h2>
 
-            {/* ✅ NEW: Warning when editing */}
+            {/* Warning when editing */}
             {editingPool && (
               <div className="bg-yellow-500/10 border-2 border-yellow-500/30 rounded-lg p-4">
                 <div className="flex items-start gap-3">
@@ -1670,6 +1698,7 @@ export default function AdminPage() {
               </div>
             )}
 
+            {/* Step 1: Verify Token Pair */}
             <div className="space-y-3">
               <h3 className="text-lg font-semibold text-[#fb57ff]">Step 1: Verify Token Pair</h3>
               <div className="flex gap-2">
@@ -1691,6 +1720,7 @@ export default function AdminPage() {
               </div>
             </div>
 
+            {/* Step 2: Token Details */}
             <div className="space-y-3">
               <h3 className="text-lg font-semibold text-[#fb57ff]">Step 2: Token Details</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1734,7 +1764,7 @@ export default function AdminPage() {
                   name="poolId"
                   value={form.poolId}
                   onChange={handleChange}
-                  placeholder="Pool ID (0 for first pool, 1 for second pool...)"
+                  placeholder="Pool ID (0 for first pool, 1 for second...)"
                   min="0"
                   disabled={!!editingPool}
                   className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] text-white focus:border-[#fb57ff] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1742,101 +1772,202 @@ export default function AdminPage() {
               </div>
             </div>
 
+            {/* Step 3: Rate Mode Selection */}
+            {!editingPool && (
+              <div className="space-y-3">
+                <h3 className="text-lg font-semibold text-[#fb57ff]">Step 3: Select Reward Mode</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Fixed APY Option */}
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, rateMode: 0 })}
+                    className={`p-4 rounded-xl border-2 text-left transition-all ${
+                      form.rateMode === 0
+                        ? "border-blue-500 bg-blue-500/10"
+                        : "border-white/[0.05] bg-white/[0.02] hover:border-white/20"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className={`w-4 h-4 rounded-full border-2 ${
+                        form.rateMode === 0 ? "border-blue-500 bg-blue-500" : "border-gray-500"
+                      }`} />
+                      <span className="font-bold text-lg">Fixed APY</span>
+                    </div>
+                    <p className="text-sm text-gray-400">
+                      Set a fixed APY percentage (e.g., 15%). Rewards calculated automatically based on stake amount and time.
+                    </p>
+                  </button>
+
+                  {/* Variable/Dynamic Option */}
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, rateMode: 1 })}
+                    className={`p-4 rounded-xl border-2 text-left transition-all ${
+                      form.rateMode === 1
+                        ? "border-purple-500 bg-purple-500/10"
+                        : "border-white/[0.05] bg-white/[0.02] hover:border-white/20"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className={`w-4 h-4 rounded-full border-2 ${
+                        form.rateMode === 1 ? "border-purple-500 bg-purple-500" : "border-gray-500"
+                      }`} />
+                      <span className="font-bold text-lg">Variable/Dynamic</span>
+                    </div>
+                    <p className="text-sm text-gray-400">
+                      Deposit reward tokens upfront. APY calculated dynamically based on total staked vs rewards deposited.
+                    </p>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Configuration based on Rate Mode */}
             <div className="space-y-3">
               <h3 className="text-lg font-semibold text-[#fb57ff]">
-                Step 3: Pool Configuration {editingPool && "(Display Only)"}
+                {editingPool ? "Step 3: Pool Configuration (Display Only)" : "Step 4: Pool Configuration"}
               </h3>
+              
               {editingPool && (
                 <p className="text-sm text-gray-400">
                   These values are for display purposes. To change actual blockchain parameters, use Advanced Pool Controls.
                 </p>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">Pool Type</label>
-                  <select
-                    name="type"
-                    value={form.type}
-                    onChange={handleChange}
-                    disabled={!!editingPool}
-                    className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] text-white focus:border-[#fb57ff] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <option value="locked">Locked</option>
-                    <option value="unlocked">Unlocked</option>
-                  </select>
+
+              {/* Fixed APY Configuration */}
+              {form.rateMode === 0 && (
+                <div className="space-y-4 p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl">
+                  <div className="flex items-center gap-2 text-blue-400 text-sm font-medium">
+                    <Zap className="w-4 h-4" />
+                    Fixed APY Mode
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">APY Percentage *</label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          name="fixedApyPercent"
+                          value={form.fixedApyPercent}
+                          onChange={handleChange}
+                          placeholder="15"
+                          step="0.1"
+                          min="0"
+                          disabled={!!editingPool}
+                          className="w-full p-3 pr-12 rounded-lg bg-white/[0.02] border border-white/[0.05] text-white focus:border-blue-500 focus:outline-none disabled:opacity-50"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        e.g., 15 = 15% APY → {Math.round(parseFloat(form.fixedApyPercent || "0") * 100)} basis points
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Lock Period (days)</label>
+                      <input
+                        type="number"
+                        name="lockPeriod"
+                        value={form.lockPeriod}
+                        onChange={handleChange}
+                        placeholder="0"
+                        min="0"
+                        disabled={!!editingPool}
+                        className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] text-white focus:border-blue-500 focus:outline-none disabled:opacity-50"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        0 = Unlocked/Flexible (users can withdraw anytime)
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Preview */}
+                  <div className="bg-white/[0.02] rounded-lg p-3 mt-2">
+                    <p className="text-sm text-gray-300">
+                      <strong>Preview:</strong> {form.fixedApyPercent || "0"}% APY, {form.lockPeriod === "0" || !form.lockPeriod ? "Unlocked" : `${form.lockPeriod} day lock`}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">APY (for locked)</label>
-                  <input
-                    type="text"
-                    name="apy"
-                    value={form.apy}
-                    onChange={handleChange}
-                    placeholder="e.g., 25%"
-                    disabled={!!editingPool}
-                    className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] text-white focus:border-[#fb57ff] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
+              )}
+
+              {/* Variable/Dynamic Configuration */}
+              {form.rateMode === 1 && (
+                <div className="space-y-4 p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl">
+                  <div className="flex items-center gap-2 text-purple-400 text-sm font-medium">
+                    <TrendingUp className="w-4 h-4" />
+                    Variable/Dynamic Mode
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Reward Amount (tokens)</label>
+                      <input
+                        type="number"
+                        name="rewardAmount"
+                        value={form.rewardAmount}
+                        onChange={handleChange}
+                        placeholder="1000"
+                        min="0"
+                        disabled={!!editingPool}
+                        className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] text-white focus:border-purple-500 focus:outline-none disabled:opacity-50"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Total rewards to distribute
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Pool Duration (days)</label>
+                      <input
+                        type="number"
+                        name="poolDuration"
+                        value={form.poolDuration}
+                        onChange={handleChange}
+                        placeholder="90"
+                        min="1"
+                        disabled={!!editingPool}
+                        className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] text-white focus:border-purple-500 focus:outline-none disabled:opacity-50"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        How long the pool runs
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Lock Period (days)</label>
+                      <input
+                        type="number"
+                        name="lockPeriod"
+                        value={form.lockPeriod}
+                        onChange={handleChange}
+                        placeholder="0"
+                        min="0"
+                        disabled={!!editingPool}
+                        className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] text-white focus:border-purple-500 focus:outline-none disabled:opacity-50"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        0 = Unlocked
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Info Box */}
+                  <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3">
+                    <p className="text-purple-300 text-sm">
+                      💡 <strong>How it works:</strong> APY is calculated as (Total Rewards ÷ Total Staked) × (365 ÷ Duration Days) × 100. 
+                      The more users stake, the lower the APY per user.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">APR (for unlocked)</label>
-                  <input
-                    type="text"
-                    name="apr"
-                    value={form.apr}
-                    onChange={handleChange}
-                    placeholder="e.g., 15%"
-                    disabled={!!editingPool}
-                    className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] text-white focus:border-[#fb57ff] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm text-gray-400 mb-1">
-                    Pool Rate Type {editingPool && "(Display Only - Change via Advanced Controls)"}
-                  </label>
-                  <select
-                    name="rateMode"
-                    value={form.rateMode}
-                    onChange={handleChange}
-                    disabled={!!editingPool}
-                    className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] text-white focus:border-[#fb57ff] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <option value={0}>Fixed APY (rate calculated from APY %)</option>
-                    <option value={1}>Dynamic Pool (rate calculated from deposited rewards)</option>
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {form.rateMode === 0 
-                      ? "Fixed APY: Rewards calculated based on APY percentage set above"
-                      : "Dynamic: Rewards distributed based on total tokens deposited by admin"}
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">Lock Period (days)</label>
-                  <input
-                    type="text"
-                    name="lockPeriod"
-                    value={form.lockPeriod}
-                    onChange={handleChange}
-                    placeholder="e.g., 30"
-                    disabled={!!editingPool}
-                    className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] text-white focus:border-[#fb57ff] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm text-gray-400 mb-1">Rewards (Display Text)</label>
-                  <input
-                    type="text"
-                    name="rewards"
-                    value={form.rewards}
-                    onChange={handleChange}
-                    placeholder="e.g., 10 TOKEN"
-                    className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] text-white focus:border-[#fb57ff] focus:outline-none"
-                  />
-                </div>
-              </div>
+              )}
             </div>
 
+            {/* Step 5: Reflection Settings */}
             <div className="space-y-3 border-t border-white/[0.05] pt-4">
-              <h3 className="text-lg font-semibold text-[#fb57ff]">Step 4: Reflection Settings</h3>
+              <h3 className="text-lg font-semibold text-[#fb57ff]">
+                {editingPool ? "Step 4" : "Step 5"}: Reflection Settings
+              </h3>
               <div className="space-y-3">
                 <label className="flex items-center gap-3 cursor-pointer p-3 bg-white/[0.02] rounded-lg hover:bg-slate-750 transition-all">
                   <input
@@ -1879,6 +2010,36 @@ export default function AdminPage() {
               </div>
             </div>
 
+            {/* Summary Preview (for new pools only) */}
+            {!editingPool && (
+              <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-4">
+                <h4 className="font-semibold mb-3 text-gray-300">📋 Pool Summary</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <div>
+                    <p className="text-gray-500">Token</p>
+                    <p className="font-medium">{form.symbol || "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Rate Mode</p>
+                    <p className="font-medium">{form.rateMode === 0 ? "Fixed APY" : "Variable"}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">APY</p>
+                    <p className="font-medium">
+                      {form.rateMode === 0 ? `${form.fixedApyPercent}%` : "Dynamic"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Lock Period</p>
+                    <p className="font-medium">
+                      {form.lockPeriod === "0" || !form.lockPeriod ? "Unlocked" : `${form.lockPeriod} days`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Submit Buttons */}
             <div className="flex gap-3">
               <button
                 type="submit"
@@ -1894,18 +2055,23 @@ export default function AdminPage() {
                     setForm({
                       name: "",
                       symbol: "",
-                      apr: "",
-                      apy: "",
-                      type: "locked",
-                      lockPeriod: "",
-                      rewards: "",
                       logo: "",
                       mintAddress: "",
                       pairAddress: "",
                       poolId: 0,
+                      rateMode: 0 as 0 | 1,
+                      fixedApyPercent: "15",
+                      rewardAmount: "1000",
+                      poolDuration: "90",
+                      lockPeriod: "0",
+                      type: "unlocked",
+                      apr: "",
+                      apy: "",
+                      rewards: "",
                       hasSelfReflections: false,
                       hasExternalReflections: false,
                       externalReflectionMint: "",
+                      transferTaxPercent: "0",
                     });
                     setActiveTab("pools");
                   }}
