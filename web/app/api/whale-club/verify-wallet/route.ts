@@ -106,6 +106,7 @@ export async function POST(request: NextRequest) {
     const { error } = await supabase
       .from('whale_club_users')
       .upsert({ 
+        id: crypto.randomUUID(),  // ADD THIS
         wallet_address: wallet,
         chat_session_token: sessionToken,
         chat_session_expiry: expiresAt.toISOString(),
