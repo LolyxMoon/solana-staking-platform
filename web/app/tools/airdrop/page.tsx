@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import { ComputeBudgetProgram } from "@solana/web3.js";
 import {
   PublicKey,
   Transaction,
@@ -267,101 +268,137 @@ export default function AirdropPage() {
         )
       );
 
-      // Small delay to let UI update
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      try {
-        const transaction = new Transaction();
+      // Retry logic - try up to 3 times
+      let success = false;
+      let lastError: any = null;
+      
+      for (let attempt = 1; attempt <= 3 && !success; attempt++) {
+        try {
+          const transaction = new Transaction();
+          let ataCreationCount = 0;
 
-        // Build instructions for each recipient in batch
-        for (const recipient of batch) {
-          const recipientPubkey = new PublicKey(recipient.wallet);
-          const recipientAta = await getAssociatedTokenAddress(
-            mintPubkey,
-            recipientPubkey,
-            true,
-            programId
+          // Add priority fee instruction FIRST
+          const { ComputeBudgetProgram } = await import("@solana/web3.js");
+          transaction.add(
+            ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50000 }) // Priority fee
           );
 
-          // Check if ATA exists
-          let ataExists = false;
-          try {
-            await getAccount(connection, recipientAta, "confirmed", programId);
-            ataExists = true;
-          } catch {
-            // ATA doesn't exist
-          }
+          // Build instructions for each recipient in batch
+          for (const recipient of batch) {
+            const recipientPubkey = new PublicKey(recipient.wallet);
+            const recipientAta = await getAssociatedTokenAddress(
+              mintPubkey,
+              recipientPubkey,
+              true,
+              programId
+            );
 
-          // Create ATA if needed
-          if (!ataExists) {
+            // Check if ATA exists
+            let ataExists = false;
+            try {
+              await getAccount(connection, recipientAta, "confirmed", programId);
+              ataExists = true;
+            } catch {
+              // ATA doesn't exist
+            }
+
+            // Create ATA if needed
+            if (!ataExists) {
+              ataCreationCount++;
+              transaction.add(
+                createAssociatedTokenAccountInstruction(
+                  publicKey,
+                  recipientAta,
+                  recipientPubkey,
+                  mintPubkey,
+                  programId
+                )
+              );
+            }
+
+            // Add transfer instruction
+            const amountInSmallestUnit = BigInt(
+              Math.floor(recipient.amount * Math.pow(10, tokenInfo.decimals))
+            );
+
             transaction.add(
-              createAssociatedTokenAccountInstruction(
-                publicKey,
+              createTransferInstruction(
+                senderAta,
                 recipientAta,
-                recipientPubkey,
-                mintPubkey,
+                publicKey,
+                amountInSmallestUnit,
+                [],
                 programId
               )
             );
           }
 
-          // Add transfer instruction
-          const amountInSmallestUnit = BigInt(
-            Math.floor(recipient.amount * Math.pow(10, tokenInfo.decimals))
+          // Set compute unit limit based on instruction count
+          const computeUnits = 50000 + (ataCreationCount * 30000) + (batch.length * 10000);
+          transaction.add(
+            ComputeBudgetProgram.setComputeUnitLimit({ units: Math.min(computeUnits, 1400000) })
           );
 
-          transaction.add(
-            createTransferInstruction(
-              senderAta,
-              recipientAta,
-              publicKey,
-              amountInSmallestUnit,
-              [],
-              programId
+          console.log(`📝 Batch ${batchIndex + 1} (attempt ${attempt}): ${batch.length} transfers + ${ataCreationCount} ATA creations`);
+
+          // Get FRESH blockhash right before sending
+          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+          transaction.recentBlockhash = blockhash;
+          transaction.feePayer = publicKey;
+
+          // Sign and send
+          const signedTxs = await signAllTransactions([transaction]);
+          const txId = await connection.sendRawTransaction(signedTxs[0].serialize(), {
+            skipPreflight: true, // Skip preflight for speed
+            maxRetries: 3,
+          });
+
+          console.log(`📤 Batch ${batchIndex + 1} sent (attempt ${attempt}): ${txId}`);
+
+          // Wait for confirmation with timeout
+          const confirmation = await connection.confirmTransaction(
+            { signature: txId, blockhash, lastValidBlockHeight },
+            "processed" // Use "processed" for faster confirmation
+          );
+
+          if (confirmation.value.err) {
+            throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+          }
+
+          // Success!
+          success = true;
+          setRecipients((prev) =>
+            prev.map((r) =>
+              batchWallets.has(r.wallet) ? { ...r, status: "success" as const, txId } : r
             )
           );
+
+          setStats((prev) => ({
+            ...prev,
+            success: prev.success + batch.length,
+          }));
+
+          console.log(`✅ Batch ${batchIndex + 1} confirmed: ${txId}`);
+
+        } catch (err: any) {
+          lastError = err;
+          console.error(`❌ Batch ${batchIndex + 1} attempt ${attempt} error:`, err.message);
+          
+          if (attempt < 3) {
+            console.log(`🔄 Retrying batch ${batchIndex + 1}...`);
+            await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2s before retry
+          }
         }
+      }
 
-        // Get recent blockhash
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-        transaction.recentBlockhash = blockhash;
-        transaction.feePayer = publicKey;
-
-        // Sign and send
-        const signedTxs = await signAllTransactions([transaction]);
-        const txId = await connection.sendRawTransaction(signedTxs[0].serialize(), {
-          skipPreflight: false,
-          maxRetries: 3,
-        });
-
-        // Confirm transaction
-        await connection.confirmTransaction(
-          { signature: txId, blockhash, lastValidBlockHeight },
-          "confirmed"
-        );
-
-        // Update recipients as success
-        setRecipients((prev) =>
-          prev.map((r) =>
-            batchWallets.has(r.wallet) ? { ...r, status: "success" as const, txId } : r
-          )
-        );
-
-        setStats((prev) => ({
-          ...prev,
-          success: prev.success + batch.length,
-        }));
-
-        console.log(`✅ Batch ${batchIndex + 1} complete: ${txId}`);
-
-      } catch (err: any) {
-        console.error(`❌ Batch ${batchIndex + 1} error:`, err);
-
-        // Mark batch as failed
+      // If all retries failed, mark batch as failed
+      if (!success) {
         setRecipients((prev) =>
           prev.map((r) =>
             batchWallets.has(r.wallet)
-              ? { ...r, status: "failed" as const, error: err.message?.slice(0, 100) }
+              ? { ...r, status: "failed" as const, error: lastError?.message?.slice(0, 100) }
               : r
           )
         );
@@ -372,7 +409,7 @@ export default function AirdropPage() {
         }));
       }
 
-      // Delay between batches to avoid rate limiting
+      // Delay between batches
       if (batchIndex < totalBatches - 1) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
