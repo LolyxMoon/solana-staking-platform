@@ -174,7 +174,7 @@ async function fetchMeteoraPoolFees(mint: string): Promise<{
   dex: string;
 } | null> {
   
-  // Try to get pool address from DexScreener first (they have reliable pool data)
+  // Try to get pool info from DexScreener first (they have reliable pool data including fees)
   let poolAddress: string | null = null;
   try {
     const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {
@@ -194,16 +194,114 @@ async function fetchMeteoraPoolFees(mint: string): Promise<{
       if (meteoraPair) {
         poolAddress = meteoraPair.pairAddress;
         console.log("Found Meteora pool from DexScreener:", poolAddress);
+        console.log("DexScreener pair data:", JSON.stringify(meteoraPair, null, 2));
+        
+        // Check if DexScreener has fee/tax info
+        if (meteoraPair.info) {
+          const buyTax = meteoraPair.info.buyTax;
+          const sellTax = meteoraPair.info.sellTax;
+          if (buyTax !== undefined || sellTax !== undefined) {
+            return {
+              buyFee: buyTax || 0,
+              sellFee: sellTax || 0,
+              poolAddress,
+              dex: "Meteora"
+            };
+          }
+        }
+        
+        // Check labels for fee info
+        if (meteoraPair.labels) {
+          for (const label of meteoraPair.labels) {
+            const match = label.match(/(\d+(?:\.\d+)?)\s*%\s*(tax|fee)/i);
+            if (match) {
+              const fee = parseFloat(match[1]);
+              return {
+                buyFee: fee,
+                sellFee: fee,
+                poolAddress,
+                dex: "Meteora"
+              };
+            }
+          }
+        }
       }
     }
   } catch (err) {
     console.log("DexScreener pool lookup failed:", err);
   }
 
-  // If we have a pool address, query Meteora directly
+  // Try DexScreener pair endpoint directly if we have pool address
   if (poolAddress) {
     try {
-      // Try Dynamic AMM pool endpoint
+      const pairRes = await fetch(`https://api.dexscreener.com/latest/dex/pairs/solana/${poolAddress}`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      
+      if (pairRes.ok) {
+        const pairData = await pairRes.json();
+        console.log("=== DEXSCREENER PAIR RESPONSE ===");
+        console.log(JSON.stringify(pairData, null, 2));
+        
+        const pair = pairData.pair || pairData.pairs?.[0];
+        if (pair?.info) {
+          if (pair.info.buyTax !== undefined || pair.info.sellTax !== undefined) {
+            return {
+              buyFee: pair.info.buyTax || 0,
+              sellFee: pair.info.sellTax || 0,
+              poolAddress,
+              dex: "Meteora"
+            };
+          }
+        }
+      }
+    } catch (err) {
+      console.log("DexScreener pair fetch failed:", err);
+    }
+  }
+
+  // Try Meteora's public API
+  if (poolAddress) {
+    try {
+      const poolRes = await fetch(`https://app.meteora.ag/amm/pool/${poolAddress}`, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(5000),
+      });
+      
+      if (poolRes.ok) {
+        const poolData = await poolRes.json();
+        console.log("=== METEORA APP POOL RESPONSE ===");
+        console.log(JSON.stringify(poolData, null, 2));
+        
+        let buyFee = 0;
+        let sellFee = 0;
+        
+        if (poolData.tradeFeeNumerator && poolData.tradeFeeDenominator) {
+          const fee = (poolData.tradeFeeNumerator / poolData.tradeFeeDenominator) * 100;
+          buyFee = fee;
+          sellFee = fee;
+        }
+        if (poolData.trade_fee_bps !== undefined) {
+          buyFee = poolData.trade_fee_bps / 100;
+          sellFee = poolData.trade_fee_bps / 100;
+        }
+        if (poolData.fees?.tradingFee !== undefined) {
+          buyFee = poolData.fees.tradingFee;
+          sellFee = poolData.fees.tradingFee;
+        }
+        
+        if (buyFee > 0 || sellFee > 0) {
+          return { buyFee, sellFee, poolAddress, dex: "Meteora" };
+        }
+      }
+    } catch (err) {
+      console.log("Meteora app pool fetch failed:", err);
+    }
+  }
+
+  // Try Meteora Dynamic AMM API with pool address
+  if (poolAddress) {
+    try {
       const poolRes = await fetch(`https://amm-v2.meteora.ag/pools/${poolAddress}`, {
         headers: { 'Accept': 'application/json' },
         signal: AbortSignal.timeout(5000),
@@ -211,13 +309,12 @@ async function fetchMeteoraPoolFees(mint: string): Promise<{
       
       if (poolRes.ok) {
         const poolData = await poolRes.json();
-        console.log("=== METEORA POOL DIRECT RESPONSE ===");
+        console.log("=== METEORA AMM V2 POOL RESPONSE ===");
         console.log(JSON.stringify(poolData, null, 2));
         
         let buyFee = 0;
         let sellFee = 0;
         
-        // Extract creator/trade fees
         if (poolData.trade_fee_bps !== undefined) {
           buyFee = poolData.trade_fee_bps / 100;
           sellFee = poolData.trade_fee_bps / 100;
@@ -226,65 +323,14 @@ async function fetchMeteoraPoolFees(mint: string): Promise<{
           buyFee = poolData.creator_fee_bps / 100;
           sellFee = poolData.creator_fee_bps / 100;
         }
-        if (poolData.fees?.trading_fee_bps !== undefined) {
-          buyFee = poolData.fees.trading_fee_bps / 100;
-          sellFee = poolData.fees.trading_fee_bps / 100;
-        }
         
         if (buyFee > 0 || sellFee > 0) {
           return { buyFee, sellFee, poolAddress, dex: "Meteora" };
         }
       }
     } catch (err) {
-      console.log("Meteora direct pool fetch failed:", err);
+      console.log("Meteora AMM V2 pool fetch failed:", err);
     }
-  }
-
-  // Try Meteora Dynamic AMM API with token mint
-  try {
-    const meteoraRes = await fetch(`https://amm-v2.meteora.ag/pools?token=${mint}`, {
-      headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(5000),
-    });
-    
-    if (meteoraRes.ok) {
-      const pools = await meteoraRes.json();
-      console.log("=== METEORA AMM V2 RESPONSE ===");
-      console.log(JSON.stringify(pools, null, 2).slice(0, 2000));
-      
-      const poolList = Array.isArray(pools) ? pools : pools.pools || pools.data || [];
-      
-      if (poolList.length > 0) {
-        for (const pool of poolList) {
-          let buyFee = 0;
-          let sellFee = 0;
-          
-          if (pool.trade_fee_bps !== undefined) {
-            buyFee = pool.trade_fee_bps / 100;
-            sellFee = pool.trade_fee_bps / 100;
-          }
-          if (pool.creator_fee_bps !== undefined) {
-            buyFee = pool.creator_fee_bps / 100;
-            sellFee = pool.creator_fee_bps / 100;
-          }
-          if (pool.trading_fee !== undefined) {
-            buyFee = pool.trading_fee;
-            sellFee = pool.trading_fee;
-          }
-          
-          if (buyFee > 0 || sellFee > 0) {
-            return {
-              buyFee,
-              sellFee,
-              poolAddress: pool.pool_address || pool.address || null,
-              dex: "Meteora"
-            };
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.log("Meteora AMM V2 fetch failed:", err);
   }
 
   // Try the original AMM endpoint  
@@ -338,53 +384,6 @@ async function fetchMeteoraPoolFees(mint: string): Promise<{
     }
   } catch (err) {
     console.log("Meteora AMM fetch failed:", err);
-  }
-  
-  // Try Meteora DLMM API - but search for our specific token
-  try {
-    const dlmmRes = await fetch(`https://dlmm-api.meteora.ag/pair/all`, {
-      headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(8000),
-    });
-    
-    if (dlmmRes.ok) {
-      const dlmmData = await dlmmRes.json();
-      
-      // Search for pairs containing our mint
-      const pairs = Array.isArray(dlmmData) ? dlmmData : dlmmData.pairs || [];
-      const matchingPair = pairs.find((p: any) => 
-        p.mint_x === mint || p.mint_y === mint ||
-        p.token_x_mint === mint || p.token_y_mint === mint
-      );
-      
-      if (matchingPair) {
-        console.log("=== METEORA DLMM MATCHING PAIR ===");
-        console.log(JSON.stringify(matchingPair, null, 2));
-        
-        let buyFee = 0;
-        let sellFee = 0;
-        
-        if (matchingPair.base_fee_percentage !== undefined) {
-          buyFee = parseFloat(matchingPair.base_fee_percentage);
-          sellFee = parseFloat(matchingPair.base_fee_percentage);
-        }
-        if (matchingPair.trade_fee_bps !== undefined) {
-          buyFee = matchingPair.trade_fee_bps / 100;
-          sellFee = matchingPair.trade_fee_bps / 100;
-        }
-        
-        if (buyFee > 0 || sellFee > 0) {
-          return {
-            buyFee,
-            sellFee,
-            poolAddress: matchingPair.address || null,
-            dex: "Meteora DLMM"
-          };
-        }
-      }
-    }
-  } catch (err) {
-    console.log("Meteora DLMM fetch failed:", err);
   }
 
   return null;
