@@ -1095,7 +1095,7 @@ export default function PoolCard(props: PoolCardProps) {
         <div className="relative z-10">
           <div className="p-2.5 sm:p-3 md:p-4 rounded-lg text-center bg-white/[0.02] border border-white/[0.05]">
             <p className="text-[9px] sm:text-[10px] md:text-xs text-gray-500 uppercase tracking-wide mb-0.5">
-              {type === "locked" ? "APY" : "APR"}
+              APR
             </p>
             <p className="text-xl sm:text-2xl md:text-3xl font-bold leading-none truncate" style={{ color: '#fb57ff' }} title={`${typeof rate === 'number' ? rate.toFixed(2) : rate ?? "-"}%`}>
               {typeof rate === 'number' ? rate.toFixed(2) : rate ?? "-"}%
