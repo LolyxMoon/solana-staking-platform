@@ -79,7 +79,7 @@ export default function Sidebar({ isMobileMenuOpen, onClose }: SidebarProps) {
 
       {/* SIDEBAR */}
       <aside
-        className="fixed left-0 top-0 h-screen w-[280px] lg:top-16 lg:h-[calc(100vh-4rem)] lg:w-64 flex flex-col justify-between bg-[#060609] border-r border-white/[0.05] transition-transform duration-300 ease-in-out z-50 overflow-y-auto"
+        className="fixed left-0 top-0 h-screen w-[280px] lg:top-16 lg:h-[calc(100vh-4rem)] lg:w-64 flex flex-col justify-between bg-[#060609] border-r border-white/[0.05] transition-transform duration-300 ease-in-out z-50 overflow-hidden"
         style={{
           transform: isDesktop ? 'translateX(0)' : (isMobileMenuOpen ? 'translateX(0)' : 'translateX(-100%)'),
         }}
