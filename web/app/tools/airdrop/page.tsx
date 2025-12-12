@@ -246,28 +246,32 @@ export default function AirdropPage() {
     const programId = tokenInfo.isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
     const senderAta = await getAssociatedTokenAddress(mintPubkey, publicKey, false, programId);
 
-    // Process in batches
+    // Get all pending/failed recipients
     const pendingRecipients = recipients.filter((r) => r.status === "pending" || r.status === "failed");
+    const totalBatches = Math.ceil(pendingRecipients.length / batchSize);
 
-    for (let i = 0; i < pendingRecipients.length; i += batchSize) {
-      if (airdropPaused) {
-        setStatusMessage("Airdrop paused");
-        break;
-      }
+    console.log(`🚀 Starting airdrop: ${pendingRecipients.length} recipients in ${totalBatches} batches of ${batchSize}`);
 
-      const batch = pendingRecipients.slice(i, i + batchSize);
-      setStatusMessage(`Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(pendingRecipients.length / batchSize)}...`);
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const startIdx = batchIndex * batchSize;
+      const batch = pendingRecipients.slice(startIdx, startIdx + batchSize);
+      
+      console.log(`📦 Processing batch ${batchIndex + 1}/${totalBatches} (${batch.length} recipients)`);
+      setStatusMessage(`Processing batch ${batchIndex + 1}/${totalBatches} (${batch.length} recipients)...`);
 
       // Update status to sending
+      const batchWallets = new Set(batch.map(b => b.wallet));
       setRecipients((prev) =>
         prev.map((r) =>
-          batch.find((b) => b.wallet === r.wallet) ? { ...r, status: "sending" as const } : r
+          batchWallets.has(r.wallet) ? { ...r, status: "sending" as const } : r
         )
       );
 
+      // Small delay to let UI update
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       try {
         const transaction = new Transaction();
-        const recipientAtaMap: Map<string, PublicKey> = new Map();
 
         // Build instructions for each recipient in batch
         for (const recipient of batch) {
@@ -275,11 +279,9 @@ export default function AirdropPage() {
           const recipientAta = await getAssociatedTokenAddress(
             mintPubkey,
             recipientPubkey,
-            true, // Allow owner off curve for PDAs
+            true,
             programId
           );
-
-          recipientAtaMap.set(recipient.wallet, recipientAta);
 
           // Check if ATA exists
           let ataExists = false;
@@ -287,7 +289,7 @@ export default function AirdropPage() {
             await getAccount(connection, recipientAta, "confirmed", programId);
             ataExists = true;
           } catch {
-            // ATA doesn't exist, need to create
+            // ATA doesn't exist
           }
 
           // Create ATA if needed
@@ -341,9 +343,7 @@ export default function AirdropPage() {
         // Update recipients as success
         setRecipients((prev) =>
           prev.map((r) =>
-            batch.find((b) => b.wallet === r.wallet)
-              ? { ...r, status: "success" as const, txId }
-              : r
+            batchWallets.has(r.wallet) ? { ...r, status: "success" as const, txId } : r
           )
         );
 
@@ -351,14 +351,17 @@ export default function AirdropPage() {
           ...prev,
           success: prev.success + batch.length,
         }));
+
+        console.log(`✅ Batch ${batchIndex + 1} complete: ${txId}`);
+
       } catch (err: any) {
-        console.error("Batch error:", err);
+        console.error(`❌ Batch ${batchIndex + 1} error:`, err);
 
         // Mark batch as failed
         setRecipients((prev) =>
           prev.map((r) =>
-            batch.find((b) => b.wallet === r.wallet)
-              ? { ...r, status: "failed" as const, error: err.message?.slice(0, 50) }
+            batchWallets.has(r.wallet)
+              ? { ...r, status: "failed" as const, error: err.message?.slice(0, 100) }
               : r
           )
         );
@@ -369,14 +372,14 @@ export default function AirdropPage() {
         }));
       }
 
-      // Small delay between batches
-      if (i + batchSize < pendingRecipients.length) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+      // Delay between batches to avoid rate limiting
+      if (batchIndex < totalBatches - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
 
     setAirdropRunning(false);
-    setStatusMessage(airdropPaused ? "Airdrop paused" : "Airdrop complete!");
+    setStatusMessage(`Airdrop complete! ✅`);
   };
 
   const pauseAirdrop = () => {
