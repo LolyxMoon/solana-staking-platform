@@ -1167,16 +1167,18 @@ export default function PoolCard(props: PoolCardProps) {
 
         {/* Pool Ended Message */}
         {poolEndInfo.hasEnded && (
-          <div className="p-3 rounded-lg relative z-10 border bg-red-500/10 border-red-500/30">
-            <div className="flex items-center gap-2 mb-2">
-              <XCircle className="w-4 h-4 text-red-400" />
-              <span className="text-red-400 font-semibold text-sm">Pool Has Ended</span>
+          <div className="p-2 rounded-lg relative z-10 border bg-red-500/10 border-red-500/30">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <XCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 flex-shrink-0 text-red-400" />
+                <span className="text-[9px] sm:text-[10px] md:text-xs text-red-400">Pool Ended</span>
+              </div>
+              <span className="font-bold text-[11px] sm:text-xs md:text-sm text-red-400">
+                Claim & Withdraw
+              </span>
             </div>
-            <p className="text-gray-300 text-xs">
-              This pool is no longer distributing rewards. You can still claim any pending rewards and withdraw your staked tokens.
-            </p>
             {poolEndInfo.endsAt && (
-              <p className="text-gray-500 text-[10px] mt-2">
+              <p className="text-[8px] sm:text-[9px] text-gray-500 mt-1">
                 Ended: {poolEndInfo.endsAt.toLocaleDateString()} at {poolEndInfo.endsAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </p>
             )}
