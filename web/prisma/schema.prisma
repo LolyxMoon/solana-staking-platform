@@ -44,6 +44,11 @@ model Pool {
   referralWallet          String?    @map("referral_wallet")
   referralSplitPercent    Float?     @map("referral_split_percent")
   transferTaxBps          Int        @default(0) @map("transfer_tax_bps")
+  rateMode                Int       @default(0) @map("rate_mode")
+  rateBpsPerYear          Int       @default(0) @map("rate_bps_per_year")
+  lockupSeconds           Int       @default(0) @map("lockup_seconds")
+  poolDurationSeconds     Int       @default(0) @map("pool_duration_seconds")
+
   Activity                Activity[]
   stakes                  Stake[]
   isLPPool                Boolean?   @default(false)
@@ -245,17 +250,66 @@ model WhaleClubUser {
   lastSyncedTweetId   String?   @map("last_synced_tweet_id")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
+  chatSessionToken    String?   @map("chat_session_token")
+  chatSessionExpiry   DateTime? @map("chat_session_expiry")
 
   @@map("whale_club_users")
 }
 
 model WhaleClubMessage {
-  id            String   @id @default(uuid())
-  walletAddress String   @map("wallet_address")
-  nickname      String?
-  message       String
-  createdAt     DateTime @default(now()) @map("created_at")
+  id             String            @id @default(uuid())
+  walletAddress  String            @map("wallet_address")
+  nickname       String?
+  message        String
+  replyToId      String?           @map("reply_to_id")
+  replyToPreview String?           @map("reply_to_preview")
+  createdAt      DateTime          @default(now()) @map("created_at")
 
   @@index([createdAt(sort: Desc)])
   @@map("whale_club_messages")
+}
+
+model VolumeBotConfig {
+  id              String   @id @default(cuid())
+  botId           String   @unique @map("bot_id")
+  tokenMint       String?  @map("token_mint")
+  tokenSymbol     String?  @map("token_symbol")
+  tokenDecimals   Int?     @map("token_decimals")
+  minSolAmount    Float?   @map("min_sol_amount")
+  maxSolAmount    Float?   @map("max_sol_amount")
+  intervalSeconds Int?     @map("interval_seconds")
+  slippageBps     Int?     @map("slippage_bps")
+  buyProbability  Float?   @map("buy_probability")
+  isRunning       Boolean  @default(false) @map("is_running")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("volume_bot_config")
+}
+
+model VolumeBotTrade {
+  id            String   @id @default(cuid())
+  botId         String   @map("bot_id")
+  walletAddress String?  @map("wallet_address")
+  tradeType     String?  @map("trade_type")
+  solAmount     Float?   @map("sol_amount")
+  signature     String?
+  status        String?
+  errorMessage  String?  @map("error_message")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("volume_bot_trades")
+}
+
+model VolumeBotWallet {
+  id                  String   @id @default(cuid())
+  botId               String   @map("bot_id")
+  walletAddress       String   @map("wallet_address")
+  privateKeyEncrypted String?  @map("private_key_encrypted")
+  solBalance          Float?   @map("sol_balance")
+  tokenBalance        Float?   @map("token_balance")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@unique([botId, walletAddress])
+  @@map("volume_bot_wallets")
 }
