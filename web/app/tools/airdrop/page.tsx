@@ -1,31 +1,47 @@
 "use client";
 
-import { useState } from "react";
-import { PublicKey, Connection } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { useState, useCallback } from "react";
+import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import {
-  Camera,
-  Download,
+  PublicKey,
+  Transaction,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
+import {
+  getAssociatedTokenAddress,
+  createAssociatedTokenAccountInstruction,
+  createTransferInstruction,
+  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+  getAccount,
+  getMint,
+} from "@solana/spl-token";
+import {
+  Send,
+  Upload,
   Loader2,
-  Search,
-  Users,
-  Coins,
-  Filter,
-  Copy,
-  CheckCircle2,
   AlertCircle,
-  ArrowUpDown,
+  CheckCircle2,
+  XCircle,
+  Wallet,
+  Coins,
+  Users,
+  FileText,
+  Trash2,
   ExternalLink,
-  ChevronDown,
-  X,
+  Info,
+  Play,
+  Pause,
+  RotateCcw,
 } from "lucide-react";
 
-interface Holder {
+interface Recipient {
   wallet: string;
-  tokenAccount: string;
-  balance: number;
-  percentage: number;
-  rank: number;
+  amount: number;
+  status: "pending" | "sending" | "success" | "failed" | "skipped";
+  txId?: string;
+  error?: string;
 }
 
 interface TokenInfo {
@@ -33,457 +49,680 @@ interface TokenInfo {
   symbol: string;
   name: string;
   decimals: number;
-  totalSupply: number;
+  balance: number;
   logoURI: string | null;
+  isToken2022: boolean;
 }
 
-type SortField = "rank" | "balance" | "percentage";
-type SortOrder = "asc" | "desc";
+export default function AirdropPage() {
+  const { publicKey, signAllTransactions, connected } = useWallet();
+  const { connection } = useConnection();
 
-// Helius API key
-const HELIUS_API_KEY = "2bd046b7-358b-43fe-afe9-1dd227347aee";
-const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-
-export default function SnapshotPage() {
+  // Form state
   const [tokenMint, setTokenMint] = useState("");
   const [tokenInfo, setTokenInfo] = useState<TokenInfo | null>(null);
-  const [holders, setHolders] = useState<Holder[]>([]);
-  const [filteredHolders, setFilteredHolders] = useState<Holder[]>([]);
+  const [recipientInput, setRecipientInput] = useState("");
+  const [amountPerWallet, setAmountPerWallet] = useState("");
+  const [useCustomAmounts, setUseCustomAmounts] = useState(false);
+
+  // Recipients
+  const [recipients, setRecipients] = useState<Recipient[]>([]);
+
+  // Status
   const [loading, setLoading] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("");
+  const [loadingToken, setLoadingToken] = useState(false);
+  const [airdropRunning, setAirdropRunning] = useState(false);
+  const [airdropPaused, setAirdropPaused] = useState(false);
   const [error, setError] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
 
-  // Filters
-  const [minBalance, setMinBalance] = useState("");
-  const [maxBalance, setMaxBalance] = useState("");
-  const [excludeAddresses, setExcludeAddresses] = useState("");
-  const [topHolders, setTopHolders] = useState("");
+  // Settings
+  const [batchSize, setBatchSize] = useState(10); // Recipients per transaction
+  const [skipExisting, setSkipExisting] = useState(false);
 
-  // Sorting
-  const [sortField, setSortField] = useState<SortField>("rank");
-  const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
+  // Stats
+  const [stats, setStats] = useState({
+    total: 0,
+    success: 0,
+    failed: 0,
+    skipped: 0,
+  });
 
-  // UI state
-  const [copied, setCopied] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
+  // Fetch token info
+  const fetchTokenInfo = async () => {
+    if (!tokenMint.trim() || !publicKey) return;
 
-  const fetchTokenInfo = async (mint: string): Promise<TokenInfo | null> => {
+    setLoadingToken(true);
+    setError("");
+    setTokenInfo(null);
+
     try {
-      const connection = new Connection(HELIUS_RPC, "confirmed");
-      const mintPubkey = new PublicKey(mint);
-      const mintInfo = await connection.getParsedAccountInfo(mintPubkey);
+      const mintPubkey = new PublicKey(tokenMint);
 
-      if (!mintInfo.value?.data || typeof mintInfo.value.data !== "object") {
-        return null;
+      // Try Token-2022 first, then regular SPL
+      let mintData;
+      let isToken2022 = false;
+
+      try {
+        mintData = await getMint(connection, mintPubkey, "confirmed", TOKEN_2022_PROGRAM_ID);
+        isToken2022 = true;
+      } catch {
+        mintData = await getMint(connection, mintPubkey, "confirmed", TOKEN_PROGRAM_ID);
       }
 
-      const parsedData = (mintInfo.value.data as any).parsed?.info;
-      if (!parsedData) return null;
+      const decimals = mintData.decimals;
 
-      const decimals = parsedData.decimals;
-      const totalSupply = Number(parsedData.supply) / Math.pow(10, decimals);
+      // Get user's token balance
+      const programId = isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const userAta = await getAssociatedTokenAddress(mintPubkey, publicKey, false, programId);
 
-      let symbol = mint.slice(0, 4) + "..." + mint.slice(-4);
+      let balance = 0;
+      try {
+        const accountInfo = await getAccount(connection, userAta, "confirmed", programId);
+        balance = Number(accountInfo.amount) / Math.pow(10, decimals);
+      } catch {
+        // No token account = 0 balance
+      }
+
+      // Fetch metadata from DexScreener
+      let symbol = tokenMint.slice(0, 4) + "...";
       let name = "Unknown Token";
       let logoURI: string | null = null;
 
       try {
-        const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+        const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`);
         if (res.ok) {
           const data = await res.json();
-          const bestPair = data.pairs?.sort(
-            (a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
-          )[0];
-
-          if (bestPair?.baseToken) {
-            symbol = bestPair.baseToken.symbol || symbol;
-            name = bestPair.baseToken.name || name;
-            logoURI = bestPair.info?.imageUrl || null;
+          const pair = data.pairs?.[0];
+          if (pair?.baseToken) {
+            symbol = pair.baseToken.symbol || symbol;
+            name = pair.baseToken.name || name;
+            logoURI = pair.info?.imageUrl || null;
           }
         }
       } catch {
         // Silent fail
       }
 
-      return { mint, symbol, name, decimals, totalSupply, logoURI };
-    } catch (err) {
-      console.error("Error fetching token info:", err);
-      return null;
-    }
-  };
-
-  // Fetch using Helius DAS API - returns individual token accounts
-  const fetchWithHeliusDAS = async (mint: string, decimals: number): Promise<Holder[] | null> => {
-    const allAccounts: { wallet: string; tokenAccount: string; balance: number }[] = [];
-    let cursor: string | undefined = undefined;
-    let page = 0;
-    const maxPages = 200;
-
-    while (page < maxPages) {
-      page++;
-      setStatusMessage(`[Helius DAS] Fetching page ${page}... (${allAccounts.length} accounts)`);
-
-      const body: any = {
-        jsonrpc: "2.0",
-        id: `holders-${page}`,
-        method: "getTokenAccounts",
-        params: {
-          mint: mint,
-          limit: 1000,
-        },
-      };
-
-      if (cursor) {
-        body.params.cursor = cursor;
-      }
-
-      try {
-        const response = await fetch(HELIUS_RPC, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-
-        const data = await response.json();
-
-        if (data.error) {
-          console.error("Helius DAS error:", data.error);
-          return null;
-        }
-
-        const accounts = data.result?.token_accounts || [];
-
-        if (accounts.length === 0) break;
-
-        for (const account of accounts) {
-          const balance = Number(account.amount) / Math.pow(10, decimals);
-
-          if (balance > 0) {
-            allAccounts.push({
-              wallet: account.owner,
-              tokenAccount: account.address,
-              balance,
-            });
-          }
-        }
-
-        cursor = data.result?.cursor;
-        if (!cursor) break;
-      } catch (err) {
-        console.error("Helius DAS fetch error:", err);
-        return null;
-      }
-    }
-
-    if (allAccounts.length === 0) return null;
-
-    return processHolders(allAccounts);
-  };
-
-  // Fallback to standard RPC - returns individual token accounts
-  const fetchWithStandardRPC = async (mint: string, decimals: number): Promise<Holder[] | null> => {
-    const connection = new Connection(HELIUS_RPC, "confirmed");
-    const mintPubkey = new PublicKey(mint);
-    const allAccounts: { wallet: string; tokenAccount: string; balance: number }[] = [];
-
-    const programs = [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID];
-
-    for (const programId of programs) {
-      setStatusMessage(`[RPC] Scanning ${programId.equals(TOKEN_PROGRAM_ID) ? "SPL Token" : "Token-2022"} accounts...`);
-
-      try {
-        const accounts = await connection.getProgramAccounts(programId, {
-          filters: [
-            { dataSize: 165 },
-            {
-              memcmp: {
-                offset: 0,
-                bytes: mintPubkey.toBase58(),
-              },
-            },
-          ],
-        });
-
-        setStatusMessage(`[RPC] Found ${accounts.length} token accounts, processing...`);
-
-        for (const { pubkey, account } of accounts) {
-          try {
-            const data = account.data;
-            const owner = new PublicKey(data.slice(32, 64)).toBase58();
-            const balance = Number(data.readBigUInt64LE(64)) / Math.pow(10, decimals);
-
-            if (balance > 0) {
-              allAccounts.push({
-                wallet: owner,
-                tokenAccount: pubkey.toBase58(),
-                balance,
-              });
-            }
-          } catch {
-            // Skip malformed accounts
-          }
-        }
-      } catch (err) {
-        console.error(`Error with ${programId.toBase58()}:`, err);
-      }
-    }
-
-    if (allAccounts.length === 0) return null;
-
-    return processHolders(allAccounts);
-  };
-
-  // Process accounts into sorted array with ranks
-  const processHolders = (accounts: { wallet: string; tokenAccount: string; balance: number }[]): Holder[] => {
-    // Sort by balance descending
-    accounts.sort((a, b) => b.balance - a.balance);
-
-    // Calculate total for percentages
-    const totalHeld = accounts.reduce((sum, h) => sum + h.balance, 0);
-
-    // Add rank and percentage
-    return accounts.map((h, index) => ({
-      wallet: h.wallet,
-      tokenAccount: h.tokenAccount,
-      balance: h.balance,
-      percentage: totalHeld > 0 ? (h.balance / totalHeld) * 100 : 0,
-      rank: index + 1,
-    }));
-  };
-
-  const takeSnapshot = async () => {
-    if (!tokenMint.trim()) {
-      setError("Please enter a token mint address");
-      return;
-    }
-
-    try {
-      new PublicKey(tokenMint);
-    } catch {
-      setError("Invalid token mint address");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-    setHolders([]);
-    setFilteredHolders([]);
-    setTokenInfo(null);
-    setStatusMessage("Fetching token info...");
-
-    try {
-      const info = await fetchTokenInfo(tokenMint);
-      if (!info) {
-        throw new Error("Failed to fetch token info. Make sure this is a valid SPL token.");
-      }
-      setTokenInfo(info);
-
-      // Try Helius DAS first
-      let holderList = await fetchWithHeliusDAS(tokenMint, info.decimals);
-
-      // Fallback to standard RPC
-      if (!holderList || holderList.length === 0) {
-        setStatusMessage("Helius DAS returned no results, trying standard RPC...");
-        holderList = await fetchWithStandardRPC(tokenMint, info.decimals);
-      }
-
-      if (!holderList || holderList.length === 0) {
-        throw new Error("No holders found for this token");
-      }
-
-      setStatusMessage(`✅ Found ${holderList.length} token accounts!`);
-      setHolders(holderList);
-      applyFilters(holderList);
+      setTokenInfo({
+        mint: tokenMint,
+        symbol,
+        name,
+        decimals,
+        balance,
+        logoURI,
+        isToken2022,
+      });
     } catch (err: any) {
-      console.error("Snapshot error:", err);
-      setError(err.message || "Failed to take snapshot");
-      setStatusMessage("");
+      console.error("Token fetch error:", err);
+      setError("Invalid token mint address or token not found");
     } finally {
-      setLoading(false);
+      setLoadingToken(false);
     }
   };
 
-  const applyFilters = (holderList: Holder[] = holders) => {
-    let result = [...holderList];
-
-    if (excludeAddresses.trim()) {
-      const excluded = excludeAddresses
-        .split(/[\n,]/)
-        .map((a) => a.trim().toLowerCase())
-        .filter((a) => a.length > 0);
-      result = result.filter((h) => !excluded.includes(h.wallet.toLowerCase()));
+  // Parse recipients from text input
+  const parseRecipients = useCallback(() => {
+    if (!recipientInput.trim()) {
+      setRecipients([]);
+      return;
     }
 
-    if (minBalance.trim()) {
-      const min = parseFloat(minBalance);
-      if (!isNaN(min)) {
-        result = result.filter((h) => h.balance >= min);
+    const lines = recipientInput
+      .split(/[\n,]/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    const parsed: Recipient[] = [];
+    const seen = new Set<string>();
+
+    for (const line of lines) {
+      // Support format: "address" or "address,amount" or "address amount"
+      const parts = line.split(/[,\s\t]+/);
+      const wallet = parts[0];
+
+      // Validate wallet address
+      try {
+        new PublicKey(wallet);
+      } catch {
+        continue; // Skip invalid addresses
+      }
+
+      // Skip duplicates
+      if (seen.has(wallet.toLowerCase())) continue;
+      seen.add(wallet.toLowerCase());
+
+      // Parse custom amount if provided
+      let amount = parseFloat(amountPerWallet) || 0;
+      if (useCustomAmounts && parts[1]) {
+        const customAmount = parseFloat(parts[1]);
+        if (!isNaN(customAmount) && customAmount > 0) {
+          amount = customAmount;
+        }
+      }
+
+      parsed.push({
+        wallet,
+        amount,
+        status: "pending",
+      });
+    }
+
+    setRecipients(parsed);
+    setStats({ total: parsed.length, success: 0, failed: 0, skipped: 0 });
+  }, [recipientInput, amountPerWallet, useCustomAmounts]);
+
+  // Handle file upload
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      setRecipientInput(text);
+    };
+    reader.readAsText(file);
+  };
+
+  // Execute airdrop
+  const executeAirdrop = async () => {
+    if (!publicKey || !signAllTransactions || !tokenInfo || recipients.length === 0) {
+      setError("Please connect wallet, select token, and add recipients");
+      return;
+    }
+
+    const totalAmount = recipients.reduce((sum, r) => sum + r.amount, 0);
+    if (totalAmount > tokenInfo.balance) {
+      setError(`Insufficient balance. Need ${totalAmount.toLocaleString()} ${tokenInfo.symbol}, have ${tokenInfo.balance.toLocaleString()}`);
+      return;
+    }
+
+    setAirdropRunning(true);
+    setAirdropPaused(false);
+    setError("");
+
+    const mintPubkey = new PublicKey(tokenInfo.mint);
+    const programId = tokenInfo.isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+    const senderAta = await getAssociatedTokenAddress(mintPubkey, publicKey, false, programId);
+
+    // Process in batches
+    const pendingRecipients = recipients.filter((r) => r.status === "pending" || r.status === "failed");
+
+    for (let i = 0; i < pendingRecipients.length; i += batchSize) {
+      if (airdropPaused) {
+        setStatusMessage("Airdrop paused");
+        break;
+      }
+
+      const batch = pendingRecipients.slice(i, i + batchSize);
+      setStatusMessage(`Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(pendingRecipients.length / batchSize)}...`);
+
+      // Update status to sending
+      setRecipients((prev) =>
+        prev.map((r) =>
+          batch.find((b) => b.wallet === r.wallet) ? { ...r, status: "sending" as const } : r
+        )
+      );
+
+      try {
+        const transaction = new Transaction();
+        const recipientAtaMap: Map<string, PublicKey> = new Map();
+
+        // Build instructions for each recipient in batch
+        for (const recipient of batch) {
+          const recipientPubkey = new PublicKey(recipient.wallet);
+          const recipientAta = await getAssociatedTokenAddress(
+            mintPubkey,
+            recipientPubkey,
+            true, // Allow owner off curve for PDAs
+            programId
+          );
+
+          recipientAtaMap.set(recipient.wallet, recipientAta);
+
+          // Check if ATA exists
+          let ataExists = false;
+          try {
+            await getAccount(connection, recipientAta, "confirmed", programId);
+            ataExists = true;
+          } catch {
+            // ATA doesn't exist, need to create
+          }
+
+          // Create ATA if needed
+          if (!ataExists) {
+            transaction.add(
+              createAssociatedTokenAccountInstruction(
+                publicKey,
+                recipientAta,
+                recipientPubkey,
+                mintPubkey,
+                programId
+              )
+            );
+          }
+
+          // Add transfer instruction
+          const amountInSmallestUnit = BigInt(
+            Math.floor(recipient.amount * Math.pow(10, tokenInfo.decimals))
+          );
+
+          transaction.add(
+            createTransferInstruction(
+              senderAta,
+              recipientAta,
+              publicKey,
+              amountInSmallestUnit,
+              [],
+              programId
+            )
+          );
+        }
+
+        // Get recent blockhash
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = publicKey;
+
+        // Sign and send
+        const signedTxs = await signAllTransactions([transaction]);
+        const txId = await connection.sendRawTransaction(signedTxs[0].serialize(), {
+          skipPreflight: false,
+          maxRetries: 3,
+        });
+
+        // Confirm transaction
+        await connection.confirmTransaction(
+          { signature: txId, blockhash, lastValidBlockHeight },
+          "confirmed"
+        );
+
+        // Update recipients as success
+        setRecipients((prev) =>
+          prev.map((r) =>
+            batch.find((b) => b.wallet === r.wallet)
+              ? { ...r, status: "success" as const, txId }
+              : r
+          )
+        );
+
+        setStats((prev) => ({
+          ...prev,
+          success: prev.success + batch.length,
+        }));
+      } catch (err: any) {
+        console.error("Batch error:", err);
+
+        // Mark batch as failed
+        setRecipients((prev) =>
+          prev.map((r) =>
+            batch.find((b) => b.wallet === r.wallet)
+              ? { ...r, status: "failed" as const, error: err.message?.slice(0, 50) }
+              : r
+          )
+        );
+
+        setStats((prev) => ({
+          ...prev,
+          failed: prev.failed + batch.length,
+        }));
+      }
+
+      // Small delay between batches
+      if (i + batchSize < pendingRecipients.length) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
     }
 
-    if (maxBalance.trim()) {
-      const max = parseFloat(maxBalance);
-      if (!isNaN(max)) {
-        result = result.filter((h) => h.balance <= max);
-      }
-    }
-
-    if (topHolders.trim()) {
-      const n = parseInt(topHolders);
-      if (!isNaN(n) && n > 0) {
-        result = result.slice(0, n);
-      }
-    }
-
-    result.sort((a, b) => {
-      let comparison = 0;
-      if (sortField === "rank") comparison = a.rank - b.rank;
-      else if (sortField === "balance") comparison = b.balance - a.balance;
-      else if (sortField === "percentage") comparison = b.percentage - a.percentage;
-
-      return sortOrder === "asc" ? comparison : -comparison;
-    });
-
-    setFilteredHolders(result);
+    setAirdropRunning(false);
+    setStatusMessage(airdropPaused ? "Airdrop paused" : "Airdrop complete!");
   };
 
-  const handleSort = (field: SortField) => {
-    const newOrder = sortField === field && sortOrder === "asc" ? "desc" : "asc";
-    setSortField(field);
-    setSortOrder(field === "rank" ? (newOrder === "asc" ? "asc" : "desc") : newOrder);
-    setTimeout(() => applyFilters(), 0);
+  const pauseAirdrop = () => {
+    setAirdropPaused(true);
   };
 
-  const exportCSV = () => {
-    if (filteredHolders.length === 0) return;
-
-    const headers = ["Rank", "Wallet", "Token Account", "Balance", "Percentage"];
-    const rows = filteredHolders.map((h) => [
-      h.rank,
-      h.wallet,
-      h.tokenAccount,
-      h.balance.toFixed(tokenInfo?.decimals || 6),
-      h.percentage.toFixed(4) + "%",
-    ]);
-
-    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${tokenInfo?.symbol || "token"}_holders_${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const resetAirdrop = () => {
+    setRecipients((prev) => prev.map((r) => ({ ...r, status: "pending" as const, txId: undefined, error: undefined })));
+    setStats({ total: recipients.length, success: 0, failed: 0, skipped: 0 });
+    setStatusMessage("");
   };
-
-  const exportForAirdrop = () => {
-    if (filteredHolders.length === 0) return;
-
-    // For airdrop, get unique wallets only
-    const uniqueWallets = [...new Set(filteredHolders.map((h) => h.wallet))];
-    const addresses = uniqueWallets.join("\n");
-    const blob = new Blob([addresses], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${tokenInfo?.symbol || "token"}_airdrop_list.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const copyAllAddresses = () => {
-    if (filteredHolders.length === 0) return;
-
-    // Copy unique wallets only
-    const uniqueWallets = [...new Set(filteredHolders.map((h) => h.wallet))];
-    navigator.clipboard.writeText(uniqueWallets.join("\n"));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const formatBalance = (balance: number): string => {
-    if (balance >= 1_000_000_000) return (balance / 1_000_000_000).toFixed(2) + "B";
-    if (balance >= 1_000_000) return (balance / 1_000_000).toFixed(2) + "M";
-    if (balance >= 1_000) return (balance / 1_000).toFixed(2) + "K";
-    return balance.toLocaleString(undefined, { maximumFractionDigits: 4 });
-  };
-
-  const getStats = () => {
-    if (holders.length === 0) return null;
-
-    const uniqueWallets = new Set(holders.map((h) => h.wallet)).size;
-    const top1 = holders[0]?.percentage || 0;
-    const top10 = holders.slice(0, 10).reduce((sum, h) => sum + h.percentage, 0);
-    const top50 = holders.slice(0, 50).reduce((sum, h) => sum + h.percentage, 0);
-
-    return { uniqueWallets, top1, top10, top50 };
-  };
-
-  const stats = getStats();
 
   const clearAll = () => {
-    setTokenMint("");
-    setTokenInfo(null);
-    setHolders([]);
-    setFilteredHolders([]);
+    setRecipients([]);
+    setRecipientInput("");
+    setStats({ total: 0, success: 0, failed: 0, skipped: 0 });
     setStatusMessage("");
     setError("");
-    setMinBalance("");
-    setMaxBalance("");
-    setExcludeAddresses("");
-    setTopHolders("");
   };
 
+  const totalAmount = recipients.reduce((sum, r) => sum + (r.amount || 0), 0);
+
   return (
-    <div className="max-w-4xl mx-auto pt-6 px-4">
+    <div className="max-w-4xl mx-auto pt-6 px-4 pb-20">
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#fb57ff] to-purple-600 flex items-center justify-center">
-            <Camera className="w-5 h-5 text-white" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
+            <Send className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-white">Holder Snapshot</h1>
-            <p className="text-gray-400 text-sm">
-              Get a complete snapshot of all token accounts. Powered by Helius.
-            </p>
+            <h1 className="text-2xl font-bold text-white">Airdrop Tool</h1>
+            <p className="text-gray-400 text-sm">Send tokens to multiple wallets in batches</p>
           </div>
         </div>
       </div>
 
-      {/* Token Mint Input */}
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-400 mb-2">Token Mint Address</label>
+      {/* Wallet Connection Check */}
+      {!connected && (
+        <div className="mb-6 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30">
+          <div className="flex items-center gap-2 text-yellow-400">
+            <Wallet className="w-5 h-5" />
+            <span>Please connect your wallet to use the airdrop tool</span>
+          </div>
+        </div>
+      )}
+
+      {/* Step 1: Select Token */}
+      <div className="mb-6 p-5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center text-xs font-bold">1</div>
+          <h2 className="text-lg font-semibold text-white">Select Token</h2>
+        </div>
+
         <div className="flex gap-3">
           <input
             type="text"
             value={tokenMint}
             onChange={(e) => setTokenMint(e.target.value)}
-            placeholder="Enter SPL token mint address..."
-            className="flex-1 p-4 rounded-xl bg-white/[0.02] border border-white/[0.05] focus:border-[#fb57ff]/50 outline-none text-white placeholder-gray-500"
+            placeholder="Enter token mint address..."
+            className="flex-1 p-3 rounded-xl bg-white/[0.02] border border-white/[0.05] focus:border-green-500/50 outline-none text-white placeholder-gray-500 font-mono text-sm"
           />
           <button
-            onClick={takeSnapshot}
-            disabled={loading}
-            className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white transition-all disabled:opacity-50"
-            style={{ background: "linear-gradient(45deg, #fb57ff, #9333ea)" }}
+            onClick={fetchTokenInfo}
+            disabled={loadingToken || !tokenMint.trim() || !connected}
+            className="px-5 py-3 rounded-xl bg-green-500 hover:bg-green-600 disabled:bg-gray-700 disabled:opacity-50 font-semibold text-white transition-colors"
           >
-            {loading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Scanning...
-              </>
-            ) : (
-              <>
-                <Search className="w-5 h-5" />
-                Snapshot
-              </>
-            )}
+            {loadingToken ? <Loader2 className="w-5 h-5 animate-spin" /> : "Load"}
           </button>
         </div>
+
+        {/* Token Info Display */}
+        {tokenInfo && (
+          <div className="mt-4 p-4 rounded-xl bg-green-500/10 border border-green-500/30">
+            <div className="flex items-center gap-4">
+              {tokenInfo.logoURI ? (
+                <img src={tokenInfo.logoURI} alt={tokenInfo.symbol} className="w-12 h-12 rounded-full" />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center">
+                  <Coins className="w-6 h-6 text-gray-400" />
+                </div>
+              )}
+              <div className="flex-1">
+                <p className="font-bold text-white text-lg">{tokenInfo.symbol}</p>
+                <p className="text-sm text-gray-400">{tokenInfo.name}</p>
+                {tokenInfo.isToken2022 && (
+                  <span className="text-xs bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded mt-1 inline-block">
+                    Token-2022
+                  </span>
+                )}
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-gray-400">Your Balance</p>
+                <p className="font-bold text-white text-xl">{tokenInfo.balance.toLocaleString()}</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Error Message */}
+      {/* Step 2: Add Recipients */}
+      <div className="mb-6 p-5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center text-xs font-bold">2</div>
+          <h2 className="text-lg font-semibold text-white">Add Recipients</h2>
+        </div>
+
+        {/* Amount Input */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm text-gray-400">Amount per wallet</label>
+            <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useCustomAmounts}
+                onChange={(e) => setUseCustomAmounts(e.target.checked)}
+                className="rounded border-gray-600"
+              />
+              Use custom amounts from list
+            </label>
+          </div>
+          {!useCustomAmounts && (
+            <input
+              type="number"
+              value={amountPerWallet}
+              onChange={(e) => setAmountPerWallet(e.target.value)}
+              placeholder="e.g., 100"
+              className="w-full p-3 rounded-xl bg-white/[0.02] border border-white/[0.05] focus:border-green-500/50 outline-none text-white placeholder-gray-500"
+            />
+          )}
+          {useCustomAmounts && (
+            <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/30 text-sm text-blue-400">
+              <Info className="w-4 h-4 inline mr-2" />
+              Format: one per line as "wallet,amount" or "wallet amount"
+            </div>
+          )}
+        </div>
+
+        {/* Recipients Input */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm text-gray-400">Wallet addresses</label>
+            <label className="flex items-center gap-2 text-sm text-green-400 cursor-pointer hover:text-green-300">
+              <Upload className="w-4 h-4" />
+              <span>Upload CSV/TXT</span>
+              <input
+                type="file"
+                accept=".csv,.txt"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+            </label>
+          </div>
+          <textarea
+            value={recipientInput}
+            onChange={(e) => setRecipientInput(e.target.value)}
+            placeholder="Paste wallet addresses here (one per line or comma-separated)..."
+            rows={6}
+            className="w-full p-3 rounded-xl bg-white/[0.02] border border-white/[0.05] focus:border-green-500/50 outline-none text-white placeholder-gray-500 font-mono text-sm resize-none"
+          />
+        </div>
+
+        {/* Parse Button */}
+        <button
+          onClick={parseRecipients}
+          disabled={!recipientInput.trim()}
+          className="w-full px-4 py-3 rounded-xl bg-white/[0.05] border border-white/[0.1] hover:bg-white/[0.1] disabled:opacity-50 font-semibold text-white transition-colors"
+        >
+          <Users className="w-4 h-4 inline mr-2" />
+          Parse Recipients ({recipientInput.split(/[\n,]/).filter((l) => l.trim()).length} lines)
+        </button>
+      </div>
+
+      {/* Step 3: Review & Send */}
+      {recipients.length > 0 && (
+        <div className="mb-6 p-5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center text-xs font-bold">3</div>
+            <h2 className="text-lg font-semibold text-white">Review & Send</h2>
+          </div>
+
+          {/* Summary Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+              <p className="text-xs text-gray-400 mb-1">Recipients</p>
+              <p className="text-xl font-bold text-white">{recipients.length}</p>
+            </div>
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+              <p className="text-xs text-gray-400 mb-1">Total Amount</p>
+              <p className="text-xl font-bold text-white">{totalAmount.toLocaleString()}</p>
+            </div>
+            <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/30">
+              <p className="text-xs text-green-400 mb-1">Success</p>
+              <p className="text-xl font-bold text-green-400">{stats.success}</p>
+            </div>
+            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30">
+              <p className="text-xs text-red-400 mb-1">Failed</p>
+              <p className="text-xl font-bold text-red-400">{stats.failed}</p>
+            </div>
+          </div>
+
+          {/* Settings */}
+          <div className="flex items-center gap-4 mb-4 p-3 rounded-xl bg-white/[0.02]">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-400">Batch size:</label>
+              <select
+                value={batchSize}
+                onChange={(e) => setBatchSize(Number(e.target.value))}
+                className="p-2 rounded-lg bg-white/[0.05] border border-white/[0.1] text-white text-sm"
+                >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={15}>15</option>
+                <option value={18}>18 (max safe)</option>
+                <option value={20}>20 (risky)</option>
+                </select>
+            </div>
+            <span className="text-xs text-gray-500">
+              (recipients per transaction)
+            </span>
+          </div>
+
+          {/* Balance Check Warning */}
+          {tokenInfo && totalAmount > tokenInfo.balance && (
+            <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30">
+              <div className="flex items-center gap-2 text-red-400">
+                <AlertCircle className="w-5 h-5" />
+                <span>
+                  Insufficient balance! Need {totalAmount.toLocaleString()} {tokenInfo.symbol}, have{" "}
+                  {tokenInfo.balance.toLocaleString()}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Status Message */}
+          {statusMessage && (
+            <div className="mb-4 p-3 rounded-xl bg-green-500/10 border border-green-500/30">
+              <div className="flex items-center gap-2 text-green-400">
+                {airdropRunning && <Loader2 className="w-4 h-4 animate-spin" />}
+                {statusMessage}
+              </div>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex gap-3">
+            {!airdropRunning ? (
+              <button
+                onClick={executeAirdrop}
+                disabled={!tokenInfo || totalAmount > (tokenInfo?.balance || 0) || recipients.length === 0}
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-white transition-all disabled:opacity-50"
+                style={{ background: "linear-gradient(45deg, #22c55e, #10b981)" }}
+              >
+                <Play className="w-5 h-5" />
+                Start Airdrop
+              </button>
+            ) : (
+              <button
+                onClick={pauseAirdrop}
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-yellow-500 hover:bg-yellow-600 font-semibold text-white transition-colors"
+              >
+                <Pause className="w-5 h-5" />
+                Pause
+              </button>
+            )}
+            <button
+              onClick={resetAirdrop}
+              disabled={airdropRunning}
+              className="px-4 py-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] disabled:opacity-50 text-white transition-colors"
+              title="Reset all to pending"
+            >
+              <RotateCcw className="w-5 h-5" />
+            </button>
+            <button
+              onClick={clearAll}
+              disabled={airdropRunning}
+              className="px-4 py-3 rounded-xl bg-white/[0.05] hover:bg-red-500/20 disabled:opacity-50 text-white transition-colors"
+              title="Clear all"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Recipients List */}
+      {recipients.length > 0 && (
+        <div className="mb-6 p-5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-white">Recipients</h3>
+            <span className="text-sm text-gray-400">
+              Showing {Math.min(recipients.length, 50)} of {recipients.length}
+            </span>
+          </div>
+
+          <div className="max-h-80 overflow-y-auto space-y-2">
+            {recipients.slice(0, 50).map((recipient, idx) => (
+              <div
+                key={recipient.wallet}
+                className={`flex items-center gap-3 p-3 rounded-lg border ${
+                  recipient.status === "success"
+                    ? "bg-green-500/10 border-green-500/30"
+                    : recipient.status === "failed"
+                    ? "bg-red-500/10 border-red-500/30"
+                    : recipient.status === "sending"
+                    ? "bg-yellow-500/10 border-yellow-500/30"
+                    : "bg-white/[0.02] border-white/[0.05]"
+                }`}
+              >
+                <span className="text-sm text-gray-500 w-8">#{idx + 1}</span>
+                <span className="flex-1 font-mono text-sm text-white truncate">
+                  {recipient.wallet.slice(0, 8)}...{recipient.wallet.slice(-8)}
+                </span>
+                <span className="text-sm text-gray-400">
+                  {recipient.amount.toLocaleString()} {tokenInfo?.symbol || "tokens"}
+                </span>
+                <div className="w-6">
+                  {recipient.status === "pending" && <div className="w-2 h-2 rounded-full bg-gray-500" />}
+                  {recipient.status === "sending" && <Loader2 className="w-4 h-4 text-yellow-400 animate-spin" />}
+                  {recipient.status === "success" && <CheckCircle2 className="w-4 h-4 text-green-400" />}
+                  {recipient.status === "failed" && <XCircle className="w-4 h-4 text-red-400" />}
+                </div>
+                {recipient.txId && (
+                  <a
+                    href={`https://solscan.io/tx/${recipient.txId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-green-400 hover:text-green-300"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {recipients.length > 50 && (
+            <div className="mt-3 text-center text-sm text-gray-500">
+              +{recipients.length - 50} more recipients
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Error Display */}
       {error && (
         <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30">
           <div className="flex items-center gap-2 text-red-400">
@@ -493,329 +732,21 @@ export default function SnapshotPage() {
         </div>
       )}
 
-      {/* Status Message */}
-      {statusMessage && (
-        <div className="mb-6 p-4 rounded-xl bg-white/[0.02] border border-[#fb57ff]/30">
-          <div className="flex items-center gap-2 text-sm" style={{ color: "#fb57ff" }}>
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {statusMessage}
+      {/* Info Box */}
+      <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+        <div className="flex items-start gap-3">
+          <Info className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-gray-400">
+            <p className="font-semibold text-gray-300 mb-1">How it works</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>Tokens are sent in batches to minimize transaction fees</li>
+              <li>Token accounts are created automatically for recipients who don't have one</li>
+              <li>You can pause and resume the airdrop at any time</li>
+              <li>Failed transfers can be retried by clicking "Start Airdrop" again</li>
+            </ul>
           </div>
         </div>
-      )}
-
-      {/* Token Info Card */}
-      {tokenInfo && (
-        <div className="mb-6 p-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-          <div className="flex items-center gap-4">
-            {tokenInfo.logoURI ? (
-              <img
-                src={tokenInfo.logoURI}
-                alt={tokenInfo.symbol}
-                className="w-12 h-12 rounded-full"
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center">
-                <span className="text-sm font-bold text-gray-400">
-                  {tokenInfo.symbol.slice(0, 2)}
-                </span>
-              </div>
-            )}
-            <div className="flex-1">
-              <p className="font-bold text-white text-lg">{tokenInfo.symbol}</p>
-              <p className="text-sm text-gray-500">{tokenInfo.name}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm text-gray-400">Total Supply</p>
-              <p className="font-semibold text-white">{formatBalance(tokenInfo.totalSupply)}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Stats Cards */}
-      {holders.length > 0 && stats && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-            <div className="flex items-center gap-2 text-gray-400 mb-1">
-              <Users className="w-4 h-4" />
-              <span className="text-sm">Accounts</span>
-            </div>
-            <p className="text-2xl font-bold text-white">{holders.length.toLocaleString()}</p>
-          </div>
-          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-            <div className="flex items-center gap-2 text-gray-400 mb-1">
-              <Users className="w-4 h-4 text-green-400" />
-              <span className="text-sm">Unique Wallets</span>
-            </div>
-            <p className="text-2xl font-bold text-green-400">{stats.uniqueWallets.toLocaleString()}</p>
-          </div>
-          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-            <div className="flex items-center gap-2 text-gray-400 mb-1">
-              <Coins className="w-4 h-4 text-yellow-400" />
-              <span className="text-sm">Top 1</span>
-            </div>
-            <p className="text-2xl font-bold text-yellow-400">{stats.top1.toFixed(2)}%</p>
-          </div>
-          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-            <div className="flex items-center gap-2 text-gray-400 mb-1">
-              <Users className="w-4 h-4 text-blue-400" />
-              <span className="text-sm">Top 10</span>
-            </div>
-            <p className="text-2xl font-bold text-blue-400">{stats.top10.toFixed(2)}%</p>
-          </div>
-          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-            <div className="flex items-center gap-2 text-gray-400 mb-1">
-              <Users className="w-4 h-4 text-purple-400" />
-              <span className="text-sm">Top 50</span>
-            </div>
-            <p className="text-2xl font-bold text-purple-400">{stats.top50.toFixed(2)}%</p>
-          </div>
-        </div>
-      )}
-
-      {/* Filters Section */}
-      {holders.length > 0 && (
-        <div className="mb-6">
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="w-full flex items-center justify-between p-4 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 transition-all"
-          >
-            <div className="flex items-center gap-2">
-              <Filter className="w-5 h-5 text-[#fb57ff]" />
-              <span className="font-medium text-white">Filters & Export</span>
-            </div>
-            <ChevronDown
-              className={`w-5 h-5 text-gray-400 transition-transform ${
-                showFilters ? "rotate-180" : ""
-              }`}
-            />
-          </button>
-
-          {showFilters && (
-            <div className="mt-3 p-4 rounded-xl bg-white/[0.02] border border-white/[0.05] space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-2">Min Balance</label>
-                  <input
-                    type="number"
-                    value={minBalance}
-                    onChange={(e) => setMinBalance(e.target.value)}
-                    placeholder="0"
-                    className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] focus:border-[#fb57ff]/50 outline-none text-white placeholder-gray-500 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-2">Max Balance</label>
-                  <input
-                    type="number"
-                    value={maxBalance}
-                    onChange={(e) => setMaxBalance(e.target.value)}
-                    placeholder="∞"
-                    className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] focus:border-[#fb57ff]/50 outline-none text-white placeholder-gray-500 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-2">Top N Accounts</label>
-                  <input
-                    type="number"
-                    value={topHolders}
-                    onChange={(e) => setTopHolders(e.target.value)}
-                    placeholder="All"
-                    className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] focus:border-[#fb57ff]/50 outline-none text-white placeholder-gray-500 text-sm"
-                  />
-                </div>
-                <div className="flex items-end">
-                  <button
-                    onClick={() => applyFilters()}
-                    className="w-full px-4 py-3 rounded-lg bg-[#fb57ff]/10 border border-[#fb57ff]/50 text-[#fb57ff] font-medium text-sm hover:bg-[#fb57ff]/20 transition-colors"
-                  >
-                    Apply Filters
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">
-                  Exclude Wallets (comma or newline separated)
-                </label>
-                <textarea
-                  value={excludeAddresses}
-                  onChange={(e) => setExcludeAddresses(e.target.value)}
-                  placeholder="Paste wallet addresses to exclude (LP pools, burn wallets, etc.)"
-                  rows={2}
-                  className="w-full p-3 rounded-lg bg-white/[0.02] border border-white/[0.05] focus:border-[#fb57ff]/50 outline-none text-white placeholder-gray-500 text-sm resize-none font-mono"
-                />
-              </div>
-
-              {/* Export Buttons */}
-              <div className="flex flex-wrap gap-3 pt-2">
-                <button
-                  onClick={exportCSV}
-                  disabled={filteredHolders.length === 0}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-500/10 border border-green-500/50 text-green-400 font-medium text-sm hover:bg-green-500/20 transition-colors disabled:opacity-50"
-                >
-                  <Download className="w-4 h-4" />
-                  Export CSV
-                </button>
-                <button
-                  onClick={exportForAirdrop}
-                  disabled={filteredHolders.length === 0}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500/10 border border-blue-500/50 text-blue-400 font-medium text-sm hover:bg-blue-500/20 transition-colors disabled:opacity-50"
-                >
-                  <Download className="w-4 h-4" />
-                  Export for Airdrop (Unique)
-                </button>
-                <button
-                  onClick={copyAllAddresses}
-                  disabled={filteredHolders.length === 0}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#fb57ff]/10 border border-[#fb57ff]/50 text-[#fb57ff] font-medium text-sm hover:bg-[#fb57ff]/20 transition-colors disabled:opacity-50"
-                >
-                  {copied ? (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      Copied!
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-4 h-4" />
-                      Copy Unique Wallets
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={clearAll}
-                  className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] text-gray-400 font-medium text-sm hover:border-red-500/30 hover:text-red-400 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                  Clear All
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Holders Table */}
-      {filteredHolders.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium text-gray-400">Token Accounts</h3>
-            <span className="text-xs text-gray-500">
-              Showing {Math.min(filteredHolders.length, 100)} of {filteredHolders.length.toLocaleString()}
-            </span>
-          </div>
-          <div className="rounded-xl bg-white/[0.02] border border-white/[0.05] overflow-hidden">
-            {/* Table Header */}
-            <div className="grid grid-cols-12 gap-2 px-4 py-3 bg-white/[0.02] border-b border-white/[0.05] text-sm font-medium text-gray-400">
-              <div
-                className="col-span-1 flex items-center gap-1 cursor-pointer hover:text-white transition-colors"
-                onClick={() => handleSort("rank")}
-              >
-                # <ArrowUpDown className="w-3 h-3" />
-              </div>
-              <div className="col-span-4">Wallet</div>
-              <div className="col-span-3">Token Account</div>
-              <div
-                className="col-span-2 text-right flex items-center justify-end gap-1 cursor-pointer hover:text-white transition-colors"
-                onClick={() => handleSort("balance")}
-              >
-                Balance <ArrowUpDown className="w-3 h-3" />
-              </div>
-              <div
-                className="col-span-2 text-right flex items-center justify-end gap-1 cursor-pointer hover:text-white transition-colors"
-                onClick={() => handleSort("percentage")}
-              >
-                % <ArrowUpDown className="w-3 h-3" />
-              </div>
-            </div>
-
-            {/* Table Body */}
-            <div className="max-h-96 overflow-y-auto">
-              {filteredHolders.slice(0, 100).map((holder, idx) => (
-                <div
-                  key={holder.tokenAccount}
-                  className="grid grid-cols-12 gap-2 px-4 py-3 border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors"
-                >
-                  <div className="col-span-1">
-                    <span
-                      className={`font-mono text-sm ${
-                        holder.rank <= 3
-                          ? "text-yellow-400 font-bold"
-                          : holder.rank <= 10
-                          ? "text-blue-400"
-                          : "text-gray-400"
-                      }`}
-                    >
-                      {holder.rank}
-                    </span>
-                  </div>
-                  <div className="col-span-4 flex items-center gap-2">
-                    <span className="font-mono text-sm text-gray-300">
-                      {holder.wallet.slice(0, 4)}...{holder.wallet.slice(-4)}
-                    </span>
-                    <a
-                      href={`https://solscan.io/account/${holder.wallet}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-gray-500 hover:text-[#fb57ff] transition-colors"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                  <div className="col-span-3 flex items-center gap-2">
-                    <span className="font-mono text-sm text-gray-500">
-                      {holder.tokenAccount.slice(0, 4)}...{holder.tokenAccount.slice(-4)}
-                    </span>
-                    <a
-                      href={`https://solscan.io/account/${holder.tokenAccount}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-gray-500 hover:text-[#fb57ff] transition-colors"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                  <div className="col-span-2 text-right">
-                    <span className="font-mono text-sm text-white">
-                      {formatBalance(holder.balance)}
-                    </span>
-                  </div>
-                  <div className="col-span-2 text-right">
-                    <span
-                      className={`text-sm ${
-                        holder.percentage >= 10
-                          ? "text-red-400"
-                          : holder.percentage >= 5
-                          ? "text-yellow-400"
-                          : "text-gray-300"
-                      }`}
-                    >
-                      {holder.percentage.toFixed(2)}%
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {filteredHolders.length > 100 && (
-              <div className="px-4 py-3 text-center text-sm text-gray-500 border-t border-white/[0.05]">
-                +{(filteredHolders.length - 100).toLocaleString()} more accounts (export CSV for full list)
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Empty State */}
-      {!loading && holders.length === 0 && !error && (
-        <div className="text-center py-20">
-          <div className="w-20 h-20 rounded-full bg-white/[0.02] flex items-center justify-center mx-auto mb-4">
-            <Camera className="w-10 h-10 text-gray-600" />
-          </div>
-          <h2 className="text-xl font-bold text-white mb-2">Take a Holder Snapshot</h2>
-          <p className="text-gray-400">Enter a token mint address to get a complete list of token accounts</p>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
