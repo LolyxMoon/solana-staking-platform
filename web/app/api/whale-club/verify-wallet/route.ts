@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Transaction, PublicKey, Connection } from '@solana/web3.js';
-import { getAssociatedTokenAddress } from '@solana/spl-token';
+import { Transaction, PublicKey } from '@solana/web3.js';
 
 export const dynamic = 'force-dynamic';
 
-const SPT_MINT = new PublicKey('6uUU2z5GBasaxnkcqiQVHa2SXL68mAXDsq1zYN5Qxrm7');
-const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
-const MIN_HOLDING = 10_000_000;
-const SPT_DECIMALS = 9;
+// Admin wallets - bypass all checks
+const ADMIN_WALLETS = [
+  'YOUR_ADMIN_WALLET_HERE', // Replace with your wallet address
+];
 
 function getSupabase() {
   const { createClient } = require('@supabase/supabase-js');
@@ -15,42 +14,6 @@ function getSupabase() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_KEY!
   );
-}
-
-async function getWalletBalance(connection: Connection, wallet: string): Promise<number> {
-  try {
-    const walletPubkey = new PublicKey(wallet);
-    const ata = await getAssociatedTokenAddress(SPT_MINT, walletPubkey, false, TOKEN_2022_PROGRAM_ID);
-    const accountInfo = await connection.getAccountInfo(ata);
-    
-    if (accountInfo) {
-      const data = accountInfo.data;
-      const amountBytes = data.slice(64, 72);
-      const amount = Number(new DataView(amountBytes.buffer, amountBytes.byteOffset, 8).getBigUint64(0, true));
-      return amount / Math.pow(10, SPT_DECIMALS);
-    }
-    return 0;
-  } catch {
-    return 0;
-  }
-}
-
-async function getStakedBalance(wallet: string): Promise<number> {
-  try {
-    const supabase = getSupabase();
-    const { data } = await supabase
-      .from('user_stake')
-      .select('staked_amount')
-      .eq('user_wallet', wallet)
-      .eq('token_mint', SPT_MINT.toString());
-    
-    if (data && data.length > 0) {
-      return data.reduce((sum: number, s: any) => sum + Number(s.staked_amount) / 1e9, 0);
-    }
-    return 0;
-  } catch {
-    return 0;
-  }
 }
 
 export async function POST(request: NextRequest) {
@@ -84,18 +47,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Signer mismatch' }, { status: 401 });
     }
 
-    // Verify user holds 10M+ SPT
-    const connection = new Connection(process.env.NEXT_PUBLIC_RPC_URL || 'https://api.mainnet-beta.solana.com');
-    const walletBalance = await getWalletBalance(connection, wallet);
-    const stakedBalance = await getStakedBalance(wallet);
-    const totalBalance = walletBalance + stakedBalance;
-
-    if (totalBalance < MIN_HOLDING) {
-      return NextResponse.json({ 
-        error: `Insufficient SPT. You have ${Math.floor(totalBalance).toLocaleString()}, need ${MIN_HOLDING.toLocaleString()}` 
-      }, { status: 403 });
-    }
-
     // Generate session token (valid for 24 hours)
     const sessionToken = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex');
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -106,7 +57,7 @@ export async function POST(request: NextRequest) {
     const { error } = await supabase
       .from('whale_club_users')
       .upsert({ 
-        id: crypto.randomUUID(),  // ADD THIS
+        id: crypto.randomUUID(),
         wallet_address: wallet,
         chat_session_token: sessionToken,
         chat_session_expiry: expiresAt.toISOString(),
