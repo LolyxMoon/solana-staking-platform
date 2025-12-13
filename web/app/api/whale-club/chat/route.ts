@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase
       .from('whale_club_messages')
       .insert({
+        id: crypto.randomUUID(),
         wallet_address: wallet,
         nickname: nickname,
         message: cleanMessage,
