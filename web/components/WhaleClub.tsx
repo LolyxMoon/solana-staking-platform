@@ -4,12 +4,17 @@ import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
-import { Trophy, Twitter, Wallet, Star, MessageCircle, Send, Edit2, Check, X, Lock, Reply, CornerDownRight } from 'lucide-react';
+import { Trophy, Twitter, Wallet, Star, MessageCircle, Send, Edit2, Check, X, Lock, Reply, CornerDownRight, Shield } from 'lucide-react';
 
 const SPT_MINT = new PublicKey('6uUU2z5GBasaxnkcqiQVHa2SXL68mAXDsq1zYN5Qxrm7');
 const MIN_HOLDING = 10_000_000;
 const SPT_DECIMALS = 9;
 const REWARD_WALLET = new PublicKey('JutoRW8bYVaPpZQXUYouEUaMN24u6PxzLryCLuJZsL9');
+
+// Admin wallets - bypass holding requirement
+const ADMIN_WALLETS = [
+  'ecfvkqWdJiYJRyUtWvuYpPWP5faf9GBcA1K6TaDW7wS',
+];
 
 interface UserData {
   wallet: string;
@@ -51,6 +56,7 @@ const WhaleClub: React.FC = () => {
   const [stakedBalance, setStakedBalance] = useState<number>(0);
   const [totalBalance, setTotalBalance] = useState<number>(0);
   const [isQualified, setIsQualified] = useState<boolean>(false);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -85,6 +91,11 @@ const WhaleClub: React.FC = () => {
   // Chat Auth
   const [chatSession, setChatSession] = useState<{ token: string; expiresAt: string } | null>(null);
   const [authenticating, setAuthenticating] = useState(false);
+
+  // Check if wallet is admin
+  const checkIsAdmin = useCallback((wallet: string): boolean => {
+    return ADMIN_WALLETS.includes(wallet);
+  }, []);
 
   // Check wallet token balance
   const checkWalletBalance = useCallback(async () => {
@@ -129,6 +140,10 @@ const WhaleClub: React.FC = () => {
       return;
     }
     
+    // Check admin status first
+    const adminStatus = checkIsAdmin(publicKey.toString());
+    setIsAdmin(adminStatus);
+    
     const [wallet, staked] = await Promise.all([
       checkWalletBalance(),
       checkStakedBalance()
@@ -138,9 +153,10 @@ const WhaleClub: React.FC = () => {
     setWalletBalance(wallet);
     setStakedBalance(staked);
     setTotalBalance(total);
-    setIsQualified(total >= MIN_HOLDING);
+    // Admin bypass: qualify if admin OR meets holding requirement
+    setIsQualified(adminStatus || total >= MIN_HOLDING);
     setIsLoading(false);
-  }, [publicKey, connection, checkWalletBalance, checkStakedBalance]);
+  }, [publicKey, connection, checkWalletBalance, checkStakedBalance, checkIsAdmin]);
 
   const fetchRewardPoolBalance = useCallback(async () => {
     if (!connection) return;
@@ -415,6 +431,14 @@ const WhaleClub: React.FC = () => {
           <p className="text-gray-500 text-sm">Hold 10M+ SPT (wallet or staked) to unlock exclusive rewards</p>
         </div>
 
+        {/* Admin Badge - Show when admin is connected */}
+        {isAdmin && (
+          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3 flex items-center justify-center gap-2">
+            <Shield className="w-4 h-4 text-yellow-500" />
+            <span className="text-yellow-500 text-sm font-semibold">Admin Access Active</span>
+          </div>
+        )}
+
         {/* Reward Pool */}
         <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-4 flex items-center justify-between">
           <div>
@@ -441,7 +465,7 @@ const WhaleClub: React.FC = () => {
           </div>
         )}
 
-        {/* Not Qualified */}
+        {/* Not Qualified (and not admin) */}
         {connected && !isQualified && (
           <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-6 text-center space-y-4">
             <div className="w-12 h-12 mx-auto rounded-full bg-red-500/20 flex items-center justify-center">
@@ -477,7 +501,7 @@ const WhaleClub: React.FC = () => {
           </div>
         )}
 
-        {/* Qualified */}
+        {/* Qualified (or admin) */}
         {connected && isQualified && (
           <>
             {/* Tabs */}
@@ -592,7 +616,17 @@ const WhaleClub: React.FC = () => {
                       <span className="text-gray-400">{formatNumber(stakedBalance)}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e' }}><span>✓</span><span>Whale Status Active</span></div>
+                  {isAdmin ? (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#eab308' }}>
+                      <Shield className="w-3 h-3" />
+                      <span>Admin Access</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e' }}>
+                      <span>✓</span>
+                      <span>Whale Status Active</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Scoring */}
