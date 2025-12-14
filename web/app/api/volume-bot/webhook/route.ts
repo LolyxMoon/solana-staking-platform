@@ -19,7 +19,7 @@ const CRON_SECRET = process.env.VOLUME_BOT_CRON_SECRET || 'your-secret-key';
 const MASTER_KEY = process.env.VOLUME_BOT_MASTER_KEY;
 
 const TOTAL_WALLETS = 20;
-const CYCLE_DURATION_MINUTES = 15;
+const BUYS_PER_WALLET = 10;
 
 function getSupabase() {
   const { createClient } = require('@supabase/supabase-js');
@@ -83,17 +83,19 @@ export async function POST(request: NextRequest) {
       case '/start':
       case '/help': {
         await sendMessage(chatId, `
-🤖 <b>Volume Bot v2 - Sequential Cycling</b>
+🤖 <b>Volume Bot v2 - Split Buys</b>
 
 <b>How it works:</b>
-• 20 wallets rotate every ${CYCLE_DURATION_MINUTES} minutes
-• Full master balance → wallet → buy → sell → return
-• Automatic cycling through all wallets
+• Fund wallet with full master balance
+• Execute ${BUYS_PER_WALLET} buys (1 per minute)
+• Drain all tokens + withdraw to master
+• Move to next wallet, repeat
+• Cycles through ${TOTAL_WALLETS} wallets
 
 <b>Setup:</b>
 /token &lt;mint&gt; - Set token (SPT)
 /wallets - Generate ${TOTAL_WALLETS} fresh wallets
-/slippage &lt;bps&gt; - Set slippage (default 500)
+/slippage &lt;bps&gt; - Set slippage (default 1000)
 
 <b>Control:</b>
 /run - Start cycling
@@ -112,7 +114,7 @@ export async function POST(request: NextRequest) {
 /export - Export wallet keys
 
 <b>Info:</b>
-/cron - Get cron URL
+/cron - Get cron URL (every 1 min)
 /stats - Trading stats
         `);
         break;
@@ -226,21 +228,22 @@ Or /export to save current keys.
 
         const currentIndex = config?.current_wallet_index || 0;
         const phase = config?.cycle_phase || 'idle';
-        const cycleStarted = config?.cycle_started_at ? new Date(config.cycle_started_at) : null;
+        const buyCount = config?.buy_count || 0;
         
-        let timeInfo = '';
-        if (cycleStarted) {
-          const minutesIn = (Date.now() - cycleStarted.getTime()) / 60000;
-          const remaining = CYCLE_DURATION_MINUTES - minutesIn;
-          timeInfo = `\n<b>Time in cycle:</b> ${minutesIn.toFixed(1)} min\n<b>Next wallet in:</b> ${Math.max(0, remaining).toFixed(1)} min`;
+        let phaseText = phase;
+        if (phase === 'buying') {
+          phaseText = `buying (${buyCount}/10)`;
         }
 
         await sendMessage(chatId, `
 🔄 <b>Current Cycle</b>
 
 <b>Wallet:</b> ${currentIndex + 1} of ${TOTAL_WALLETS}
-<b>Phase:</b> ${phase}
-<b>Status:</b> ${config?.is_running ? '🟢 Running' : '🔴 Stopped'}${timeInfo}
+<b>Phase:</b> ${phaseText}
+<b>Buys Done:</b> ${buyCount}/10
+<b>Status:</b> ${config?.is_running ? '🟢 Running' : '🔴 Stopped'}
+
+<b>Flow:</b> Fund → 10 buys → Drain → Next wallet
         `);
         break;
       }
@@ -252,11 +255,12 @@ Or /export to save current keys.
             current_wallet_index: 0,
             cycle_phase: 'idle',
             cycle_started_at: null,
+            buy_count: 0,
             updated_at: new Date().toISOString()
           })
           .eq('bot_id', 'main');
 
-        await sendMessage(chatId, '✅ Reset to wallet 1. Use /run to start fresh.');
+        await sendMessage(chatId, '✅ Reset to wallet 1, buy count 0. Use /run to start fresh.');
         break;
       }
 
@@ -360,6 +364,7 @@ Use /cycle to monitor progress.
 
         const status = config?.is_running ? '🟢 Running' : '🔴 Stopped';
         const currentWallet = (config?.current_wallet_index || 0) + 1;
+        const buyCount = config?.buy_count || 0;
         
         await sendMessage(chatId, `
 📊 <b>Volume Bot Status</b>
@@ -371,10 +376,10 @@ Use /cycle to monitor progress.
 <b>Wallets:</b> ${wallets?.length || 0}/${TOTAL_WALLETS}
 <b>Current:</b> Wallet ${currentWallet}
 <b>Phase:</b> ${config?.cycle_phase || 'idle'}
+<b>Buys:</b> ${buyCount}/${BUYS_PER_WALLET}
 
 <b>Master Balance:</b> ${(masterBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL
-<b>Slippage:</b> ${config?.slippage_bps || 500} bps
-<b>Cycle Duration:</b> ${CYCLE_DURATION_MINUTES} min
+<b>Slippage:</b> ${config?.slippage_bps || 1000} bps
         `);
         break;
       }

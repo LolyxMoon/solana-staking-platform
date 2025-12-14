@@ -28,6 +28,8 @@ const ADMIN_CHAT_ID = process.env.VOLUME_BOT_ADMIN_CHAT_ID;
 const MASTER_KEY = process.env.VOLUME_BOT_MASTER_KEY!;
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+// EXACT same endpoints from original working code
 const JUPITER_QUOTE_LITE = 'https://lite-api.jup.ag/swap/v1/quote';
 const JUPITER_QUOTE_PRO = 'https://api.jup.ag/swap/v1/quote';
 const JUPITER_ULTRA_API = 'https://lite-api.jup.ag/ultra/v1/order';
@@ -37,9 +39,8 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY!;
 
 // Cycle settings
 const TOTAL_WALLETS = 20;
-const CYCLE_DURATION_MINUTES = 15;
-const DRAIN_AFTER_MINUTES = 1;
-const MIN_SOL_RESERVE = 0.005; // Keep in master for fees
+const BUYS_PER_WALLET = 10;  // 10 buys per wallet, 1 per minute
+const MIN_SOL_RESERVE = 0.005;
 
 // Direct REST API calls
 async function supabaseGet(table: string, query: string = '') {
@@ -141,7 +142,7 @@ async function withdrawToMaster(
 ): Promise<{ success: boolean; amount: number; signature?: string; error?: string }> {
   try {
     const balance = await connection.getBalance(wallet.publicKey);
-    const sendAmount = balance - 5000; // Leave minimal for rent
+    const sendAmount = balance - 5000;
 
     if (sendAmount <= 0) {
       return { success: true, amount: 0 };
@@ -169,20 +170,19 @@ async function withdrawToMaster(
   }
 }
 
-async function executeBuy(
+// EXACT executeSwap function from original working code
+async function executeSwap(
   connection: Connection,
   wallet: Keypair,
-  tokenMint: string,
-  solAmount: number,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
   slippageBps: number
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
-    const amount = Math.floor(solAmount * LAMPORTS_PER_SOL);
-
-    // Step 1: Get quote (like original code)
     const quoteParams = new URLSearchParams({
-      inputMint: SOL_MINT,
-      outputMint: tokenMint,
+      inputMint,
+      outputMint,
       amount: amount.toString(),
       slippageBps: slippageBps.toString(),
     });
@@ -208,12 +208,14 @@ async function executeBuy(
     }
 
     const quoteData = await quoteRes.json();
-    console.log('✅ Quote received:', { inAmount: quoteData.inAmount, outAmount: quoteData.outAmount });
+    console.log('✅ Quote received:', {
+      inAmount: quoteData.inAmount,
+      outAmount: quoteData.outAmount,
+    });
 
-    // Step 2: Get Ultra order
     const orderParams = new URLSearchParams({
-      inputMint: SOL_MINT,
-      outputMint: tokenMint,
+      inputMint,
+      outputMint,
       amount: amount.toString(),
       taker: wallet.publicKey.toString(),
       slippageBps: slippageBps.toString(),
@@ -232,17 +234,16 @@ async function executeBuy(
     }
 
     const orderData = await orderRes.json();
-
+    
     if (orderData.error) {
       console.error('Jupiter error:', orderData.error);
       return { success: false, error: orderData.error };
     }
-
+    
     if (!orderData.transaction) {
       return { success: false, error: 'No transaction returned from Ultra API' };
     }
 
-    // Step 3: Sign and send
     const transactionBuf = Buffer.from(orderData.transaction, 'base64');
     const transaction = VersionedTransaction.deserialize(transactionBuf);
     transaction.sign([wallet]);
@@ -268,113 +269,8 @@ async function executeBuy(
     console.log('✅ Swap confirmed!');
     return { success: true, signature };
   } catch (error: any) {
-    console.error('Buy error:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-async function executeSell(
-  connection: Connection,
-  wallet: Keypair,
-  tokenMint: string,
-  tokenAmount: number,
-  slippageBps: number
-): Promise<{ success: boolean; signature?: string; error?: string }> {
-  try {
-    if (tokenAmount < 1000) {
-      return { success: true }; // Nothing to sell
-    }
-
-    // Step 1: Get quote
-    const quoteParams = new URLSearchParams({
-      inputMint: tokenMint,
-      outputMint: SOL_MINT,
-      amount: tokenAmount.toString(),
-      slippageBps: slippageBps.toString(),
-    });
-
-    console.log('📡 Fetching sell quote...');
-    let quoteRes = await fetch(`${JUPITER_QUOTE_LITE}?${quoteParams}`, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
-
-    if (!quoteRes.ok) {
-      console.log('Lite API failed, trying Pro API...');
-      quoteRes = await fetch(`${JUPITER_QUOTE_PRO}?${quoteParams}`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-      });
-    }
-
-    if (!quoteRes.ok) {
-      const errorText = await quoteRes.text();
-      console.error('Quote error:', errorText);
-      return { success: false, error: `Quote failed: ${quoteRes.status}` };
-    }
-
-    const quoteData = await quoteRes.json();
-    console.log('✅ Sell quote received:', { inAmount: quoteData.inAmount, outAmount: quoteData.outAmount });
-
-    // Step 2: Get Ultra order
-    const orderParams = new URLSearchParams({
-      inputMint: tokenMint,
-      outputMint: SOL_MINT,
-      amount: tokenAmount.toString(),
-      taker: wallet.publicKey.toString(),
-      slippageBps: slippageBps.toString(),
-    });
-
-    console.log('📡 Fetching Ultra sell order...');
-    const orderRes = await fetch(`${JUPITER_ULTRA_API}?${orderParams}`, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
-
-    if (!orderRes.ok) {
-      const errorText = await orderRes.text();
-      console.error('Order error:', errorText);
-      return { success: false, error: `Order failed: ${orderRes.status}` };
-    }
-
-    const orderData = await orderRes.json();
-
-    if (orderData.error) {
-      console.error('Jupiter error:', orderData.error);
-      return { success: false, error: orderData.error };
-    }
-
-    if (!orderData.transaction) {
-      return { success: false, error: 'No transaction returned from Ultra API' };
-    }
-
-    // Step 3: Sign and send
-    const transactionBuf = Buffer.from(orderData.transaction, 'base64');
-    const transaction = VersionedTransaction.deserialize(transactionBuf);
-    transaction.sign([wallet]);
-
-    const signature = await connection.sendRawTransaction(transaction.serialize(), {
-      skipPreflight: true,
-      maxRetries: 2,
-    });
-
-    console.log('Sell transaction sent:', signature);
-
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
-    const confirmation = await connection.confirmTransaction({
-      signature,
-      blockhash,
-      lastValidBlockHeight,
-    }, 'confirmed');
-
-    if (confirmation.value.err) {
-      return { success: false, error: `Transaction failed: ${JSON.stringify(confirmation.value.err)}` };
-    }
-
-    console.log('✅ Sell confirmed!');
-    return { success: true, signature };
-  } catch (error: any) {
-    return { success: false, error: error.message };
+    console.error('Swap execution error:', error);
+    return { success: false, error: error.message || 'Swap failed' };
   }
 }
 
@@ -407,7 +303,7 @@ export async function GET(request: NextRequest) {
 
     if (!wallets || wallets.length < TOTAL_WALLETS) {
       return NextResponse.json({ 
-        error: `Need ${TOTAL_WALLETS} wallets, have ${wallets?.length || 0}. Use /wallets ${TOTAL_WALLETS}` 
+        error: `Need ${TOTAL_WALLETS} wallets, have ${wallets?.length || 0}. Use /wallets` 
       }, { status: 400 });
     }
 
@@ -415,80 +311,110 @@ export async function GET(request: NextRequest) {
     const masterBalance = await connection.getBalance(masterWallet.publicKey);
     const masterSol = masterBalance / LAMPORTS_PER_SOL;
 
-    // Determine cycle state
+    // Current state
     const currentIndex = config.current_wallet_index || 0;
+    const buyCount = config.buy_count || 0;
     const cyclePhase = config.cycle_phase || 'idle';
-    const cycleStartedAt = config.cycle_started_at ? new Date(config.cycle_started_at).getTime() : 0;
-    const now = Date.now();
-    const minutesIntoCycle = cycleStartedAt ? (now - cycleStartedAt) / 60000 : 999;
 
-    console.log(`📊 State: wallet=${currentIndex}, phase=${cyclePhase}, minutes=${minutesIntoCycle.toFixed(1)}, master=${masterSol.toFixed(4)} SOL`);
+    console.log(`📊 State: wallet=${currentIndex}, phase=${cyclePhase}, buyCount=${buyCount}, master=${masterSol.toFixed(4)} SOL`);
 
     const currentWalletData = wallets[currentIndex];
     const currentWallet = Keypair.fromSecretKey(parsePrivateKey(currentWalletData.private_key_encrypted));
+    const walletBalance = await connection.getBalance(currentWallet.publicKey);
+    const walletSol = walletBalance / LAMPORTS_PER_SOL;
 
     let result: any = {
       status: 'ok',
       wallet_index: currentIndex,
       phase: cyclePhase,
+      buy_count: buyCount,
       master_balance: masterSol,
+      wallet_balance: walletSol,
     };
 
     // ========== PHASE LOGIC ==========
 
-    if (cyclePhase === 'idle' || cyclePhase === 'waiting' && minutesIntoCycle >= CYCLE_DURATION_MINUTES) {
-      // START NEW CYCLE - Fund wallet and buy
-      const nextIndex = cyclePhase === 'waiting' ? (currentIndex + 1) % TOTAL_WALLETS : currentIndex;
-      const nextWalletData = wallets[nextIndex];
-      const nextWallet = Keypair.fromSecretKey(parsePrivateKey(nextWalletData.private_key_encrypted));
-
-      // Calculate funding amount (leave reserve in master)
-      const fundAmount = Math.floor((masterBalance - MIN_SOL_RESERVE * LAMPORTS_PER_SOL) * 0.99); // 99% to account for fees
-
-      if (fundAmount < 0.01 * LAMPORTS_PER_SOL) {
+    // PHASE 1: Need to fund wallet (idle or wallet has no SOL)
+    if (cyclePhase === 'idle' || (cyclePhase === 'buying' && walletSol < 0.01 && buyCount === 0)) {
+      
+      if (masterBalance < 0.05 * LAMPORTS_PER_SOL) {
         await sendTelegram(`⚠️ Master wallet low!\nBalance: ${masterSol.toFixed(4)} SOL\nNeed more SOL to continue.`);
         return NextResponse.json({ status: 'insufficient_funds', master_balance: masterSol });
       }
 
-      // Fund the wallet
-      console.log(`💸 Funding wallet ${nextIndex} with ${(fundAmount / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
-      const fundResult = await fundWallet(connection, masterWallet, nextWallet.publicKey, fundAmount);
+      // Fund wallet with almost all master balance
+      const fundAmount = Math.floor((masterBalance - MIN_SOL_RESERVE * LAMPORTS_PER_SOL) * 0.99);
+
+      console.log(`💸 Funding wallet ${currentIndex} with ${(fundAmount / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
+      const fundResult = await fundWallet(connection, masterWallet, currentWallet.publicKey, fundAmount);
 
       if (!fundResult.success) {
         await sendTelegram(`❌ Fund failed: ${fundResult.error}`);
         return NextResponse.json({ status: 'fund_failed', error: fundResult.error });
       }
 
-      // Wait for balance to update
-      await new Promise(r => setTimeout(r, 2000));
-
-      // Execute buy
-      const walletBalance = await connection.getBalance(nextWallet.publicKey);
-      const buyAmount = (walletBalance / LAMPORTS_PER_SOL) - 0.003; // Leave for fees
-
-      console.log(`🟢 BUY: ${buyAmount.toFixed(4)} SOL on wallet ${nextIndex}`);
-      const buyResult = await executeBuy(
-        connection,
-        nextWallet,
-        config.token_mint,
-        buyAmount,
-        config.slippage_bps || 500
-      );
-
       // Update state
       await supabaseUpdate('volume_bot_config', 'bot_id=eq.main', {
-        current_wallet_index: nextIndex,
-        cycle_phase: 'bought',
-        cycle_started_at: new Date().toISOString(),
+        cycle_phase: 'buying',
+        buy_count: 0,
+        updated_at: new Date().toISOString(),
+      });
+
+      await sendTelegram(
+        `💸 <b>FUNDED</b> - Wallet ${currentIndex + 1}/${TOTAL_WALLETS}\n` +
+        `💰 ${(fundAmount / LAMPORTS_PER_SOL).toFixed(4)} SOL\n` +
+        `📊 Starting ${BUYS_PER_WALLET} buys...`
+      );
+
+      result = { ...result, action: 'funded', amount: fundAmount / LAMPORTS_PER_SOL };
+    }
+
+    // PHASE 2: Execute buys (1 per minute, 10 total)
+    else if (cyclePhase === 'buying' && buyCount < BUYS_PER_WALLET) {
+      
+      // Calculate buy amount (divide remaining balance by remaining buys)
+      const remainingBuys = BUYS_PER_WALLET - buyCount;
+      const currentWalletBal = await connection.getBalance(currentWallet.publicKey);
+      
+      // Leave some SOL for fees on remaining transactions
+      const reserveForFees = 0.003 * LAMPORTS_PER_SOL * remainingBuys;
+      const availableForBuy = currentWalletBal - reserveForFees;
+      const buyAmount = Math.floor(availableForBuy / remainingBuys);
+
+      if (buyAmount < 0.001 * LAMPORTS_PER_SOL) {
+        // Not enough SOL left, skip to drain
+        console.log('⚠️ Not enough SOL for buy, skipping to drain');
+        await supabaseUpdate('volume_bot_config', 'bot_id=eq.main', {
+          buy_count: BUYS_PER_WALLET,
+          updated_at: new Date().toISOString(),
+        });
+        return NextResponse.json({ status: 'skipped_to_drain', reason: 'insufficient_balance' });
+      }
+
+      console.log(`🟢 BUY ${buyCount + 1}/${BUYS_PER_WALLET}: ${(buyAmount / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
+
+      const buyResult = await executeSwap(
+        connection,
+        currentWallet,
+        SOL_MINT,
+        config.token_mint,
+        buyAmount,
+        config.slippage_bps || 1000
+      );
+
+      // Update buy count
+      const newBuyCount = buyCount + 1;
+      await supabaseUpdate('volume_bot_config', 'bot_id=eq.main', {
+        buy_count: newBuyCount,
         updated_at: new Date().toISOString(),
       });
 
       // Log trade
       await supabaseInsert('volume_bot_trades', {
         bot_id: 'main',
-        wallet_address: nextWallet.publicKey.toString(),
+        wallet_address: currentWallet.publicKey.toString(),
         trade_type: 'buy',
-        sol_amount: buyAmount,
+        sol_amount: buyAmount / LAMPORTS_PER_SOL,
         status: buyResult.success ? 'success' : 'failed',
         signature: buyResult.signature,
         error_message: buyResult.error,
@@ -496,29 +422,39 @@ export async function GET(request: NextRequest) {
 
       const emoji = buyResult.success ? '🟢' : '❌';
       await sendTelegram(
-        `${emoji} <b>BUY</b> - Wallet ${nextIndex + 1}/${TOTAL_WALLETS}\n` +
-        `💰 ${buyAmount.toFixed(4)} SOL\n` +
-        `🏦 Master: ${(masterSol - buyAmount).toFixed(4)} SOL\n` +
+        `${emoji} <b>BUY ${newBuyCount}/${BUYS_PER_WALLET}</b> - Wallet ${currentIndex + 1}/${TOTAL_WALLETS}\n` +
+        `💰 ${(buyAmount / LAMPORTS_PER_SOL).toFixed(4)} SOL\n` +
         (buyResult.signature ? `<a href="https://solscan.io/tx/${buyResult.signature}">View TX</a>` : buyResult.error || '')
       );
 
-      result = { ...result, action: 'buy', success: buyResult.success, signature: buyResult.signature };
+      result = { 
+        ...result, 
+        action: 'buy', 
+        buy_number: newBuyCount,
+        sol_amount: buyAmount / LAMPORTS_PER_SOL,
+        success: buyResult.success, 
+        signature: buyResult.signature,
+        error: buyResult.error,
+      };
+    }
 
-    } else if (cyclePhase === 'bought' && minutesIntoCycle >= DRAIN_AFTER_MINUTES) {
-      // DRAIN AND WITHDRAW
+    // PHASE 3: All buys done, drain and withdraw
+    else if (cyclePhase === 'buying' && buyCount >= BUYS_PER_WALLET) {
       console.log(`🔴 DRAIN & WITHDRAW: wallet ${currentIndex}`);
 
       // Get token balance and sell
       const tokenBalance = await getTokenBalance(connection, currentWallet.publicKey, config.token_mint);
       
-      let sellResult = { success: true, signature: undefined as string | undefined };
+      let sellResult = { success: true, signature: undefined as string | undefined, error: undefined as string | undefined };
       if (tokenBalance > 1000) {
-        sellResult = await executeSell(
+        console.log(`📤 Selling ${tokenBalance} tokens...`);
+        sellResult = await executeSwap(
           connection,
           currentWallet,
           config.token_mint,
+          SOL_MINT,
           tokenBalance,
-          config.slippage_bps || 1000 // Higher slippage for sell
+          config.slippage_bps || 1000
         );
 
         // Log sell trade
@@ -526,7 +462,7 @@ export async function GET(request: NextRequest) {
           bot_id: 'main',
           wallet_address: currentWallet.publicKey.toString(),
           trade_type: 'sell',
-          sol_amount: 0, // We don't know exact SOL received
+          sol_amount: 0,
           token_amount: tokenBalance,
           status: sellResult.success ? 'success' : 'failed',
           signature: sellResult.signature,
@@ -534,15 +470,19 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      // Wait a bit then withdraw
+      // Wait then withdraw
       await new Promise(r => setTimeout(r, 3000));
 
       // Withdraw SOL back to master
       const withdrawResult = await withdrawToMaster(connection, currentWallet, masterWallet.publicKey);
 
-      // Update state to waiting
+      // Move to next wallet
+      const nextIndex = (currentIndex + 1) % TOTAL_WALLETS;
+      
       await supabaseUpdate('volume_bot_config', 'bot_id=eq.main', {
-        cycle_phase: 'waiting',
+        current_wallet_index: nextIndex,
+        cycle_phase: 'idle',
+        buy_count: 0,
         updated_at: new Date().toISOString(),
       });
 
@@ -552,11 +492,11 @@ export async function GET(request: NextRequest) {
 
       const emoji = sellResult.success && withdrawResult.success ? '🔴' : '⚠️';
       await sendTelegram(
-        `${emoji} <b>SELL + WITHDRAW</b> - Wallet ${currentIndex + 1}/${TOTAL_WALLETS}\n` +
+        `${emoji} <b>CYCLE COMPLETE</b> - Wallet ${currentIndex + 1}/${TOTAL_WALLETS}\n` +
         `🪙 Sold: ${tokenBalance.toLocaleString()} tokens\n` +
         `💸 Withdrew: ${withdrawResult.amount.toFixed(4)} SOL\n` +
         `🏦 Master: ${newMasterSol.toFixed(4)} SOL\n` +
-        `⏳ Next cycle in ${Math.ceil(CYCLE_DURATION_MINUTES - minutesIntoCycle)} min`
+        `➡️ Next: Wallet ${nextIndex + 1}`
       );
 
       result = { 
@@ -565,28 +505,8 @@ export async function GET(request: NextRequest) {
         tokens_sold: tokenBalance,
         sol_withdrawn: withdrawResult.amount,
         new_master_balance: newMasterSol,
-      };
-
-    } else if (cyclePhase === 'waiting') {
-      // Still waiting for next cycle
-      const remainingMinutes = Math.ceil(CYCLE_DURATION_MINUTES - minutesIntoCycle);
-      const nextWalletIndex = (currentIndex + 1) % TOTAL_WALLETS;
-      
-      result = {
-        ...result,
-        action: 'waiting',
-        minutes_remaining: remainingMinutes,
-        next_wallet: nextWalletIndex,
-      };
-
-    } else if (cyclePhase === 'bought') {
-      // Waiting to drain (within first minute)
-      const remainingSeconds = Math.ceil((DRAIN_AFTER_MINUTES - minutesIntoCycle) * 60);
-      
-      result = {
-        ...result,
-        action: 'waiting_to_drain',
-        seconds_remaining: remainingSeconds,
+        next_wallet: nextIndex,
+        sell_error: sellResult.error,
       };
     }
 
