@@ -300,7 +300,7 @@ export async function GET(request: NextRequest) {
       // Phase 1: Fund wallet
       if (cyclePhase === 'idle') {
         // Fund with custom buy amount + buffer for fees
-        const fundAmountSol = customBuyAmount + 0.01;
+        const fundAmountSol = customBuyAmount + 0.03;
         const fundAmountLamports = Math.floor(fundAmountSol * LAMPORTS_PER_SOL);
 
         if (masterBalance < fundAmountLamports) {
