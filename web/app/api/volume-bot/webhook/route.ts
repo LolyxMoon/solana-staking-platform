@@ -660,15 +660,31 @@ async function createNewWallets(supabase: any, chatId: number, count: number) {
     });
   }
 
-  // Clear old wallets and insert new
-  await supabase.from('volume_bot_wallets').delete().eq('bot_id', 'main');
-  
-  for (const w of wallets) {
-    await supabase.from('volume_bot_wallets').insert({
-      bot_id: 'main',
-      wallet_address: w.address,
-      private_key_encrypted: w.privateKey,
-    });
+  // Clear old wallets
+  const { error: deleteError } = await supabase
+    .from('volume_bot_wallets')
+    .delete()
+    .eq('bot_id', 'main');
+
+  if (deleteError) {
+    await sendMessage(chatId, `❌ Failed to clear old wallets: ${deleteError.message}`);
+    return;
+  }
+
+  // Batch insert all wallets
+  const walletRows = wallets.map(w => ({
+    bot_id: 'main',
+    wallet_address: w.address,
+    private_key_encrypted: w.privateKey,
+  }));
+
+  const { error: insertError } = await supabase
+    .from('volume_bot_wallets')
+    .insert(walletRows);
+
+  if (insertError) {
+    await sendMessage(chatId, `❌ Failed to save wallets: ${insertError.message}`);
+    return;
   }
 
   // Reset cycle state
@@ -682,18 +698,12 @@ async function createNewWallets(supabase: any, chatId: number, count: number) {
     })
     .eq('bot_id', 'main');
 
-  await sendMessage(chatId, `
-✅ Generated ${count} fresh wallets!
+  // Send wallets directly in confirmation (so you have them even if /export fails)
+  let exportText = `✅ Generated ${count} fresh wallets!\n\n`;
+  for (let i = 0; i < wallets.length; i++) {
+    exportText += `<b>${i + 1}.</b> <code>${wallets[i].address}</code>\n<code>${wallets[i].privateKey}</code>\n\n`;
+  }
+  exportText += `Use /run to start cycling.`;
 
-Use /export to save the keys.
-Use /run to start cycling.
-
-<b>Cycle Flow:</b>
-1. Master → Wallet 1 (full balance)
-2. Buy SPT
-3. Wait 1 min
-4. Sell + Withdraw to Master
-5. Wait until 15 min mark
-6. Repeat with Wallet 2...
-  `);
+  await sendMessage(chatId, exportText);
 }
