@@ -596,58 +596,102 @@ Or /export to save current keys.
           break;
         }
 
-        await sendMessage(chatId, `⏳ Draining tokens from ${wallets.length} wallets...`);
-
-        let drained = 0;
-        let totalTokens = 0;
-        const { VersionedTransaction } = await import('@solana/web3.js');
-
-        for (const w of wallets) {
+        // First, show token balances
+        let balanceReport = '🔍 <b>Checking token balances...</b>\n\n';
+        let walletsWithTokens = 0;
+        
+        for (let i = 0; i < wallets.length; i++) {
+          const w = wallets[i];
           try {
             const wallet = Keypair.fromSecretKey(parsePrivateKey(w.private_key_encrypted));
-            const { rawAmount } = await getTokenBalance(connection, wallet.publicKey, config.token_mint);
+            const { amount, rawAmount } = await getTokenBalance(connection, wallet.publicKey, config.token_mint);
+            if (rawAmount > 1000) {
+              balanceReport += `✅ Wallet ${i + 1}: ${amount.toFixed(2)} tokens\n`;
+              walletsWithTokens++;
+            }
+          } catch {}
+        }
+
+        if (walletsWithTokens === 0) {
+          await sendMessage(chatId, '❌ No wallets have tokens to drain');
+          break;
+        }
+
+        await sendMessage(chatId, `${balanceReport}\n⏳ Selling tokens from ${walletsWithTokens} wallets...`);
+
+        const { VersionedTransaction } = await import('@solana/web3.js');
+        let drained = 0;
+        let failed = 0;
+        let totalTokens = 0;
+
+        for (let i = 0; i < wallets.length; i++) {
+          const w = wallets[i];
+          try {
+            const wallet = Keypair.fromSecretKey(parsePrivateKey(w.private_key_encrypted));
+            const { amount, rawAmount } = await getTokenBalance(connection, wallet.publicKey, config.token_mint);
 
             if (rawAmount < 1000) continue;
 
-            const params = new URLSearchParams({
+            console.log(`🔄 Draining wallet ${i + 1}: ${amount} tokens (raw: ${rawAmount})`);
+
+            // Use Ultra API (same as trade endpoint)
+            const orderParams = new URLSearchParams({
               inputMint: config.token_mint,
               outputMint: 'So11111111111111111111111111111111111111112',
               amount: rawAmount.toString(),
-              slippageBps: (config.slippage_bps || 1000).toString(),
+              taker: wallet.publicKey.toString(),
+              slippageBps: (config.slippage_bps || 2000).toString(),
             });
 
-            const quoteRes = await fetch(`https://api.jup.ag/swap/v1/quote?${params}`);
-            if (!quoteRes.ok) continue;
-
-            const quoteData = await quoteRes.json();
-
-            const swapRes = await fetch('https://api.jup.ag/swap/v1/swap', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                quoteResponse: quoteData,
-                userPublicKey: wallet.publicKey.toString(),
-                wrapAndUnwrapSol: true,
-              }),
+            const orderRes = await fetch(`https://lite-api.jup.ag/ultra/v1/order?${orderParams}`, {
+              method: 'GET',
+              headers: { 'Accept': 'application/json' },
             });
 
-            if (!swapRes.ok) continue;
-            const swapData = await swapRes.json();
+            if (!orderRes.ok) {
+              const errorText = await orderRes.text();
+              console.error(`Wallet ${i + 1} order failed:`, errorText);
+              failed++;
+              continue;
+            }
 
-            const tx = VersionedTransaction.deserialize(Buffer.from(swapData.swapTransaction, 'base64'));
+            const orderData = await orderRes.json();
+            
+            if (orderData.error || !orderData.transaction) {
+              console.error(`Wallet ${i + 1} no transaction:`, orderData.error);
+              failed++;
+              continue;
+            }
+
+            const tx = VersionedTransaction.deserialize(Buffer.from(orderData.transaction, 'base64'));
             tx.sign([wallet]);
 
-            await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true });
+            const signature = await connection.sendRawTransaction(tx.serialize(), { 
+              skipPreflight: true,
+              maxRetries: 2,
+            });
+            
+            console.log(`✅ Wallet ${i + 1} sold: ${signature}`);
+            
             drained++;
-            totalTokens += rawAmount;
+            totalTokens += amount;
 
-            await new Promise(r => setTimeout(r, 500));
-          } catch (err) {
-            console.error('Drain error:', err);
+            // Wait between transactions
+            await new Promise(r => setTimeout(r, 1000));
+          } catch (err: any) {
+            console.error(`Drain error wallet ${i + 1}:`, err.message);
+            failed++;
           }
         }
 
-        await sendMessage(chatId, `✅ Drained ${drained} wallets\n💰 ~${totalTokens.toLocaleString()} tokens sold`, mainMenuKeyboard);
+        await sendMessage(chatId, 
+          `✅ <b>Drain Complete</b>\n\n` +
+          `🟢 Sold: ${drained} wallets\n` +
+          `🔴 Failed: ${failed} wallets\n` +
+          `💰 ~${totalTokens.toLocaleString()} tokens\n\n` +
+          `Now run /withdrawall to collect SOL`, 
+          mainMenuKeyboard
+        );
         break;
       }
 
