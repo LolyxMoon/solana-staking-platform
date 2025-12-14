@@ -33,11 +33,41 @@ function getSupabase() {
   return createClient(url, key);
 }
 
-async function sendMessage(chatId: number, text: string, parseMode: 'HTML' | 'Markdown' = 'HTML') {
+async function sendMessage(chatId: number, text: string, replyMarkup?: any) {
   await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: parseMode }),
+    body: JSON.stringify({ 
+      chat_id: chatId, 
+      text, 
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+    }),
+  });
+}
+
+async function editMessage(chatId: number, messageId: number, text: string, replyMarkup?: any) {
+  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/editMessageText`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      chat_id: chatId, 
+      message_id: messageId,
+      text, 
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+    }),
+  });
+}
+
+async function answerCallback(callbackQueryId: string, text?: string) {
+  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/answerCallbackQuery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      callback_query_id: callbackQueryId,
+      text,
+    }),
   });
 }
 
@@ -59,11 +89,375 @@ async function getTokenBalance(connection: Connection, wallet: PublicKey, tokenM
   }
 }
 
+// Inline keyboards
+const mainMenuKeyboard = {
+  inline_keyboard: [
+    [
+      { text: '▶️ Start', callback_data: 'cmd_start' },
+      { text: '⏹️ Stop', callback_data: 'cmd_stop' }
+    ],
+    [
+      { text: '📊 Status', callback_data: 'cmd_status' },
+      { text: '🔄 Cycle', callback_data: 'cmd_cycle' }
+    ],
+    [
+      { text: '⚙️ Mode', callback_data: 'menu_mode' },
+      { text: '🔧 Settings', callback_data: 'menu_settings' }
+    ],
+    [
+      { text: '💰 Balances', callback_data: 'cmd_balances' },
+      { text: '🏦 Master', callback_data: 'cmd_master' }
+    ],
+    [
+      { text: '🔄 Reset', callback_data: 'cmd_reset' },
+      { text: '📈 Stats', callback_data: 'cmd_stats' }
+    ]
+  ]
+};
+
+const modeMenuKeyboard = {
+  inline_keyboard: [
+    [{ text: '📈 Mode 1: Split Buys (10x per wallet)', callback_data: 'set_mode_split' }],
+    [{ text: '💰 Mode 2: Custom (single buy + delay)', callback_data: 'set_mode_custom' }],
+    [{ text: '⬅️ Back', callback_data: 'menu_main' }]
+  ]
+};
+
+function getSettingsKeyboard(config: any) {
+  return {
+    inline_keyboard: [
+      [
+        { text: `💵 ${config.custom_buy_amount === 0.1 ? '✅ ' : ''}0.1 SOL`, callback_data: 'set_buy_0.1' },
+        { text: `💵 ${config.custom_buy_amount === 0.25 ? '✅ ' : ''}0.25 SOL`, callback_data: 'set_buy_0.25' }
+      ],
+      [
+        { text: `💵 ${config.custom_buy_amount === 0.5 ? '✅ ' : ''}0.5 SOL`, callback_data: 'set_buy_0.5' },
+        { text: `💵 ${config.custom_buy_amount === 1 ? '✅ ' : ''}1 SOL`, callback_data: 'set_buy_1' }
+      ],
+      [
+        { text: `⏱️ ${config.custom_sell_delay_minutes === 3 ? '✅ ' : ''}3 min`, callback_data: 'set_delay_3' },
+        { text: `⏱️ ${config.custom_sell_delay_minutes === 5 ? '✅ ' : ''}5 min`, callback_data: 'set_delay_5' }
+      ],
+      [
+        { text: `⏱️ ${config.custom_sell_delay_minutes === 10 ? '✅ ' : ''}10 min`, callback_data: 'set_delay_10' },
+        { text: `⏱️ ${config.custom_sell_delay_minutes === 15 ? '✅ ' : ''}15 min`, callback_data: 'set_delay_15' }
+      ],
+      [{ text: '⬅️ Back', callback_data: 'menu_main' }]
+    ]
+  };
+}
+
+async function buildStatusText(supabase: any, connection: Connection) {
+  const { data: config } = await supabase
+    .from('volume_bot_config')
+    .select('*')
+    .eq('bot_id', 'main')
+    .single();
+
+  const { data: wallets } = await supabase
+    .from('volume_bot_wallets')
+    .select('wallet_address')
+    .eq('bot_id', 'main');
+
+  let masterBalance = 0;
+  if (MASTER_KEY) {
+    const masterWallet = Keypair.fromSecretKey(parsePrivateKey(MASTER_KEY));
+    masterBalance = await connection.getBalance(masterWallet.publicKey);
+  }
+
+  const modeText = config?.bot_mode === 'custom' 
+    ? `Custom (${config.custom_buy_amount} SOL, ${config.custom_sell_delay_minutes}min)` 
+    : `Split Buys (${BUYS_PER_WALLET}x/wallet)`;
+
+  const status = config?.is_running ? '🟢 Running' : '🔴 Stopped';
+  const currentWallet = (config?.current_wallet_index || 0) + 1;
+  const buyCount = config?.buy_count || 0;
+  
+  let phaseText = config?.cycle_phase || 'idle';
+  if (config?.bot_mode === 'split_buys' && config?.cycle_phase === 'buying') {
+    phaseText = `buying (${buyCount}/${BUYS_PER_WALLET})`;
+  } else if (config?.bot_mode === 'custom' && config?.cycle_phase === 'waiting') {
+    const buyTime = config?.custom_buy_time ? new Date(config.custom_buy_time) : null;
+    if (buyTime) {
+      const elapsed = Math.floor((Date.now() - buyTime.getTime()) / 60000);
+      phaseText = `waiting (${elapsed}/${config.custom_sell_delay_minutes}min)`;
+    }
+  }
+
+  return `
+🤖 <b>Volume Bot Status</b>
+
+<b>Status:</b> ${status}
+<b>Mode:</b> ${modeText}
+<b>Token:</b> ${config?.token_symbol || 'Not set'}
+
+<b>Wallet:</b> ${currentWallet}/${wallets?.length || 0}
+<b>Phase:</b> ${phaseText}
+${config?.bot_mode === 'split_buys' ? `<b>Buys:</b> ${buyCount}/${BUYS_PER_WALLET}` : ''}
+
+<b>Master:</b> ${(masterBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL
+<b>Slippage:</b> ${config?.slippage_bps || 1000} bps
+  `;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const update = await request.json();
+    const supabase = getSupabase();
+    const connection = new Connection(RPC_URL, 'confirmed');
+
+    // ========== HANDLE CALLBACK QUERIES (BUTTON PRESSES) ==========
+    if (update.callback_query) {
+      const callback = update.callback_query;
+      const chatId = callback.message.chat.id;
+      const messageId = callback.message.message_id;
+      const userId = callback.from.id;
+      const data = callback.data;
+
+      if (!isAuthorized(userId)) {
+        await answerCallback(callback.id, '❌ Unauthorized');
+        return NextResponse.json({ ok: true });
+      }
+
+      const { data: config } = await supabase
+        .from('volume_bot_config')
+        .select('*')
+        .eq('bot_id', 'main')
+        .single();
+
+      // Menu navigation
+      if (data === 'menu_main') {
+        const statusText = await buildStatusText(supabase, connection);
+        await editMessage(chatId, messageId, statusText, mainMenuKeyboard);
+        await answerCallback(callback.id);
+      }
+      else if (data === 'menu_mode') {
+        const modeText = `
+⚙️ <b>Select Bot Mode</b>
+
+<b>Current:</b> ${config?.bot_mode === 'custom' ? 'Custom' : 'Split Buys'}
+
+<b>Mode 1 - Split Buys:</b>
+Fund wallet → ${BUYS_PER_WALLET} small buys (1/min) → Sell all → Next wallet
+Best for consistent volume.
+
+<b>Mode 2 - Custom:</b>
+Fund wallet → 1 buy (your amount) → Wait (your delay) → Sell → Next wallet
+Best for larger, controlled trades.
+        `;
+        await editMessage(chatId, messageId, modeText, modeMenuKeyboard);
+        await answerCallback(callback.id);
+      }
+      else if (data === 'menu_settings') {
+        const settingsText = `
+🔧 <b>Custom Mode Settings</b>
+
+<b>Buy Amount:</b> ${config?.custom_buy_amount || 0.5} SOL
+<b>Sell Delay:</b> ${config?.custom_sell_delay_minutes || 5} minutes
+
+Select new values:
+        `;
+        await editMessage(chatId, messageId, settingsText, getSettingsKeyboard(config));
+        await answerCallback(callback.id);
+      }
+
+      // Mode selection
+      else if (data === 'set_mode_split') {
+        await supabase
+          .from('volume_bot_config')
+          .update({ bot_mode: 'split_buys', cycle_phase: 'idle', buy_count: 0 })
+          .eq('bot_id', 'main');
+        await editMessage(chatId, messageId, `✅ Mode: <b>Split Buys</b>\n\n${BUYS_PER_WALLET} sequential buys per wallet.`, mainMenuKeyboard);
+        await answerCallback(callback.id, 'Mode: Split Buys');
+      }
+      else if (data === 'set_mode_custom') {
+        await supabase
+          .from('volume_bot_config')
+          .update({ bot_mode: 'custom', cycle_phase: 'idle' })
+          .eq('bot_id', 'main');
+        await editMessage(chatId, messageId, `✅ Mode: <b>Custom</b>\n\nBuy: ${config?.custom_buy_amount || 0.5} SOL\nDelay: ${config?.custom_sell_delay_minutes || 5} min`, mainMenuKeyboard);
+        await answerCallback(callback.id, 'Mode: Custom');
+      }
+
+      // Buy amount settings
+      else if (data.startsWith('set_buy_')) {
+        const amount = parseFloat(data.replace('set_buy_', ''));
+        await supabase.from('volume_bot_config').update({ custom_buy_amount: amount }).eq('bot_id', 'main');
+        const updatedConfig = { ...config, custom_buy_amount: amount };
+        await editMessage(chatId, messageId, `✅ Buy amount: <b>${amount} SOL</b>`, getSettingsKeyboard(updatedConfig));
+        await answerCallback(callback.id, `Buy: ${amount} SOL`);
+      }
+
+      // Delay settings
+      else if (data.startsWith('set_delay_')) {
+        const delay = parseInt(data.replace('set_delay_', ''));
+        await supabase.from('volume_bot_config').update({ custom_sell_delay_minutes: delay }).eq('bot_id', 'main');
+        const updatedConfig = { ...config, custom_sell_delay_minutes: delay };
+        await editMessage(chatId, messageId, `✅ Sell delay: <b>${delay} minutes</b>`, getSettingsKeyboard(updatedConfig));
+        await answerCallback(callback.id, `Delay: ${delay} min`);
+      }
+
+      // Commands via buttons
+      else if (data === 'cmd_start') {
+        if (!config?.token_mint) {
+          await answerCallback(callback.id, '❌ Set token first!');
+          return NextResponse.json({ ok: true });
+        }
+        await supabase.from('volume_bot_config').update({ is_running: true, cycle_phase: 'idle' }).eq('bot_id', 'main');
+        const statusText = await buildStatusText(supabase, connection);
+        await editMessage(chatId, messageId, `🚀 <b>Bot Started!</b>\n${statusText}`, mainMenuKeyboard);
+        await answerCallback(callback.id, 'Bot started!');
+      }
+      else if (data === 'cmd_stop') {
+        await supabase.from('volume_bot_config').update({ is_running: false }).eq('bot_id', 'main');
+        const statusText = await buildStatusText(supabase, connection);
+        await editMessage(chatId, messageId, `⏹️ <b>Bot Stopped</b>\n${statusText}`, mainMenuKeyboard);
+        await answerCallback(callback.id, 'Bot stopped');
+      }
+      else if (data === 'cmd_status') {
+        const statusText = await buildStatusText(supabase, connection);
+        await editMessage(chatId, messageId, statusText, mainMenuKeyboard);
+        await answerCallback(callback.id);
+      }
+      else if (data === 'cmd_cycle') {
+        const currentIndex = config?.current_wallet_index || 0;
+        const phase = config?.cycle_phase || 'idle';
+        const buyCount = config?.buy_count || 0;
+        
+        let cycleText = '';
+        if (config?.bot_mode === 'custom') {
+          const buyTime = config?.custom_buy_time ? new Date(config.custom_buy_time) : null;
+          let waitInfo = '';
+          if (buyTime && phase === 'waiting') {
+            const elapsed = Math.floor((Date.now() - buyTime.getTime()) / 60000);
+            waitInfo = `\n<b>Waiting:</b> ${elapsed}/${config.custom_sell_delay_minutes} min`;
+          }
+          cycleText = `
+🔄 <b>Cycle Info (Custom Mode)</b>
+
+<b>Wallet:</b> ${currentIndex + 1}/${TOTAL_WALLETS}
+<b>Phase:</b> ${phase}${waitInfo}
+<b>Buy Amount:</b> ${config.custom_buy_amount} SOL
+<b>Sell Delay:</b> ${config.custom_sell_delay_minutes} min
+
+<b>Flow:</b> Fund → Buy → Wait → Sell → Withdraw → Next
+          `;
+        } else {
+          cycleText = `
+🔄 <b>Cycle Info (Split Buys Mode)</b>
+
+<b>Wallet:</b> ${currentIndex + 1}/${TOTAL_WALLETS}
+<b>Phase:</b> ${phase}
+<b>Buys:</b> ${buyCount}/${BUYS_PER_WALLET}
+
+<b>Flow:</b> Fund → ${BUYS_PER_WALLET} buys (1/min) → Sell all → Withdraw → Next
+          `;
+        }
+        await editMessage(chatId, messageId, cycleText, mainMenuKeyboard);
+        await answerCallback(callback.id);
+      }
+      else if (data === 'cmd_reset') {
+        await supabase.from('volume_bot_config').update({
+          cycle_phase: 'idle',
+          buy_count: 0,
+          custom_buy_time: null,
+        }).eq('bot_id', 'main');
+        await editMessage(chatId, messageId, '✅ Cycle reset! Phase set to idle.', mainMenuKeyboard);
+        await answerCallback(callback.id, 'Reset!');
+      }
+      else if (data === 'cmd_master') {
+        if (!MASTER_KEY) {
+          await answerCallback(callback.id, '❌ Master key not set');
+          return NextResponse.json({ ok: true });
+        }
+        const masterWallet = Keypair.fromSecretKey(parsePrivateKey(MASTER_KEY));
+        const balance = await connection.getBalance(masterWallet.publicKey);
+        const text = `
+🏦 <b>Master Wallet</b>
+
+<b>Address:</b> <code>${masterWallet.publicKey.toString()}</code>
+<b>Balance:</b> ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL
+
+<a href="https://solscan.io/account/${masterWallet.publicKey.toString()}">View on Solscan</a>
+        `;
+        await editMessage(chatId, messageId, text, mainMenuKeyboard);
+        await answerCallback(callback.id);
+      }
+      else if (data === 'cmd_balances') {
+        await answerCallback(callback.id, 'Loading balances...');
+        
+        const { data: wallets } = await supabase
+          .from('volume_bot_wallets')
+          .select('wallet_address')
+          .eq('bot_id', 'main')
+          .order('created_at', { ascending: true });
+
+        if (!wallets || wallets.length === 0) {
+          await editMessage(chatId, messageId, '❌ No wallets configured', mainMenuKeyboard);
+          return NextResponse.json({ ok: true });
+        }
+
+        let balanceText = '<b>💰 Wallet Balances</b>\n\n';
+        let totalSol = 0;
+        const currentIndex = config?.current_wallet_index || 0;
+
+        for (let i = 0; i < Math.min(wallets.length, 10); i++) {
+          const w = wallets[i];
+          try {
+            const pubkey = new PublicKey(w.wallet_address);
+            const solBalance = await connection.getBalance(pubkey);
+            const solAmount = solBalance / LAMPORTS_PER_SOL;
+            totalSol += solAmount;
+            const marker = i === currentIndex ? '👉 ' : '';
+            balanceText += `${marker}<b>${i + 1}.</b> ${solAmount.toFixed(4)} SOL\n`;
+          } catch {}
+        }
+
+        if (wallets.length > 10) {
+          balanceText += `\n<i>...and ${wallets.length - 10} more</i>\n`;
+        }
+
+        if (MASTER_KEY) {
+          const masterWallet = Keypair.fromSecretKey(parsePrivateKey(MASTER_KEY));
+          const masterBal = await connection.getBalance(masterWallet.publicKey);
+          balanceText += `\n🏦 <b>Master:</b> ${(masterBal / LAMPORTS_PER_SOL).toFixed(4)} SOL`;
+        }
+
+        balanceText += `\n\n<b>Total in wallets:</b> ${totalSol.toFixed(4)} SOL`;
+        await editMessage(chatId, messageId, balanceText, mainMenuKeyboard);
+      }
+      else if (data === 'cmd_stats') {
+        const { data: trades } = await supabase
+          .from('volume_bot_trades')
+          .select('trade_type, sol_amount, status, created_at')
+          .eq('bot_id', 'main')
+          .order('created_at', { ascending: false })
+          .limit(100);
+
+        const successful = trades?.filter((t: any) => t.status === 'success') || [];
+        const buys = successful.filter((t: any) => t.trade_type === 'buy');
+        const sells = successful.filter((t: any) => t.trade_type === 'sell');
+        const totalVolume = buys.reduce((sum: number, t: any) => sum + (t.sol_amount || 0), 0);
+
+        const statsText = `
+📊 <b>Trading Stats</b>
+
+<b>Total Trades:</b> ${successful.length}
+<b>Buys:</b> ${buys.length}
+<b>Sells:</b> ${sells.length}
+<b>Buy Volume:</b> ${totalVolume.toFixed(4)} SOL
+
+<b>Last Trade:</b> ${trades?.[0] ? new Date(trades[0].created_at).toLocaleString() : 'N/A'}
+        `;
+        await editMessage(chatId, messageId, statsText, mainMenuKeyboard);
+        await answerCallback(callback.id);
+      }
+
+      return NextResponse.json({ ok: true });
+    }
+
+    // ========== HANDLE TEXT MESSAGES ==========
     const message = update.message;
-    
     if (!message?.text) return NextResponse.json({ ok: true });
     
     const chatId = message.chat.id;
@@ -75,48 +469,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    const supabase = getSupabase();
-    const connection = new Connection(RPC_URL, 'confirmed');
     const [command, ...args] = text.split(' ');
 
     switch (command.toLowerCase()) {
+      case '/menu':
       case '/start':
       case '/help': {
-        await sendMessage(chatId, `
-🤖 <b>Volume Bot v2 - Split Buys</b>
-
-<b>How it works:</b>
-• Fund wallet with full master balance
-• Execute ${BUYS_PER_WALLET} buys (1 per minute)
-• Drain all tokens + withdraw to master
-• Move to next wallet, repeat
-• Cycles through ${TOTAL_WALLETS} wallets
-
-<b>Setup:</b>
-/token &lt;mint&gt; - Set token (SPT)
-/wallets - Generate ${TOTAL_WALLETS} fresh wallets
-/slippage &lt;bps&gt; - Set slippage (default 1000)
-
-<b>Control:</b>
-/run - Start cycling
-/stop - Stop bot
-/reset - Reset to wallet 1
-
-<b>Monitor:</b>
-/status - Full bot status
-/master - Master wallet balance
-/cycle - Current cycle info
-/balances - All wallet balances
-
-<b>Recovery:</b>
-/drainall - Sell all tokens in all wallets
-/withdrawall - Return all SOL to master
-/export - Export wallet keys
-
-<b>Info:</b>
-/cron - Get cron URL (every 1 min)
-/stats - Trading stats
-        `);
+        const statusText = await buildStatusText(supabase, connection);
+        await sendMessage(chatId, statusText, mainMenuKeyboard);
         break;
       }
 
@@ -155,12 +515,11 @@ export async function POST(request: NextRequest) {
           })
           .eq('bot_id', 'main');
 
-        await sendMessage(chatId, `✅ Token set!\n\n<b>Mint:</b> <code>${mint}</code>\n<b>Symbol:</b> ${symbol}\n<b>Decimals:</b> ${decimals}`);
+        await sendMessage(chatId, `✅ Token set!\n\n<b>Mint:</b> <code>${mint}</code>\n<b>Symbol:</b> ${symbol}\n<b>Decimals:</b> ${decimals}`, mainMenuKeyboard);
         break;
       }
 
       case '/wallets': {
-        // Check for existing wallets with funds
         const { data: existingWallets } = await supabase
           .from('volume_bot_wallets')
           .select('wallet_address, private_key_encrypted')
@@ -199,71 +558,6 @@ Or /export to save current keys.
         break;
       }
 
-      case '/master': {
-        if (!MASTER_KEY) {
-          await sendMessage(chatId, '❌ VOLUME_BOT_MASTER_KEY not set');
-          break;
-        }
-
-        const masterWallet = Keypair.fromSecretKey(parsePrivateKey(MASTER_KEY));
-        const balance = await connection.getBalance(masterWallet.publicKey);
-        
-        await sendMessage(chatId, `
-🏦 <b>Master Wallet</b>
-
-<b>Address:</b> <code>${masterWallet.publicKey.toString()}</code>
-<b>Balance:</b> ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL
-
-<a href="https://solscan.io/account/${masterWallet.publicKey.toString()}">View on Solscan</a>
-        `);
-        break;
-      }
-
-      case '/cycle': {
-        const { data: config } = await supabase
-          .from('volume_bot_config')
-          .select('*')
-          .eq('bot_id', 'main')
-          .single();
-
-        const currentIndex = config?.current_wallet_index || 0;
-        const phase = config?.cycle_phase || 'idle';
-        const buyCount = config?.buy_count || 0;
-        
-        let phaseText = phase;
-        if (phase === 'buying') {
-          phaseText = `buying (${buyCount}/10)`;
-        }
-
-        await sendMessage(chatId, `
-🔄 <b>Current Cycle</b>
-
-<b>Wallet:</b> ${currentIndex + 1} of ${TOTAL_WALLETS}
-<b>Phase:</b> ${phaseText}
-<b>Buys Done:</b> ${buyCount}/10
-<b>Status:</b> ${config?.is_running ? '🟢 Running' : '🔴 Stopped'}
-
-<b>Flow:</b> Fund → 10 buys → Drain → Next wallet
-        `);
-        break;
-      }
-
-      case '/reset': {
-        await supabase
-          .from('volume_bot_config')
-          .update({
-            current_wallet_index: 0,
-            cycle_phase: 'idle',
-            cycle_started_at: null,
-            buy_count: 0,
-            updated_at: new Date().toISOString()
-          })
-          .eq('bot_id', 'main');
-
-        await sendMessage(chatId, '✅ Reset to wallet 1, buy count 0. Use /run to start fresh.');
-        break;
-      }
-
       case '/slippage': {
         const bps = parseInt(args[0]);
         if (!bps || bps < 50 || bps > 5000) {
@@ -276,172 +570,7 @@ Or /export to save current keys.
           .update({ slippage_bps: bps, updated_at: new Date().toISOString() })
           .eq('bot_id', 'main');
 
-        await sendMessage(chatId, `✅ Slippage set to ${bps} bps (${bps / 100}%)`);
-        break;
-      }
-
-      case '/run': {
-        const { data: config } = await supabase
-          .from('volume_bot_config')
-          .select('*')
-          .eq('bot_id', 'main')
-          .single();
-
-        if (!config?.token_mint) {
-          await sendMessage(chatId, '❌ Set token first with /token');
-          break;
-        }
-
-        const { data: wallets } = await supabase
-          .from('volume_bot_wallets')
-          .select('wallet_address')
-          .eq('bot_id', 'main');
-
-        if (!wallets || wallets.length < TOTAL_WALLETS) {
-          await sendMessage(chatId, `❌ Need ${TOTAL_WALLETS} wallets. Use /wallets to generate.`);
-          break;
-        }
-
-        if (!MASTER_KEY) {
-          await sendMessage(chatId, '❌ VOLUME_BOT_MASTER_KEY not set');
-          break;
-        }
-
-        const masterWallet = Keypair.fromSecretKey(parsePrivateKey(MASTER_KEY));
-        const masterBalance = await connection.getBalance(masterWallet.publicKey);
-
-        await supabase
-          .from('volume_bot_config')
-          .update({ 
-            is_running: true,
-            cycle_phase: 'idle', // Will start fresh on next cron
-            updated_at: new Date().toISOString()
-          })
-          .eq('bot_id', 'main');
-
-        await sendMessage(chatId, `
-🚀 <b>Bot Started!</b>
-
-<b>Token:</b> ${config.token_symbol}
-<b>Wallets:</b> ${wallets.length}
-<b>Cycle:</b> ${CYCLE_DURATION_MINUTES} minutes
-<b>Master Balance:</b> ${(masterBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL
-<b>Slippage:</b> ${config.slippage_bps || 500} bps
-
-Bot will cycle through all wallets automatically.
-Use /cycle to monitor progress.
-        `);
-        break;
-      }
-
-      case '/stop': {
-        await supabase
-          .from('volume_bot_config')
-          .update({ is_running: false, updated_at: new Date().toISOString() })
-          .eq('bot_id', 'main');
-
-        await sendMessage(chatId, '⏹ Bot stopped. Use /run to resume.');
-        break;
-      }
-
-      case '/status': {
-        const { data: config } = await supabase
-          .from('volume_bot_config')
-          .select('*')
-          .eq('bot_id', 'main')
-          .single();
-
-        const { data: wallets } = await supabase
-          .from('volume_bot_wallets')
-          .select('wallet_address')
-          .eq('bot_id', 'main');
-
-        let masterBalance = 0;
-        if (MASTER_KEY) {
-          const masterWallet = Keypair.fromSecretKey(parsePrivateKey(MASTER_KEY));
-          masterBalance = await connection.getBalance(masterWallet.publicKey);
-        }
-
-        const status = config?.is_running ? '🟢 Running' : '🔴 Stopped';
-        const currentWallet = (config?.current_wallet_index || 0) + 1;
-        const buyCount = config?.buy_count || 0;
-        
-        await sendMessage(chatId, `
-📊 <b>Volume Bot Status</b>
-
-<b>Status:</b> ${status}
-<b>Token:</b> ${config?.token_symbol || 'Not set'}
-<b>Mint:</b> <code>${config?.token_mint || 'Not set'}</code>
-
-<b>Wallets:</b> ${wallets?.length || 0}/${TOTAL_WALLETS}
-<b>Current:</b> Wallet ${currentWallet}
-<b>Phase:</b> ${config?.cycle_phase || 'idle'}
-<b>Buys:</b> ${buyCount}/${BUYS_PER_WALLET}
-
-<b>Master Balance:</b> ${(masterBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL
-<b>Slippage:</b> ${config?.slippage_bps || 1000} bps
-        `);
-        break;
-      }
-
-      case '/balances': {
-        const { data: wallets } = await supabase
-          .from('volume_bot_wallets')
-          .select('wallet_address')
-          .eq('bot_id', 'main')
-          .order('created_at', { ascending: true });
-
-        const { data: config } = await supabase
-          .from('volume_bot_config')
-          .select('token_mint, token_symbol, current_wallet_index')
-          .eq('bot_id', 'main')
-          .single();
-
-        if (!wallets || wallets.length === 0) {
-          await sendMessage(chatId, '❌ No wallets');
-          break;
-        }
-
-        await sendMessage(chatId, '⏳ Checking balances...');
-
-        let balanceText = '<b>Wallet Balances</b>\n\n';
-        let totalSol = 0;
-        let totalToken = 0;
-        const currentIndex = config?.current_wallet_index || 0;
-
-        for (let i = 0; i < wallets.length; i++) {
-          const w = wallets[i];
-          try {
-            const pubkey = new PublicKey(w.wallet_address);
-            const solBalance = await connection.getBalance(pubkey);
-            const solAmount = solBalance / LAMPORTS_PER_SOL;
-            totalSol += solAmount;
-
-            let tokenAmount = 0;
-            if (config?.token_mint) {
-              const { amount } = await getTokenBalance(connection, pubkey, config.token_mint);
-              tokenAmount = amount;
-              totalToken += tokenAmount;
-            }
-
-            const marker = i === currentIndex ? '👉 ' : '';
-            balanceText += `${marker}<b>${i + 1}.</b> ${solAmount.toFixed(4)} SOL`;
-            if (tokenAmount > 0) balanceText += ` | ${tokenAmount.toLocaleString()} ${config.token_symbol}`;
-            balanceText += '\n';
-          } catch {}
-        }
-
-        // Add master balance
-        if (MASTER_KEY) {
-          const masterWallet = Keypair.fromSecretKey(parsePrivateKey(MASTER_KEY));
-          const masterBal = await connection.getBalance(masterWallet.publicKey);
-          balanceText += `\n🏦 <b>Master:</b> ${(masterBal / LAMPORTS_PER_SOL).toFixed(4)} SOL`;
-        }
-
-        balanceText += `\n\n<b>Total in wallets:</b> ${totalSol.toFixed(4)} SOL`;
-        if (totalToken > 0) balanceText += ` | ${totalToken.toLocaleString()} ${config?.token_symbol}`;
-
-        await sendMessage(chatId, balanceText);
+        await sendMessage(chatId, `✅ Slippage set to ${bps} bps (${bps / 100}%)`, mainMenuKeyboard);
         break;
       }
 
@@ -484,20 +613,28 @@ Use /cycle to monitor progress.
               inputMint: config.token_mint,
               outputMint: 'So11111111111111111111111111111111111111112',
               amount: rawAmount.toString(),
-              taker: wallet.publicKey.toString(),
               slippageBps: (config.slippage_bps || 1000).toString(),
             });
 
-            const orderRes = await fetch(`https://lite-api.jup.ag/ultra/v1/order?${params}`, {
-              headers: { 'Accept': 'application/json' },
+            const quoteRes = await fetch(`https://api.jup.ag/swap/v1/quote?${params}`);
+            if (!quoteRes.ok) continue;
+
+            const quoteData = await quoteRes.json();
+
+            const swapRes = await fetch('https://api.jup.ag/swap/v1/swap', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                quoteResponse: quoteData,
+                userPublicKey: wallet.publicKey.toString(),
+                wrapAndUnwrapSol: true,
+              }),
             });
 
-            if (!orderRes.ok) continue;
+            if (!swapRes.ok) continue;
+            const swapData = await swapRes.json();
 
-            const orderData = await orderRes.json();
-            if (!orderData.transaction) continue;
-
-            const tx = VersionedTransaction.deserialize(Buffer.from(orderData.transaction, 'base64'));
+            const tx = VersionedTransaction.deserialize(Buffer.from(swapData.swapTransaction, 'base64'));
             tx.sign([wallet]);
 
             await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true });
@@ -510,7 +647,7 @@ Use /cycle to monitor progress.
           }
         }
 
-        await sendMessage(chatId, `✅ Drained ${drained} wallets\n💰 ~${totalTokens.toLocaleString()} tokens sold`);
+        await sendMessage(chatId, `✅ Drained ${drained} wallets\n💰 ~${totalTokens.toLocaleString()} tokens sold`, mainMenuKeyboard);
         break;
       }
 
@@ -570,7 +707,7 @@ Use /cycle to monitor progress.
         }
 
         const newMasterBalance = await connection.getBalance(masterWallet.publicKey);
-        await sendMessage(chatId, `✅ Withdrew from ${withdrawn} wallets\n💰 ~${totalSol.toFixed(4)} SOL\n🏦 Master now: ${(newMasterBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
+        await sendMessage(chatId, `✅ Withdrew from ${withdrawn} wallets\n💰 ~${totalSol.toFixed(4)} SOL\n🏦 Master now: ${(newMasterBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL`, mainMenuKeyboard);
         break;
       }
 
@@ -595,39 +732,6 @@ Use /cycle to monitor progress.
         break;
       }
 
-      case '/stats': {
-        const { data: trades } = await supabase
-          .from('volume_bot_trades')
-          .select('trade_type, sol_amount, status, created_at')
-          .eq('bot_id', 'main')
-          .order('created_at', { ascending: false })
-          .limit(100);
-
-        if (!trades || trades.length === 0) {
-          await sendMessage(chatId, '📊 No trades yet');
-          break;
-        }
-
-        const successful = trades.filter(t => t.status === 'success');
-        const buys = successful.filter(t => t.trade_type === 'buy');
-        const sells = successful.filter(t => t.trade_type === 'sell');
-        const errors = trades.filter(t => t.status === 'failed');
-        const totalVolume = buys.reduce((sum, t) => sum + (t.sol_amount || 0), 0);
-
-        await sendMessage(chatId, `
-📊 <b>Trading Stats</b>
-
-<b>Total Trades:</b> ${successful.length}
-<b>Buys:</b> ${buys.length}
-<b>Sells:</b> ${sells.length}
-<b>Errors:</b> ${errors.length}
-<b>Buy Volume:</b> ${totalVolume.toFixed(4)} SOL
-
-<b>Last Trade:</b> ${trades[0] ? new Date(trades[0].created_at).toLocaleString() : 'N/A'}
-        `);
-        break;
-      }
-
       case '/cron': {
         const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://stakepoint.app';
         await sendMessage(chatId, `
@@ -644,7 +748,7 @@ Interval: Every 1 minute
       }
 
       default: {
-        await sendMessage(chatId, '❓ Unknown command. Use /help');
+        await sendMessage(chatId, '❓ Unknown command. Use /menu', mainMenuKeyboard);
       }
     }
 
@@ -665,50 +769,34 @@ async function createNewWallets(supabase: any, chatId: number, count: number) {
     });
   }
 
-  // Clear old wallets
-  const { error: deleteError } = await supabase
-    .from('volume_bot_wallets')
-    .delete()
-    .eq('bot_id', 'main');
+  await supabase.from('volume_bot_wallets').delete().eq('bot_id', 'main');
 
-  if (deleteError) {
-    await sendMessage(chatId, `❌ Failed to clear old wallets: ${deleteError.message}`);
-    return;
-  }
-
-  // Batch insert all wallets
   const walletRows = wallets.map(w => ({
     bot_id: 'main',
     wallet_address: w.address,
     private_key_encrypted: w.privateKey,
   }));
 
-  const { error: insertError } = await supabase
-    .from('volume_bot_wallets')
-    .insert(walletRows);
+  const { error: insertError } = await supabase.from('volume_bot_wallets').insert(walletRows);
 
   if (insertError) {
-    await sendMessage(chatId, `❌ Failed to save wallets: ${insertError.message}`);
+    await sendMessage(chatId, `❌ Failed to save wallets: ${insertError.message}`, undefined);
     return;
   }
 
-  // Reset cycle state
-  await supabase
-    .from('volume_bot_config')
-    .update({
-      current_wallet_index: 0,
-      cycle_phase: 'idle',
-      cycle_started_at: null,
-      updated_at: new Date().toISOString()
-    })
-    .eq('bot_id', 'main');
+  await supabase.from('volume_bot_config').update({
+    current_wallet_index: 0,
+    cycle_phase: 'idle',
+    cycle_started_at: null,
+    buy_count: 0,
+    custom_buy_time: null,
+  }).eq('bot_id', 'main');
 
-  // Send wallets directly in confirmation (so you have them even if /export fails)
   let exportText = `✅ Generated ${count} fresh wallets!\n\n`;
   for (let i = 0; i < wallets.length; i++) {
     exportText += `<b>${i + 1}.</b> <code>${wallets[i].address}</code>\n<code>${wallets[i].privateKey}</code>\n\n`;
   }
-  exportText += `Use /run to start cycling.`;
+  exportText += `Use /menu to start.`;
 
-  await sendMessage(chatId, exportText);
+  await sendMessage(chatId, exportText, undefined);
 }
