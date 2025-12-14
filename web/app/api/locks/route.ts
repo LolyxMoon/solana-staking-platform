@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { TelegramBotService } from '@/lib/telegram-bot';
+import { Connection, PublicKey } from '@solana/web3.js';
 
-// GET all locks
+// GET all locks - public read is fine
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -60,9 +61,58 @@ export async function POST(request: NextRequest) {
       logo,
     } = body;
 
-    if (!tokenMint || !name || !symbol || !amount || !lockDuration || !creatorWallet) {
+    // Validate required fields
+    if (!tokenMint || !name || !symbol || !amount || !lockDuration || !creatorWallet || !stakePda) {
       return NextResponse.json(
         { error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+
+    // Validate public key formats
+    try {
+      new PublicKey(tokenMint);
+      new PublicKey(creatorWallet);
+      new PublicKey(stakePda);
+      if (poolAddress) new PublicKey(poolAddress);
+    } catch {
+      return NextResponse.json(
+        { error: 'Invalid public key format' },
+        { status: 400 }
+      );
+    }
+
+    // ✅ VERIFY ON-CHAIN: Check that the lock/stake PDA exists
+    const connection = new Connection(
+      process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com'
+    );
+
+    try {
+      const stakePdaKey = new PublicKey(stakePda);
+      const accountInfo = await connection.getAccountInfo(stakePdaKey);
+
+      if (!accountInfo) {
+        console.error('❌ Lock PDA does not exist on-chain:', stakePda);
+        return NextResponse.json(
+          { error: 'Lock not found on-chain. Please create the lock first.' },
+          { status: 400 }
+        );
+      }
+
+      console.log('✅ Lock PDA verified on-chain:', stakePda);
+
+      // Optional: Decode account to verify owner matches creatorWallet
+      // This depends on your program's account structure
+      // const program = new Program(IDL, PROGRAM_ID, provider);
+      // const lockAccount = await program.account.lockEntry.fetch(stakePdaKey);
+      // if (lockAccount.owner.toBase58() !== creatorWallet) {
+      //   return NextResponse.json({ error: 'Wallet mismatch' }, { status: 403 });
+      // }
+
+    } catch (fetchError: any) {
+      console.error('❌ On-chain verification failed:', fetchError);
+      return NextResponse.json(
+        { error: 'Could not verify lock on-chain' },
         { status: 400 }
       );
     }
@@ -99,6 +149,8 @@ export async function POST(request: NextRequest) {
         isUnlocked: false,
       },
     });
+
+    console.log('✅ Lock created/updated:', lock.id);
 
     // 📢 Send Telegram alert for new lock
     try {
