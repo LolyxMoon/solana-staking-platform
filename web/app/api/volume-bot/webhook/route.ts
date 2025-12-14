@@ -16,6 +16,10 @@ const BOT_TOKEN = process.env.VOLUME_BOT_TOKEN!;
 const ALLOWED_USER_IDS = process.env.VOLUME_BOT_ALLOWED_IDS?.split(',').map(id => parseInt(id.trim())) || [];
 const RPC_URL = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT!;
 const CRON_SECRET = process.env.VOLUME_BOT_CRON_SECRET || 'your-secret-key';
+const MASTER_KEY = process.env.VOLUME_BOT_MASTER_KEY;
+
+const TOTAL_WALLETS = 20;
+const CYCLE_DURATION_MINUTES = 15;
 
 function getSupabase() {
   const { createClient } = require('@supabase/supabase-js');
@@ -42,26 +46,15 @@ function isAuthorized(userId: number): boolean {
   return ALLOWED_USER_IDS.includes(userId);
 }
 
-// Reliable token balance check using getParsedTokenAccountsByOwner
 async function getTokenBalance(connection: Connection, wallet: PublicKey, tokenMint: string): Promise<{ amount: number; rawAmount: number }> {
   try {
-    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-      wallet,
-      { mint: new PublicKey(tokenMint) }
-    );
-    
-    if (tokenAccounts.value.length === 0) {
-      return { amount: 0, rawAmount: 0 };
-    }
-    
+    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(wallet, { mint: new PublicKey(tokenMint) });
+    if (tokenAccounts.value.length === 0) return { amount: 0, rawAmount: 0 };
     const info = tokenAccounts.value[0].account.data.parsed.info;
     const rawAmount = Number(info.tokenAmount.amount);
     const decimals = info.tokenAmount.decimals;
-    const amount = rawAmount / Math.pow(10, decimals);
-    
-    return { amount, rawAmount };
-  } catch (err) {
-    console.error('Error getting token balance:', err);
+    return { amount: rawAmount / Math.pow(10, decimals), rawAmount };
+  } catch {
     return { amount: 0, rawAmount: 0 };
   }
 }
@@ -90,33 +83,37 @@ export async function POST(request: NextRequest) {
       case '/start':
       case '/help': {
         await sendMessage(chatId, `
-🤖 <b>Volume Bot Commands</b>
+🤖 <b>Volume Bot v2 - Sequential Cycling</b>
+
+<b>How it works:</b>
+• 20 wallets rotate every ${CYCLE_DURATION_MINUTES} minutes
+• Full master balance → wallet → buy → sell → return
+• Automatic cycling through all wallets
 
 <b>Setup:</b>
-/token &lt;mint&gt; - Set token to trade
-/wallets &lt;count&gt; - Generate wallets (1-10)
-/fund &lt;sol&gt; - Fund all wallets from master
-/amount &lt;min&gt; &lt;max&gt; - Set SOL range per trade
-/interval &lt;seconds&gt; - Set trade interval
-/slippage &lt;bps&gt; - Set slippage (default 300)
+/token &lt;mint&gt; - Set token (SPT)
+/wallets - Generate ${TOTAL_WALLETS} fresh wallets
+/slippage &lt;bps&gt; - Set slippage (default 500)
 
 <b>Control:</b>
-/run - Start trading
-/stop - Stop trading
-/status - View bot status
-/balances - Check all wallet balances
-/stats - View trading stats
+/run - Start cycling
+/stop - Stop bot
+/reset - Reset to wallet 1
+
+<b>Monitor:</b>
+/status - Full bot status
+/master - Master wallet balance
+/cycle - Current cycle info
+/balances - All wallet balances
 
 <b>Recovery:</b>
-/drain - Sell all tokens in all wallets to SOL
-/withdraw - Send all SOL back to master
+/drainall - Sell all tokens in all wallets
+/withdrawall - Return all SOL to master
+/export - Export wallet keys
 
 <b>Info:</b>
-/export - Export wallet keys
-/errors - View recent errors
 /cron - Get cron URL
-
-<b>⚠️ IMPORTANT:</b> Always /export before /wallets!
+/stats - Trading stats
         `);
         break;
       }
@@ -128,9 +125,7 @@ export async function POST(request: NextRequest) {
         }
         
         const mint = args[0];
-        try {
-          new PublicKey(mint);
-        } catch {
+        try { new PublicKey(mint); } catch {
           await sendMessage(chatId, '❌ Invalid mint address');
           break;
         }
@@ -140,9 +135,7 @@ export async function POST(request: NextRequest) {
         try {
           const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
           const data = await res.json();
-          if (data.pairs?.[0]?.baseToken) {
-            symbol = data.pairs[0].baseToken.symbol;
-          }
+          if (data.pairs?.[0]?.baseToken) symbol = data.pairs[0].baseToken.symbol;
           
           const mintInfo = await connection.getParsedAccountInfo(new PublicKey(mint));
           if (mintInfo.value?.data && typeof mintInfo.value.data === 'object') {
@@ -165,296 +158,105 @@ export async function POST(request: NextRequest) {
       }
 
       case '/wallets': {
-        const count = Math.min(Math.max(parseInt(args[0]) || 3, 1), 10);
-        
-        // Check if wallets already exist with funds
+        // Check for existing wallets with funds
         const { data: existingWallets } = await supabase
           .from('volume_bot_wallets')
           .select('wallet_address, private_key_encrypted')
           .eq('bot_id', 'main');
 
         if (existingWallets && existingWallets.length > 0) {
-          // Check balances
           let totalSol = 0;
-          let totalTokens = 0;
-          const { data: config } = await supabase
-            .from('volume_bot_config')
-            .select('token_mint, token_decimals')
-            .eq('bot_id', 'main')
-            .single();
-
           for (const w of existingWallets) {
             try {
-              const pubkey = new PublicKey(w.wallet_address);
-              const solBal = await connection.getBalance(pubkey);
-              totalSol += solBal / LAMPORTS_PER_SOL;
-
-              if (config?.token_mint) {
-                const { amount } = await getTokenBalance(connection, pubkey, config.token_mint);
-                totalTokens += amount;
-              }
+              const balance = await connection.getBalance(new PublicKey(w.wallet_address));
+              totalSol += balance / LAMPORTS_PER_SOL;
             } catch {}
           }
 
-          if (totalSol > 0.001 || totalTokens > 0) {
+          if (totalSol > 0.001) {
             await sendMessage(chatId, `
-⚠️ <b>WARNING: Existing wallets have funds!</b>
+⚠️ <b>Existing wallets have ${totalSol.toFixed(4)} SOL!</b>
 
-<b>Current wallets:</b> ${existingWallets.length}
-<b>Total SOL:</b> ${totalSol.toFixed(4)}
-<b>Total tokens:</b> ${totalTokens.toLocaleString()}
+Run these first:
+1. /drainall - Sell all tokens
+2. /withdrawall - Return SOL to master
+3. /wallets_confirm - Then create new wallets
 
-Creating new wallets will <b>DELETE</b> these forever!
-
-<b>Options:</b>
-1. /export - Save current keys first
-2. /drain - Sell tokens to SOL first
-3. /withdraw - Send SOL to master first
-4. /wallets_confirm ${count} - Proceed anyway (DANGEROUS)
+Or /export to save current keys.
             `);
             break;
           }
         }
 
-        // Safe to create - no existing wallets or they're empty
-        await createNewWallets(supabase, chatId, count);
+        await createNewWallets(supabase, chatId, TOTAL_WALLETS);
         break;
       }
 
       case '/wallets_confirm': {
-        const count = Math.min(Math.max(parseInt(args[0]) || 3, 1), 10);
-        await createNewWallets(supabase, chatId, count);
+        await createNewWallets(supabase, chatId, TOTAL_WALLETS);
         break;
       }
 
-      case '/drain': {
-        const { data: wallets } = await supabase
-          .from('volume_bot_wallets')
-          .select('wallet_address, private_key_encrypted')
-          .eq('bot_id', 'main');
+      case '/master': {
+        if (!MASTER_KEY) {
+          await sendMessage(chatId, '❌ VOLUME_BOT_MASTER_KEY not set');
+          break;
+        }
 
+        const masterWallet = Keypair.fromSecretKey(parsePrivateKey(MASTER_KEY));
+        const balance = await connection.getBalance(masterWallet.publicKey);
+        
+        await sendMessage(chatId, `
+🏦 <b>Master Wallet</b>
+
+<b>Address:</b> <code>${masterWallet.publicKey.toString()}</code>
+<b>Balance:</b> ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL
+
+<a href="https://solscan.io/account/${masterWallet.publicKey.toString()}">View on Solscan</a>
+        `);
+        break;
+      }
+
+      case '/cycle': {
         const { data: config } = await supabase
           .from('volume_bot_config')
-          .select('token_mint, token_decimals, slippage_bps')
+          .select('*')
           .eq('bot_id', 'main')
           .single();
 
-        if (!wallets || wallets.length === 0) {
-          await sendMessage(chatId, '❌ No wallets');
-          break;
-        }
-
-        if (!config?.token_mint) {
-          await sendMessage(chatId, '❌ No token configured');
-          break;
-        }
-
-        await sendMessage(chatId, `⏳ Draining tokens from ${wallets.length} wallets...`);
-
-        let drained = 0;
-        let totalTokens = 0;
-
-        for (const w of wallets) {
-          try {
-            const wallet = Keypair.fromSecretKey(parsePrivateKey(w.private_key_encrypted));
-            
-            // Use reliable token balance check
-            const { amount, rawAmount } = await getTokenBalance(connection, wallet.publicKey, config.token_mint);
-
-            if (rawAmount === 0) continue;
-
-            // Sell all tokens
-            const params = new URLSearchParams({
-              inputMint: config.token_mint,
-              outputMint: 'So11111111111111111111111111111111111111112',
-              amount: rawAmount.toString(),
-              taker: wallet.publicKey.toString(),
-              slippageBps: (config.slippage_bps || 1000).toString(),
-            });
-
-            const orderRes = await fetch(`https://lite-api.jup.ag/ultra/v1/order?${params}`, {
-              headers: { 'Accept': 'application/json' },
-            });
-
-            if (!orderRes.ok) continue;
-
-            const orderData = await orderRes.json();
-            if (!orderData.transaction) continue;
-
-            const { VersionedTransaction } = await import('@solana/web3.js');
-            const tx = VersionedTransaction.deserialize(Buffer.from(orderData.transaction, 'base64'));
-            tx.sign([wallet]);
-
-            await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true });
-            
-            drained++;
-            totalTokens += amount;
-          } catch (err) {
-            console.error('Drain error:', err);
-          }
-        }
-
-        await sendMessage(chatId, `✅ Drained ${drained} wallets\n💰 ~${totalTokens.toLocaleString()} tokens sold`);
-        break;
-      }
-
-      case '/withdraw': {
-        const masterKey = process.env.VOLUME_BOT_MASTER_KEY;
-        if (!masterKey) {
-          await sendMessage(chatId, '❌ VOLUME_BOT_MASTER_KEY not set');
-          break;
-        }
-
-        const masterWallet = Keypair.fromSecretKey(parsePrivateKey(masterKey));
-
-        const { data: wallets } = await supabase
-          .from('volume_bot_wallets')
-          .select('wallet_address, private_key_encrypted')
-          .eq('bot_id', 'main');
-
-        if (!wallets || wallets.length === 0) {
-          await sendMessage(chatId, '❌ No wallets');
-          break;
-        }
-
-        await sendMessage(chatId, `⏳ Withdrawing SOL to master...`);
-
-        const { Transaction, SystemProgram } = await import('@solana/web3.js');
-        let withdrawn = 0;
-        let totalSol = 0;
-
-        for (const w of wallets) {
-          try {
-            const wallet = Keypair.fromSecretKey(parsePrivateKey(w.private_key_encrypted));
-            const balance = await connection.getBalance(wallet.publicKey);
-            
-            // Leave 0.001 SOL for rent
-            const sendAmount = balance - 0.001 * LAMPORTS_PER_SOL;
-            if (sendAmount <= 0) continue;
-
-            const tx = new Transaction().add(
-              SystemProgram.transfer({
-                fromPubkey: wallet.publicKey,
-                toPubkey: masterWallet.publicKey,
-                lamports: Math.floor(sendAmount),
-              })
-            );
-
-            const { blockhash } = await connection.getLatestBlockhash();
-            tx.recentBlockhash = blockhash;
-            tx.feePayer = wallet.publicKey;
-            tx.sign(wallet);
-
-            await connection.sendRawTransaction(tx.serialize());
-            withdrawn++;
-            totalSol += sendAmount / LAMPORTS_PER_SOL;
-          } catch (err) {
-            console.error('Withdraw error:', err);
-          }
-        }
-
-        await sendMessage(chatId, `✅ Withdrew from ${withdrawn} wallets\n💰 ~${totalSol.toFixed(4)} SOL sent to master`);
-        break;
-      }
-
-      case '/fund': {
-        const solAmount = parseFloat(args[0]);
-        if (!solAmount || solAmount <= 0) {
-          await sendMessage(chatId, '❌ Usage: /fund <sol_per_wallet>');
-          break;
-        }
-
-        const masterKey = process.env.VOLUME_BOT_MASTER_KEY;
-        if (!masterKey) {
-          await sendMessage(chatId, '❌ VOLUME_BOT_MASTER_KEY not set');
-          break;
-        }
-
-        const { data: wallets } = await supabase
-          .from('volume_bot_wallets')
-          .select('wallet_address')
-          .eq('bot_id', 'main');
-
-        if (!wallets || wallets.length === 0) {
-          await sendMessage(chatId, '❌ No wallets. Use /wallets first');
-          break;
-        }
-
-        const masterWallet = Keypair.fromSecretKey(parsePrivateKey(masterKey));
-        const masterBalance = await connection.getBalance(masterWallet.publicKey);
-        const totalNeeded = solAmount * wallets.length * LAMPORTS_PER_SOL;
-
-        if (masterBalance < totalNeeded + 0.01 * LAMPORTS_PER_SOL) {
-          await sendMessage(chatId, `❌ Insufficient master balance!\n\nHave: ${(masterBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL\nNeed: ${(totalNeeded / LAMPORTS_PER_SOL).toFixed(4)} SOL\n\nMaster: <code>${masterWallet.publicKey.toString()}</code>`);
-          break;
-        }
-
-        await sendMessage(chatId, `⏳ Funding ${wallets.length} wallets with ${solAmount} SOL each...`);
-
-        const { Transaction, SystemProgram } = await import('@solana/web3.js');
-        let funded = 0;
+        const currentIndex = config?.current_wallet_index || 0;
+        const phase = config?.cycle_phase || 'idle';
+        const cycleStarted = config?.cycle_started_at ? new Date(config.cycle_started_at) : null;
         
-        for (const w of wallets) {
-          try {
-            const tx = new Transaction().add(
-              SystemProgram.transfer({
-                fromPubkey: masterWallet.publicKey,
-                toPubkey: new PublicKey(w.wallet_address),
-                lamports: Math.floor(solAmount * LAMPORTS_PER_SOL),
-              })
-            );
-            
-            const { blockhash } = await connection.getLatestBlockhash();
-            tx.recentBlockhash = blockhash;
-            tx.feePayer = masterWallet.publicKey;
-            tx.sign(masterWallet);
-            
-            await connection.sendRawTransaction(tx.serialize());
-            funded++;
-          } catch (err) {
-            console.error('Fund error:', err);
-          }
+        let timeInfo = '';
+        if (cycleStarted) {
+          const minutesIn = (Date.now() - cycleStarted.getTime()) / 60000;
+          const remaining = CYCLE_DURATION_MINUTES - minutesIn;
+          timeInfo = `\n<b>Time in cycle:</b> ${minutesIn.toFixed(1)} min\n<b>Next wallet in:</b> ${Math.max(0, remaining).toFixed(1)} min`;
         }
 
-        await sendMessage(chatId, `✅ Funded ${funded}/${wallets.length} wallets with ${solAmount} SOL each`);
+        await sendMessage(chatId, `
+🔄 <b>Current Cycle</b>
+
+<b>Wallet:</b> ${currentIndex + 1} of ${TOTAL_WALLETS}
+<b>Phase:</b> ${phase}
+<b>Status:</b> ${config?.is_running ? '🟢 Running' : '🔴 Stopped'}${timeInfo}
+        `);
         break;
       }
 
-      case '/amount': {
-        const min = parseFloat(args[0]);
-        const max = parseFloat(args[1]) || min;
-        
-        if (!min || min <= 0) {
-          await sendMessage(chatId, '❌ Usage: /amount <min_sol> <max_sol>');
-          break;
-        }
-
+      case '/reset': {
         await supabase
           .from('volume_bot_config')
-          .update({ 
-            min_sol_amount: Math.min(min, max), 
-            max_sol_amount: Math.max(min, max),
-            updated_at: new Date().toISOString() 
+          .update({
+            current_wallet_index: 0,
+            cycle_phase: 'idle',
+            cycle_started_at: null,
+            updated_at: new Date().toISOString()
           })
           .eq('bot_id', 'main');
 
-        await sendMessage(chatId, `✅ Trade amount: ${Math.min(min, max)} - ${Math.max(min, max)} SOL`);
-        break;
-      }
-
-      case '/interval': {
-        const seconds = parseInt(args[0]);
-        if (!seconds || seconds < 10) {
-          await sendMessage(chatId, '❌ Usage: /interval <seconds> (min 10)');
-          break;
-        }
-
-        await supabase
-          .from('volume_bot_config')
-          .update({ interval_seconds: seconds, updated_at: new Date().toISOString() })
-          .eq('bot_id', 'main');
-
-        await sendMessage(chatId, `✅ Interval set to ${seconds} seconds`);
+        await sendMessage(chatId, '✅ Reset to wallet 1. Use /run to start fresh.');
         break;
       }
 
@@ -491,17 +293,40 @@ Creating new wallets will <b>DELETE</b> these forever!
           .select('wallet_address')
           .eq('bot_id', 'main');
 
-        if (!wallets || wallets.length === 0) {
-          await sendMessage(chatId, '❌ Generate wallets first with /wallets');
+        if (!wallets || wallets.length < TOTAL_WALLETS) {
+          await sendMessage(chatId, `❌ Need ${TOTAL_WALLETS} wallets. Use /wallets to generate.`);
           break;
         }
 
+        if (!MASTER_KEY) {
+          await sendMessage(chatId, '❌ VOLUME_BOT_MASTER_KEY not set');
+          break;
+        }
+
+        const masterWallet = Keypair.fromSecretKey(parsePrivateKey(MASTER_KEY));
+        const masterBalance = await connection.getBalance(masterWallet.publicKey);
+
         await supabase
           .from('volume_bot_config')
-          .update({ is_running: true, updated_at: new Date().toISOString() })
+          .update({ 
+            is_running: true,
+            cycle_phase: 'idle', // Will start fresh on next cron
+            updated_at: new Date().toISOString()
+          })
           .eq('bot_id', 'main');
 
-        await sendMessage(chatId, `🚀 Bot started!\n\n<b>Token:</b> ${config.token_symbol}\n<b>Wallets:</b> ${wallets.length}\n<b>Amount:</b> ${config.min_sol_amount}-${config.max_sol_amount} SOL\n<b>Interval:</b> ${config.interval_seconds}s\n<b>Slippage:</b> ${config.slippage_bps} bps`);
+        await sendMessage(chatId, `
+🚀 <b>Bot Started!</b>
+
+<b>Token:</b> ${config.token_symbol}
+<b>Wallets:</b> ${wallets.length}
+<b>Cycle:</b> ${CYCLE_DURATION_MINUTES} minutes
+<b>Master Balance:</b> ${(masterBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL
+<b>Slippage:</b> ${config.slippage_bps || 500} bps
+
+Bot will cycle through all wallets automatically.
+Use /cycle to monitor progress.
+        `);
         break;
       }
 
@@ -511,7 +336,7 @@ Creating new wallets will <b>DELETE</b> these forever!
           .update({ is_running: false, updated_at: new Date().toISOString() })
           .eq('bot_id', 'main');
 
-        await sendMessage(chatId, '⏹ Bot stopped');
+        await sendMessage(chatId, '⏹ Bot stopped. Use /run to resume.');
         break;
       }
 
@@ -527,18 +352,29 @@ Creating new wallets will <b>DELETE</b> these forever!
           .select('wallet_address')
           .eq('bot_id', 'main');
 
+        let masterBalance = 0;
+        if (MASTER_KEY) {
+          const masterWallet = Keypair.fromSecretKey(parsePrivateKey(MASTER_KEY));
+          masterBalance = await connection.getBalance(masterWallet.publicKey);
+        }
+
         const status = config?.is_running ? '🟢 Running' : '🔴 Stopped';
+        const currentWallet = (config?.current_wallet_index || 0) + 1;
         
         await sendMessage(chatId, `
-<b>Volume Bot Status</b>
+📊 <b>Volume Bot Status</b>
 
 <b>Status:</b> ${status}
-<b>Token:</b> ${config?.token_symbol || 'Not set'} 
+<b>Token:</b> ${config?.token_symbol || 'Not set'}
 <b>Mint:</b> <code>${config?.token_mint || 'Not set'}</code>
-<b>Wallets:</b> ${wallets?.length || 0}
-<b>Amount:</b> ${config?.min_sol_amount || 0}-${config?.max_sol_amount || 0} SOL
-<b>Interval:</b> ${config?.interval_seconds || 60}s
-<b>Slippage:</b> ${config?.slippage_bps || 300} bps
+
+<b>Wallets:</b> ${wallets?.length || 0}/${TOTAL_WALLETS}
+<b>Current:</b> Wallet ${currentWallet}
+<b>Phase:</b> ${config?.cycle_phase || 'idle'}
+
+<b>Master Balance:</b> ${(masterBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL
+<b>Slippage:</b> ${config?.slippage_bps || 500} bps
+<b>Cycle Duration:</b> ${CYCLE_DURATION_MINUTES} min
         `);
         break;
       }
@@ -547,11 +383,12 @@ Creating new wallets will <b>DELETE</b> these forever!
         const { data: wallets } = await supabase
           .from('volume_bot_wallets')
           .select('wallet_address')
-          .eq('bot_id', 'main');
+          .eq('bot_id', 'main')
+          .order('created_at', { ascending: true });
 
         const { data: config } = await supabase
           .from('volume_bot_config')
-          .select('token_mint, token_symbol, token_decimals')
+          .select('token_mint, token_symbol, current_wallet_index')
           .eq('bot_id', 'main')
           .single();
 
@@ -565,6 +402,7 @@ Creating new wallets will <b>DELETE</b> these forever!
         let balanceText = '<b>Wallet Balances</b>\n\n';
         let totalSol = 0;
         let totalToken = 0;
+        const currentIndex = config?.current_wallet_index || 0;
 
         for (let i = 0; i < wallets.length; i++) {
           const w = wallets[i];
@@ -581,79 +419,153 @@ Creating new wallets will <b>DELETE</b> these forever!
               totalToken += tokenAmount;
             }
 
-            balanceText += `${i + 1}. ${solAmount.toFixed(4)} SOL`;
-            if (config?.token_mint) {
-              balanceText += ` | ${tokenAmount.toLocaleString()} ${config.token_symbol}`;
-            }
-            balanceText += `\n<code>${w.wallet_address}</code>\n\n`;
+            const marker = i === currentIndex ? '👉 ' : '';
+            balanceText += `${marker}<b>${i + 1}.</b> ${solAmount.toFixed(4)} SOL`;
+            if (tokenAmount > 0) balanceText += ` | ${tokenAmount.toLocaleString()} ${config.token_symbol}`;
+            balanceText += '\n';
           } catch {}
         }
 
-        balanceText += `<b>Total:</b> ${totalSol.toFixed(4)} SOL`;
-        if (config?.token_mint) {
-          balanceText += ` | ${totalToken.toLocaleString()} ${config.token_symbol}`;
+        // Add master balance
+        if (MASTER_KEY) {
+          const masterWallet = Keypair.fromSecretKey(parsePrivateKey(MASTER_KEY));
+          const masterBal = await connection.getBalance(masterWallet.publicKey);
+          balanceText += `\n🏦 <b>Master:</b> ${(masterBal / LAMPORTS_PER_SOL).toFixed(4)} SOL`;
         }
+
+        balanceText += `\n\n<b>Total in wallets:</b> ${totalSol.toFixed(4)} SOL`;
+        if (totalToken > 0) balanceText += ` | ${totalToken.toLocaleString()} ${config?.token_symbol}`;
 
         await sendMessage(chatId, balanceText);
         break;
       }
 
-      case '/stats': {
-        const { data: trades } = await supabase
-          .from('volume_bot_trades')
-          .select('trade_type, sol_amount, status, created_at')
+      case '/drainall': {
+        const { data: wallets } = await supabase
+          .from('volume_bot_wallets')
+          .select('wallet_address, private_key_encrypted')
           .eq('bot_id', 'main');
 
-        if (!trades || trades.length === 0) {
-          await sendMessage(chatId, '📊 No trades yet');
+        const { data: config } = await supabase
+          .from('volume_bot_config')
+          .select('token_mint, slippage_bps')
+          .eq('bot_id', 'main')
+          .single();
+
+        if (!wallets || wallets.length === 0) {
+          await sendMessage(chatId, '❌ No wallets');
           break;
         }
 
-        const successful = trades.filter(t => t.status === 'success');
-        const buys = successful.filter(t => t.trade_type === 'buy');
-        const sells = successful.filter(t => t.trade_type === 'sell');
-        const errors = trades.filter(t => t.status === 'failed');
-        const totalVolume = successful.reduce((sum, t) => sum + (t.sol_amount || 0), 0);
+        if (!config?.token_mint) {
+          await sendMessage(chatId, '❌ No token configured');
+          break;
+        }
 
-        const firstTrade = trades[trades.length - 1]?.created_at;
-        const lastTrade = trades[0]?.created_at;
+        await sendMessage(chatId, `⏳ Draining tokens from ${wallets.length} wallets...`);
 
-        await sendMessage(chatId, `
-<b>📊 Trading Stats</b>
+        let drained = 0;
+        let totalTokens = 0;
+        const { VersionedTransaction } = await import('@solana/web3.js');
 
-<b>Total Trades:</b> ${successful.length}
-<b>Buys:</b> ${buys.length}
-<b>Sells:</b> ${sells.length}
-<b>Errors:</b> ${errors.length}
-<b>Volume:</b> ${totalVolume.toFixed(4)} SOL
+        for (const w of wallets) {
+          try {
+            const wallet = Keypair.fromSecretKey(parsePrivateKey(w.private_key_encrypted));
+            const { rawAmount } = await getTokenBalance(connection, wallet.publicKey, config.token_mint);
 
-<b>First Trade:</b> ${firstTrade ? new Date(firstTrade).toLocaleString() : 'N/A'}
-<b>Last Trade:</b> ${lastTrade ? new Date(lastTrade).toLocaleString() : 'N/A'}
-        `);
+            if (rawAmount < 1000) continue;
+
+            const params = new URLSearchParams({
+              inputMint: config.token_mint,
+              outputMint: 'So11111111111111111111111111111111111111112',
+              amount: rawAmount.toString(),
+              taker: wallet.publicKey.toString(),
+              slippageBps: (config.slippage_bps || 1000).toString(),
+            });
+
+            const orderRes = await fetch(`https://lite-api.jup.ag/ultra/v1/order?${params}`, {
+              headers: { 'Accept': 'application/json' },
+            });
+
+            if (!orderRes.ok) continue;
+
+            const orderData = await orderRes.json();
+            if (!orderData.transaction) continue;
+
+            const tx = VersionedTransaction.deserialize(Buffer.from(orderData.transaction, 'base64'));
+            tx.sign([wallet]);
+
+            await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true });
+            drained++;
+            totalTokens += rawAmount;
+
+            await new Promise(r => setTimeout(r, 500));
+          } catch (err) {
+            console.error('Drain error:', err);
+          }
+        }
+
+        await sendMessage(chatId, `✅ Drained ${drained} wallets\n💰 ~${totalTokens.toLocaleString()} tokens sold`);
         break;
       }
 
-      case '/errors': {
-        const { data: errors } = await supabase
-          .from('volume_bot_trades')
-          .select('wallet_address, error_message, created_at')
-          .eq('bot_id', 'main')
-          .eq('status', 'failed')
-          .order('created_at', { ascending: false })
-          .limit(5);
-
-        if (!errors || errors.length === 0) {
-          await sendMessage(chatId, '✅ No recent errors');
+      case '/withdrawall': {
+        if (!MASTER_KEY) {
+          await sendMessage(chatId, '❌ VOLUME_BOT_MASTER_KEY not set');
           break;
         }
 
-        let errorText = '<b>Recent Errors</b>\n\n';
-        for (const e of errors) {
-          errorText += `<b>${new Date(e.created_at).toLocaleTimeString()}</b>\n`;
-          errorText += `${e.error_message || 'Unknown error'}\n\n`;
+        const masterWallet = Keypair.fromSecretKey(parsePrivateKey(MASTER_KEY));
+
+        const { data: wallets } = await supabase
+          .from('volume_bot_wallets')
+          .select('wallet_address, private_key_encrypted')
+          .eq('bot_id', 'main');
+
+        if (!wallets || wallets.length === 0) {
+          await sendMessage(chatId, '❌ No wallets');
+          break;
         }
 
-        await sendMessage(chatId, errorText);
+        await sendMessage(chatId, `⏳ Withdrawing SOL from ${wallets.length} wallets...`);
+
+        const { Transaction, SystemProgram } = await import('@solana/web3.js');
+        let withdrawn = 0;
+        let totalSol = 0;
+
+        for (const w of wallets) {
+          try {
+            const wallet = Keypair.fromSecretKey(parsePrivateKey(w.private_key_encrypted));
+            const balance = await connection.getBalance(wallet.publicKey);
+            
+            const sendAmount = balance - 5000;
+            if (sendAmount <= 0) continue;
+
+            const tx = new Transaction().add(
+              SystemProgram.transfer({
+                fromPubkey: wallet.publicKey,
+                toPubkey: masterWallet.publicKey,
+                lamports: sendAmount,
+              })
+            );
+
+            const { blockhash } = await connection.getLatestBlockhash();
+            tx.recentBlockhash = blockhash;
+            tx.feePayer = wallet.publicKey;
+            tx.sign(wallet);
+
+            await connection.sendRawTransaction(tx.serialize());
+            withdrawn++;
+            totalSol += sendAmount / LAMPORTS_PER_SOL;
+
+            await new Promise(r => setTimeout(r, 200));
+          } catch (err) {
+            console.error('Withdraw error:', err);
+          }
+        }
+
+        const newMasterBalance = await connection.getBalance(masterWallet.publicKey);
+        await sendMessage(chatId, `✅ Withdrew from ${withdrawn} wallets\n💰 ~${totalSol.toFixed(4)} SOL\n🏦 Master now: ${(newMasterBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
         break;
       }
 
@@ -661,7 +573,8 @@ Creating new wallets will <b>DELETE</b> these forever!
         const { data: wallets } = await supabase
           .from('volume_bot_wallets')
           .select('wallet_address, private_key_encrypted')
-          .eq('bot_id', 'main');
+          .eq('bot_id', 'main')
+          .order('created_at', { ascending: true });
 
         if (!wallets || wallets.length === 0) {
           await sendMessage(chatId, '❌ No wallets');
@@ -677,12 +590,45 @@ Creating new wallets will <b>DELETE</b> these forever!
         break;
       }
 
+      case '/stats': {
+        const { data: trades } = await supabase
+          .from('volume_bot_trades')
+          .select('trade_type, sol_amount, status, created_at')
+          .eq('bot_id', 'main')
+          .order('created_at', { ascending: false })
+          .limit(100);
+
+        if (!trades || trades.length === 0) {
+          await sendMessage(chatId, '📊 No trades yet');
+          break;
+        }
+
+        const successful = trades.filter(t => t.status === 'success');
+        const buys = successful.filter(t => t.trade_type === 'buy');
+        const sells = successful.filter(t => t.trade_type === 'sell');
+        const errors = trades.filter(t => t.status === 'failed');
+        const totalVolume = buys.reduce((sum, t) => sum + (t.sol_amount || 0), 0);
+
+        await sendMessage(chatId, `
+📊 <b>Trading Stats</b>
+
+<b>Total Trades:</b> ${successful.length}
+<b>Buys:</b> ${buys.length}
+<b>Sells:</b> ${sells.length}
+<b>Errors:</b> ${errors.length}
+<b>Buy Volume:</b> ${totalVolume.toFixed(4)} SOL
+
+<b>Last Trade:</b> ${trades[0] ? new Date(trades[0].created_at).toLocaleString() : 'N/A'}
+        `);
+        break;
+      }
+
       case '/cron': {
         const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://stakepoint.app';
         await sendMessage(chatId, `
-<b>🔄 Cron Setup</b>
+🔄 <b>Cron Setup</b>
 
-Add this URL to cron-job.org (every 1 min):
+Add this URL to cron-job.org (<b>every 1 minute</b>):
 
 <code>${baseUrl}/api/volume-bot/trade?secret=${CRON_SECRET}</code>
 
@@ -725,11 +671,29 @@ async function createNewWallets(supabase: any, chatId: number, count: number) {
     });
   }
 
-  let exportText = `✅ Generated ${count} wallets!\n\n`;
-  for (let i = 0; i < wallets.length; i++) {
-    exportText += `<b>${i + 1}.</b> <code>${wallets[i].address}</code>\n<code>${wallets[i].privateKey}</code>\n\n`;
-  }
-  exportText += `⚠️ <b>SAVE THESE KEYS!</b>\n\nUse /fund <sol> to fund them`;
+  // Reset cycle state
+  await supabase
+    .from('volume_bot_config')
+    .update({
+      current_wallet_index: 0,
+      cycle_phase: 'idle',
+      cycle_started_at: null,
+      updated_at: new Date().toISOString()
+    })
+    .eq('bot_id', 'main');
 
-  await sendMessage(chatId, exportText);
+  await sendMessage(chatId, `
+✅ Generated ${count} fresh wallets!
+
+Use /export to save the keys.
+Use /run to start cycling.
+
+<b>Cycle Flow:</b>
+1. Master → Wallet 1 (full balance)
+2. Buy SPT
+3. Wait 1 min
+4. Sell + Withdraw to Master
+5. Wait until 15 min mark
+6. Repeat with Wallet 2...
+  `);
 }
