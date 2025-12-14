@@ -135,32 +135,35 @@ async function executeSwap(
   slippageBps: number
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
-    const quoteParams = new URLSearchParams({
+    const orderParams = new URLSearchParams({
       inputMint,
       outputMint,
       amount: amount.toString(),
+      taker: wallet.publicKey.toString(),
       slippageBps: slippageBps.toString(),
     });
 
-    const quoteRes = await fetch(`https://api.jup.ag/swap/v1/quote?${quoteParams}`);
-    if (!quoteRes.ok) return { success: false, error: `Quote failed: ${quoteRes.status}` };
-
-    const quoteData = await quoteRes.json();
-
-    const swapRes = await fetch('https://api.jup.ag/swap/v1/swap', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        quoteResponse: quoteData,
-        userPublicKey: wallet.publicKey.toString(),
-        wrapAndUnwrapSol: true,
-      }),
+    const orderRes = await fetch(`https://lite-api.jup.ag/ultra/v1/order?${orderParams}`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
     });
 
-    if (!swapRes.ok) return { success: false, error: `Swap failed: ${swapRes.status}` };
+    if (!orderRes.ok) {
+      const errorText = await orderRes.text();
+      return { success: false, error: `Order failed: ${orderRes.status} - ${errorText}` };
+    }
 
-    const swapData = await swapRes.json();
-    const tx = VersionedTransaction.deserialize(Buffer.from(swapData.swapTransaction, 'base64'));
+    const orderData = await orderRes.json();
+    
+    if (orderData.error) {
+      return { success: false, error: orderData.error };
+    }
+    
+    if (!orderData.transaction) {
+      return { success: false, error: 'No transaction returned from Ultra API' };
+    }
+
+    const tx = VersionedTransaction.deserialize(Buffer.from(orderData.transaction, 'base64'));
     tx.sign([wallet]);
 
     const signature = await connection.sendRawTransaction(tx.serialize(), {
