@@ -1,13 +1,22 @@
 // app/layout.tsx
 import "./globals.css";
 import type { Metadata } from "next";
+import { DM_Sans } from "next/font/google";
 import { SolanaWalletProvider } from "@/components/SolanaWalletProvider";
-import { MobileBanner } from "@/components/MobileBanner"; // ✅ Add this import
+import { MobileBanner } from "@/components/MobileBanner";
 import { ToastProvider } from "@/components/ToastContainer";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { PoolDataProvider } from "@/hooks/usePoolData";
 import LayoutContent from "@/components/LayoutContent";
 import StructuredData from "@/components/StructuredData";
+
+// ✅ Use next/font instead of Google Fonts link (saves 780ms)
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "700"],
+  display: "swap",
+  variable: "--font-dm-sans",
+});
 
 export const metadata: Metadata = {
   title: {
@@ -88,14 +97,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" className={`dark ${dmSans.variable}`} suppressHydrationWarning>
       <head>
+        {/* ✅ Preconnect to external image hosts (saves 300ms+) */}
+        <link rel="preconnect" href="https://image2url.com" />
+        <link rel="preconnect" href="https://cdn.dexscreener.com" />
+        <link rel="preconnect" href="https://ipfs.io" />
+        <link rel="preconnect" href="https://api.dexscreener.com" />
         <StructuredData />
       </head>
-      <body className="bg-[#060609] text-gray-100 min-h-screen font-sans">
+      <body className={`${dmSans.className} bg-[#060609] text-gray-100 min-h-screen`}>
         <ThemeProvider>
           <SolanaWalletProvider>
-            <MobileBanner /> {/* ✅ Add this line */}
+            <MobileBanner />
             <PoolDataProvider>
               <ToastProvider>
                 <LayoutContent>{children}</LayoutContent>

@@ -87,16 +87,23 @@ export default function PopUpAd() {
         <button
           onClick={closePopUp}
           className="absolute top-3 right-3 md:top-4 md:right-4 text-gray-400 hover:text-white transition-colors z-10 bg-black/50 rounded-full p-1.5"
+          aria-label="Close popup"
         >
           <X className="w-5 h-5" />
         </button>
 
         {popUpData.image_url && (
           <div className="rounded-t-lg overflow-hidden border-b border-white/[0.05]">
+            {/* ✅ Added fetchpriority, loading eager, and explicit dimensions */}
             <img
               src={popUpData.image_url}
               alt={popUpData.title}
               className="w-full h-auto"
+              width={662}
+              height={372}
+              fetchPriority="high"
+              loading="eager"
+              decoding="async"
               style={{
                 aspectRatio: '16/9',
                 objectFit: 'cover',
@@ -160,7 +167,7 @@ export default function PopUpAd() {
           )}
 
           {popUpData.cta_text && popUpData.cta_link && (
-            <a
+            
               href={popUpData.cta_link}
               target="_blank"
               rel="noopener noreferrer"
