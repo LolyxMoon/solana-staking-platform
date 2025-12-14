@@ -25,6 +25,7 @@ model Pool {
   pairAddress             String?    @map("pair_address")
   hidden                  Boolean    @default(false)
   featured                Boolean    @default(false)
+  featuredOrder           Int        @default(99) @map("featured_order")
   views                   Int        @default(0)
   createdAt               DateTime   @default(now()) @map("created_at")
   hasSelfReflections      Boolean    @default(false) @map("has_self_reflections")
