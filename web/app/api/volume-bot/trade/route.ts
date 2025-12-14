@@ -18,7 +18,7 @@ function parsePrivateKey(key: string): Uint8Array {
   return bs58.decode(key);
 }
 
-const RPC_URL = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_URL!;
+const RPC_URL = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT!;
 const CRON_SECRET = process.env.VOLUME_BOT_CRON_SECRET || 'your-secret-key';
 const BOT_TOKEN = process.env.VOLUME_BOT_TOKEN;
 const ADMIN_CHAT_ID = process.env.VOLUME_BOT_ADMIN_CHAT_ID;
