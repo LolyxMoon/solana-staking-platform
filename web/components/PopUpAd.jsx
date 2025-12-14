@@ -167,7 +167,7 @@ export default function PopUpAd() {
           )}
 
           {popUpData.cta_text && popUpData.cta_link && (
-            
+            <a
               href={popUpData.cta_link}
               target="_blank"
               rel="noopener noreferrer"
