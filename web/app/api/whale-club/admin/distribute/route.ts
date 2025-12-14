@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Connection, PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
+import bs58 from 'bs58';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,16 +81,69 @@ export async function POST(request: NextRequest) {
   try {
     const { adminWallet, action, signedTransaction, timestamp } = await request.json();
 
+    // ✅ 1. Check admin wallet matches
     if (adminWallet !== ADMIN_WALLET) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
+    // ✅ 2. Check timestamp is recent (prevent replay attacks)
     if (!timestamp || Date.now() - timestamp > 5 * 60 * 1000) {
       return NextResponse.json({ error: 'Request expired' }, { status: 400 });
     }
 
+    // ✅ 3. Require signed transaction
     if (!signedTransaction) {
       return NextResponse.json({ error: 'Signature required' }, { status: 400 });
+    }
+
+    // ✅ 4. ACTUALLY VERIFY THE SIGNATURE (this was missing!)
+    try {
+      console.log('🔍 Verifying admin signature...');
+      
+      // Deserialize the transaction
+      const txBuffer = bs58.decode(signedTransaction);
+      const tx = Transaction.from(txBuffer);
+      
+      // Check if transaction has signatures
+      if (!tx.signatures || tx.signatures.length === 0) {
+        console.log('❌ No signatures found in transaction');
+        return NextResponse.json(
+          { error: 'Transaction not signed' },
+          { status: 401 }
+        );
+      }
+
+      // Verify the signature is valid
+      const isValid = tx.verifySignatures();
+      
+      if (!isValid) {
+        console.log('❌ Transaction signature verification failed');
+        return NextResponse.json(
+          { error: 'Invalid transaction signature' },
+          { status: 401 }
+        );
+      }
+
+      // Verify the transaction is signed by the admin wallet
+      const signerPublicKey = tx.signatures[0].publicKey;
+      const adminPublicKey = new PublicKey(ADMIN_WALLET);
+      
+      if (!signerPublicKey.equals(adminPublicKey)) {
+        console.log('❌ Transaction not signed by admin wallet');
+        return NextResponse.json(
+          { error: 'Transaction not signed by authorized wallet' },
+          { status: 401 }
+        );
+      }
+
+      console.log('✅ Admin signature verified');
+      
+    } catch (sigError) {
+      console.error('❌ Signature verification error:', sigError);
+      return NextResponse.json(
+        { error: 'Signature verification failed' },
+        { status: 401 }
+      );
     }
 
     const connection = new Connection(process.env.NEXT_PUBLIC_RPC_URL || 'https://api.mainnet-beta.solana.com');
@@ -147,6 +201,8 @@ export async function POST(request: NextRequest) {
         totalBalance: Math.floor(u.totalBalance),
       }));
 
+      console.log(`✅ Snapshot completed by admin. Eligible: ${distribution.length}, Removed: ${removed.length}`);
+
       return NextResponse.json({
         totalPoints,
         userCount: distribution.length,
@@ -165,6 +221,8 @@ export async function POST(request: NextRequest) {
         last_synced_at: null,
         updated_at: new Date().toISOString(),
       });
+
+      console.log('✅ All points reset by admin');
 
       return NextResponse.json({ success: true, message: 'All points reset' });
     }

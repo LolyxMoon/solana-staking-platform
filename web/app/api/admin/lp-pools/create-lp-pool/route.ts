@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { TelegramBotService } from '@/lib/telegram-bot';
+import { verifyAdminToken } from "@/lib/adminMiddleware";
 
 export async function POST(req: NextRequest) {
+  // 🛡️ SECURITY CHECK: Verify JWT token and admin status
+  const authResult = await verifyAdminToken(req);
+  if (!authResult.isValid) {
+    return NextResponse.json(
+      { error: authResult.error || "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
   try {
     const body = await req.json();
 
@@ -12,10 +22,11 @@ export async function POST(req: NextRequest) {
       tokenMint: body.tokenMint,
       rewardTokenMint: body.rewardTokenMint,
       poolId: body.poolId,
+      adminWallet: authResult.wallet,
     });
 
     // Validate required fields
-    if (!body.name || !body.symbol || !body.tokenMint || !body.poolId === undefined) {
+    if (!body.name || !body.symbol || !body.tokenMint || body.poolId === undefined) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -72,7 +83,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    console.log("✅ LP Pool created successfully:", pool.id);
+    console.log(`✅ LP Pool created by admin ${authResult.wallet}:`, pool.id);
 
     // 📢 Send Telegram alert for farming pool
     try {
