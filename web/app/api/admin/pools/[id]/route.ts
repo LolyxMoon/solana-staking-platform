@@ -66,6 +66,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         externalReflectionMint: body.externalReflectionMint !== undefined ? body.externalReflectionMint : undefined,
         reflectionTokenAccount: body.reflectionTokenAccount !== undefined ? body.reflectionTokenAccount : undefined,
         reflectionTokenSymbol: body.reflectionTokenSymbol !== undefined ? body.reflectionTokenSymbol : undefined,
+        featuredOrder: body.featuredOrder !== undefined ? Number(body.featuredOrder) : undefined,
       },
     });
 
