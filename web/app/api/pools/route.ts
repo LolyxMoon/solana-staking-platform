@@ -138,6 +138,7 @@ export async function GET() {
         poolAddress: true,
         isPaused: true,
         isEmergencyUnlocked: true,
+        featuredOrder: true,
         platformFeePercent: true,
         flatSolFee: true,
         referralEnabled: true,
