@@ -1639,6 +1639,34 @@ export default function AdminPage() {
                           >
                             {pool.featured ? "Unfeature" : "Feature"}
                           </button>
+                          {pool.featured && (
+                            <select
+                              value={pool.featured_order || 99}
+                              onChange={async (e) => {
+                                const newOrder = parseInt(e.target.value);
+                                try {
+                                  await authFetch(`/api/admin/pools/${pool.id}`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ featured_order: newOrder }),
+                                  });
+                                  refreshPools();
+                                  showSuccess(`✅ Priority set to ${newOrder}`);
+                                } catch (err) {
+                                  showError("❌ Failed to update priority");
+                                }
+                              }}
+                              className="px-2 py-1.5 bg-purple-900/50 border border-purple-500/30 rounded text-sm text-white"
+                              title="Featured Priority (1 = highest)"
+                            >
+                              <option value={1}>🥇 1st</option>
+                              <option value={2}>🥈 2nd</option>
+                              <option value={3}>🥉 3rd</option>
+                              <option value={4}>4th</option>
+                              <option value={5}>5th</option>
+                              <option value={99}>Default</option>
+                            </select>
+                          )}
                           <button
                             onClick={() => setConfirmDelete(pool.id)}
                             className="px-3 py-1.5 bg-red-600 rounded hover:bg-red-700 transition-all text-sm ml-auto"

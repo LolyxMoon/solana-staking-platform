@@ -37,6 +37,7 @@ interface Pool {
   totalStaked: number;
   featured: boolean;
   hidden?: boolean;
+  featured_order?: number;
 }
 
 export default function LandingPage() {
@@ -273,6 +274,7 @@ export default function LandingPage() {
       const data = await res.json();
       const featured = data
         .filter((p: Pool) => p.featured && !p.hidden)
+        .sort((a: Pool, b: Pool) => (a.featured_order || 99) - (b.featured_order || 99))
         .slice(0, 3);
       setPools(featured);
     } catch (error) {
