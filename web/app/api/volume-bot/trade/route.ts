@@ -28,6 +28,8 @@ const ADMIN_CHAT_ID = process.env.VOLUME_BOT_ADMIN_CHAT_ID;
 const MASTER_KEY = process.env.VOLUME_BOT_MASTER_KEY!;
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
+const JUPITER_QUOTE_LITE = 'https://lite-api.jup.ag/swap/v1/quote';
+const JUPITER_QUOTE_PRO = 'https://api.jup.ag/swap/v1/quote';
 const JUPITER_ULTRA_API = 'https://lite-api.jup.ag/ultra/v1/order';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -177,6 +179,38 @@ async function executeBuy(
   try {
     const amount = Math.floor(solAmount * LAMPORTS_PER_SOL);
 
+    // Step 1: Get quote (like original code)
+    const quoteParams = new URLSearchParams({
+      inputMint: SOL_MINT,
+      outputMint: tokenMint,
+      amount: amount.toString(),
+      slippageBps: slippageBps.toString(),
+    });
+
+    console.log('📡 Fetching Jupiter quote...');
+    let quoteRes = await fetch(`${JUPITER_QUOTE_LITE}?${quoteParams}`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!quoteRes.ok) {
+      console.log('Lite API failed, trying Pro API...');
+      quoteRes = await fetch(`${JUPITER_QUOTE_PRO}?${quoteParams}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
+    }
+
+    if (!quoteRes.ok) {
+      const errorText = await quoteRes.text();
+      console.error('Quote error:', errorText);
+      return { success: false, error: `Quote failed: ${quoteRes.status}` };
+    }
+
+    const quoteData = await quoteRes.json();
+    console.log('✅ Quote received:', { inAmount: quoteData.inAmount, outAmount: quoteData.outAmount });
+
+    // Step 2: Get Ultra order
     const orderParams = new URLSearchParams({
       inputMint: SOL_MINT,
       outputMint: tokenMint,
@@ -185,32 +219,56 @@ async function executeBuy(
       slippageBps: slippageBps.toString(),
     });
 
+    console.log('📡 Fetching Ultra order...');
     const orderRes = await fetch(`${JUPITER_ULTRA_API}?${orderParams}`, {
+      method: 'GET',
       headers: { 'Accept': 'application/json' },
     });
 
     if (!orderRes.ok) {
+      const errorText = await orderRes.text();
+      console.error('Order error:', errorText);
       return { success: false, error: `Order failed: ${orderRes.status}` };
     }
 
     const orderData = await orderRes.json();
-    if (orderData.error || !orderData.transaction) {
-      return { success: false, error: orderData.error || 'No transaction' };
+
+    if (orderData.error) {
+      console.error('Jupiter error:', orderData.error);
+      return { success: false, error: orderData.error };
     }
 
-    const tx = VersionedTransaction.deserialize(Buffer.from(orderData.transaction, 'base64'));
-    tx.sign([wallet]);
+    if (!orderData.transaction) {
+      return { success: false, error: 'No transaction returned from Ultra API' };
+    }
 
-    const signature = await connection.sendRawTransaction(tx.serialize(), {
+    // Step 3: Sign and send
+    const transactionBuf = Buffer.from(orderData.transaction, 'base64');
+    const transaction = VersionedTransaction.deserialize(transactionBuf);
+    transaction.sign([wallet]);
+
+    const signature = await connection.sendRawTransaction(transaction.serialize(), {
       skipPreflight: true,
       maxRetries: 2,
     });
 
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
-    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    console.log('Transaction sent:', signature);
 
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
+    const confirmation = await connection.confirmTransaction({
+      signature,
+      blockhash,
+      lastValidBlockHeight,
+    }, 'confirmed');
+
+    if (confirmation.value.err) {
+      return { success: false, error: `Transaction failed: ${JSON.stringify(confirmation.value.err)}` };
+    }
+
+    console.log('✅ Swap confirmed!');
     return { success: true, signature };
   } catch (error: any) {
+    console.error('Buy error:', error);
     return { success: false, error: error.message };
   }
 }
@@ -227,6 +285,38 @@ async function executeSell(
       return { success: true }; // Nothing to sell
     }
 
+    // Step 1: Get quote
+    const quoteParams = new URLSearchParams({
+      inputMint: tokenMint,
+      outputMint: SOL_MINT,
+      amount: tokenAmount.toString(),
+      slippageBps: slippageBps.toString(),
+    });
+
+    console.log('📡 Fetching sell quote...');
+    let quoteRes = await fetch(`${JUPITER_QUOTE_LITE}?${quoteParams}`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!quoteRes.ok) {
+      console.log('Lite API failed, trying Pro API...');
+      quoteRes = await fetch(`${JUPITER_QUOTE_PRO}?${quoteParams}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
+    }
+
+    if (!quoteRes.ok) {
+      const errorText = await quoteRes.text();
+      console.error('Quote error:', errorText);
+      return { success: false, error: `Quote failed: ${quoteRes.status}` };
+    }
+
+    const quoteData = await quoteRes.json();
+    console.log('✅ Sell quote received:', { inAmount: quoteData.inAmount, outAmount: quoteData.outAmount });
+
+    // Step 2: Get Ultra order
     const orderParams = new URLSearchParams({
       inputMint: tokenMint,
       outputMint: SOL_MINT,
@@ -235,30 +325,53 @@ async function executeSell(
       slippageBps: slippageBps.toString(),
     });
 
+    console.log('📡 Fetching Ultra sell order...');
     const orderRes = await fetch(`${JUPITER_ULTRA_API}?${orderParams}`, {
+      method: 'GET',
       headers: { 'Accept': 'application/json' },
     });
 
     if (!orderRes.ok) {
+      const errorText = await orderRes.text();
+      console.error('Order error:', errorText);
       return { success: false, error: `Order failed: ${orderRes.status}` };
     }
 
     const orderData = await orderRes.json();
-    if (orderData.error || !orderData.transaction) {
-      return { success: false, error: orderData.error || 'No transaction' };
+
+    if (orderData.error) {
+      console.error('Jupiter error:', orderData.error);
+      return { success: false, error: orderData.error };
     }
 
-    const tx = VersionedTransaction.deserialize(Buffer.from(orderData.transaction, 'base64'));
-    tx.sign([wallet]);
+    if (!orderData.transaction) {
+      return { success: false, error: 'No transaction returned from Ultra API' };
+    }
 
-    const signature = await connection.sendRawTransaction(tx.serialize(), {
+    // Step 3: Sign and send
+    const transactionBuf = Buffer.from(orderData.transaction, 'base64');
+    const transaction = VersionedTransaction.deserialize(transactionBuf);
+    transaction.sign([wallet]);
+
+    const signature = await connection.sendRawTransaction(transaction.serialize(), {
       skipPreflight: true,
       maxRetries: 2,
     });
 
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
-    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    console.log('Sell transaction sent:', signature);
 
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
+    const confirmation = await connection.confirmTransaction({
+      signature,
+      blockhash,
+      lastValidBlockHeight,
+    }, 'confirmed');
+
+    if (confirmation.value.err) {
+      return { success: false, error: `Transaction failed: ${JSON.stringify(confirmation.value.err)}` };
+    }
+
+    console.log('✅ Sell confirmed!');
     return { success: true, signature };
   } catch (error: any) {
     return { success: false, error: error.message };
