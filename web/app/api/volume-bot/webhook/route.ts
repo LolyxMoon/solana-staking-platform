@@ -303,7 +303,7 @@ Select new values:
           await answerCallback(callback.id, '❌ Set token first!');
           return NextResponse.json({ ok: true });
         }
-        await supabase.from('volume_bot_config').update({ is_running: true, cycle_phase: 'idle' }).eq('bot_id', 'main');
+        await supabase.from('volume_bot_config').update({ is_running: true }).eq('bot_id', 'main');
         const statusText = await buildStatusText(supabase, connection);
         await editMessage(chatId, messageId, `🚀 <b>Bot Started!</b>\n${statusText}`, mainMenuKeyboard);
         await answerCallback(callback.id, 'Bot started!');
