@@ -12,11 +12,6 @@ export default function StructuredData() {
       "price": "0",
       "priceCurrency": "USD"
     },
-    "aggregateRating": {
-      "@type": "AggregateRating",
-      "ratingValue": "4.8",
-      "ratingCount": "1250"
-    },
     "provider": {
       "@type": "Organization",
       "name": "StakePoint",
@@ -28,7 +23,7 @@ export default function StructuredData() {
       ],
       "contactPoint": {
         "@type": "ContactPoint",
-        "email": "support@stakepoint.app",
+        "email": "contact@stakepoint.app",
         "contactType": "Customer Support",
         "availableLanguage": ["English"]
       }
@@ -41,8 +36,7 @@ export default function StructuredData() {
       "Reflection rewards",
       "Token swap integration",
       "Real-time APY tracking"
-    ],
-    "screenshot": "https://stakepoint.app/screenshot-desktop.png"
+    ]
   };
 
   return (
@@ -52,4 +46,3 @@ export default function StructuredData() {
     />
   );
 }
-
