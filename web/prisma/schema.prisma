@@ -270,24 +270,6 @@ model WhaleClubMessage {
   @@map("whale_club_messages")
 }
 
-model VolumeBotConfig {
-  id              String   @id @default(cuid())
-  botId           String   @unique @map("bot_id")
-  tokenMint       String?  @map("token_mint")
-  tokenSymbol     String?  @map("token_symbol")
-  tokenDecimals   Int?     @map("token_decimals")
-  minSolAmount    Float?   @map("min_sol_amount")
-  maxSolAmount    Float?   @map("max_sol_amount")
-  intervalSeconds Int?     @map("interval_seconds")
-  slippageBps     Int?     @map("slippage_bps")
-  buyProbability  Float?   @map("buy_probability")
-  isRunning       Boolean  @default(false) @map("is_running")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  @@map("volume_bot_config")
-}
-
 model VolumeBotTrade {
   id            String   @id @default(cuid())
   botId         String   @map("bot_id")
@@ -300,6 +282,31 @@ model VolumeBotTrade {
   createdAt     DateTime @default(now()) @map("created_at")
 
   @@map("volume_bot_trades")
+}
+
+model VolumeBotConfig {
+  id                     String   @id @default(cuid())
+  botId                  String   @unique @map("bot_id")
+  tokenMint              String?  @map("token_mint")
+  tokenSymbol            String?  @map("token_symbol")
+  tokenDecimals          Int?     @map("token_decimals")
+  minSolAmount           Float?   @map("min_sol_amount")
+  maxSolAmount           Float?   @map("max_sol_amount")
+  intervalSeconds        Int?     @map("interval_seconds")
+  slippageBps            Int?     @map("slippage_bps")
+  buyProbability         Float?   @map("buy_probability")
+  isRunning              Boolean  @default(false) @map("is_running")
+  botMode                String?  @default("split") @map("bot_mode")
+  buyCount               Int?     @default(0) @map("buy_count")
+  currentWalletIndex     Int?     @default(0) @map("current_wallet_index")
+  customBuyAmount        Float?   @map("custom_buy_amount")
+  customBuyTime          Int?     @map("custom_buy_time")
+  customSellDelayMinutes Int?     @map("custom_sell_delay_minutes")
+  cyclePhase             String?  @default("idle") @map("cycle_phase")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@map("volume_bot_config")
 }
 
 model VolumeBotWallet {

@@ -1641,14 +1641,14 @@ export default function AdminPage() {
                           </button>
                           {pool.featured && (
                             <select
-                              value={pool.featured_order || 99}
+                              value={pool.featuredOrder || 99}
                               onChange={async (e) => {
                                 const newOrder = parseInt(e.target.value);
                                 try {
                                   await authFetch(`/api/admin/pools/${pool.id}`, {
                                     method: "PATCH",
                                     headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ featured_order: newOrder }),
+                                    body: JSON.stringify({ featuredOrder: newOrder }),
                                   });
                                   refreshPools();
                                   showSuccess(`✅ Priority set to ${newOrder}`);
