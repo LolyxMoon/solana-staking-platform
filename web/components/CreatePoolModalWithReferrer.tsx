@@ -78,20 +78,34 @@ export default function CreatePoolModalWithReferrer({
   }, [publicKey, step]);
 
   // Fetch current pool creation fee
-  useEffect(() => {
-    const fetchFee = async () => {
-      try {
-        const res = await fetch("/api/admin/pool-fee");
-        if (res.ok) {
-          const data = await res.json();
-          setPoolCreationFee(data.feeInLamports);
-        }
-      } catch (error) {
-        console.error("Failed to fetch pool creation fee:", error);
+  const [feeLoading, setFeeLoading] = useState(false);
+  const ORIGINAL_FEE_LAMPORTS = 1_000_000_000; // 1 SOL standard price
+  const isDiscounted = poolCreationFee < ORIGINAL_FEE_LAMPORTS;
+  const discountPercent = isDiscounted 
+    ? Math.round((1 - poolCreationFee / ORIGINAL_FEE_LAMPORTS) * 100) 
+    : 0;
+
+useEffect(() => {
+  const fetchFee = async () => {
+    setFeeLoading(true);
+    try {
+      const res = await fetch("/api/admin/pool-fee", { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        setPoolCreationFee(data.feeInLamports);
       }
-    };
+    } catch (error) {
+      console.error("Failed to fetch pool creation fee:", error);
+    } finally {
+      setFeeLoading(false);
+    }
+  };
+  
+  // Fetch on mount and when entering step 3 (payment)
+  if (step === 1 || step === 3) {
     fetchFee();
-  }, []);
+  }
+}, [step]);
 
   const fetchUserTokens = async () => {
     if (!publicKey) return;
@@ -947,14 +961,45 @@ export default function CreatePoolModalWithReferrer({
           {step === 3 && selectedToken && (
             <div className="space-y-6">
               <div className="bg-white/[0.02] border border-white/[0.1] rounded-lg p-4">
-                <p className="text-gray-300 text-sm font-semibold mb-2">
-                  ⚠️ Pool Creation Fee: {(poolCreationFee / 1_000_000_000).toFixed(3)} SOL
-                </p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-gray-300 text-sm font-semibold">
+                    ⚠️ Pool Creation Fee:
+                  </p>
+                  {feeLoading ? (
+                    <span className="text-gray-400 text-sm">Loading...</span>
+                  ) : isDiscounted ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-500 line-through text-sm">
+                        {(ORIGINAL_FEE_LAMPORTS / 1_000_000_000).toFixed(1)} SOL
+                      </span>
+                      <span className="text-white font-bold">
+                        {(poolCreationFee / 1_000_000_000).toFixed(3)} SOL
+                      </span>
+                      <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
+                        {discountPercent}% OFF
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-white font-semibold">
+                      {(poolCreationFee / 1_000_000_000).toFixed(1)} SOL
+                    </span>
+                  )}
+                </div>
                 <p className="text-gray-400 text-xs">
                   You will sign 4 transactions:
                 </p>
                 <ul className="list-disc list-inside text-gray-400 text-xs mt-2 space-y-1">
-                  <li>Transaction 1: Pay {(poolCreationFee / 1_000_000_000).toFixed(3)} SOL to platform</li>
+                  <li>
+                    Transaction 1: Pay{' '}
+                    {isDiscounted ? (
+                      <>
+                        <span className="line-through text-gray-500">{(ORIGINAL_FEE_LAMPORTS / 1_000_000_000).toFixed(1)}</span>
+                        {' '}<span className="text-green-400 font-semibold">{(poolCreationFee / 1_000_000_000).toFixed(3)}</span>
+                      </>
+                    ) : (
+                      (poolCreationFee / 1_000_000_000).toFixed(1)
+                    )} SOL to platform
+                  </li>
                   <li>Transaction 2: Create pool on-chain</li>
                   <li>Transaction 3: Initialize parameters</li>
                   <li>Transaction 4: Deposit {poolConfig.rewardAmount} {selectedToken.symbol}</li>
