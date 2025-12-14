@@ -21,6 +21,35 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     
+    // ✅ 1. VALIDATE REQUIRED FIELDS UPFRONT
+    if (!body.paymentTxSignature || typeof body.paymentTxSignature !== 'string') {
+      return NextResponse.json({ 
+        error: "Missing or invalid payment transaction signature" 
+      }, { status: 400 });
+    }
+    
+    if (!body.creatorWallet || typeof body.creatorWallet !== 'string') {
+      return NextResponse.json({ 
+        error: "Missing or invalid creator wallet" 
+      }, { status: 400 });
+    }
+    
+    if (!body.tokenMint || typeof body.tokenMint !== 'string') {
+      return NextResponse.json({ 
+        error: "Missing or invalid token mint" 
+      }, { status: 400 });
+    }
+    
+    // Validate wallet addresses are valid public keys
+    try {
+      new PublicKey(body.creatorWallet);
+      new PublicKey(body.tokenMint);
+    } catch {
+      return NextResponse.json({ 
+        error: "Invalid wallet address or token mint format" 
+      }, { status: 400 });
+    }
+    
     console.log("📥 Creating user pool with data:", {
       symbol: body.symbol,
       creator: body.creatorWallet,
@@ -30,7 +59,7 @@ export async function POST(req: Request) {
       referrerSplitBps: body.referrerSplitBps || 0,
     });
     
-    // 1. Verify payment transaction on-chain
+    // ✅ 2. VERIFY PAYMENT TRANSACTION ON-CHAIN
     const connection = new Connection(process.env.NEXT_PUBLIC_RPC_ENDPOINT || "https://api.devnet.solana.com");
     
     try {
@@ -50,14 +79,26 @@ export async function POST(req: Request) {
           error: "Payment transaction failed on-chain" 
         }, { status: 400 });
       }
+      
+      // ✅ OPTIONAL: Verify the transaction was signed by the creator
+      const signers = tx.transaction.message.staticAccountKeys.map(k => k.toBase58());
+      if (!signers.includes(body.creatorWallet)) {
+        return NextResponse.json({ 
+          error: "Payment transaction was not signed by the creator wallet" 
+        }, { status: 400 });
+      }
 
       console.log("✅ Payment transaction verified on-chain");
       
     } catch (txError) {
       console.error("Error verifying payment transaction:", txError);
+      // ✅ FIX: Return error instead of continuing
+      return NextResponse.json({ 
+        error: "Could not verify payment transaction. Please try again." 
+      }, { status: 400 });
     }
     
-    // 2. Check if pool already exists
+    // ✅ 3. CHECK IF POOL ALREADY EXISTS IN DATABASE
     const existingPool = await prisma.pool.findFirst({
       where: {
         tokenMint: body.tokenMint,
@@ -84,22 +125,21 @@ export async function POST(req: Request) {
       console.log(`⚠️ Token has ${transferTaxBps / 100}% transfer tax`);
     }
     
-    // 🆕 3. FETCH BLOCKCHAIN DATA AUTOMATICALLY
-    let duration = body.duration || 365; // Default to 365 days if not provided
+    // ✅ 4. FETCH AND VERIFY BLOCKCHAIN DATA
+    let duration = body.duration || 365;
     let lockPeriod = body.lockPeriod ? parseInt(body.lockPeriod) : null;
+    let poolExistsOnChain = false;
     
     try {
       console.log("🔍 Fetching on-chain pool data...");
       
-      // Create minimal program instance to read pool data
-      const wallet = new NodeWallet(new Uint8Array(32)); // Dummy wallet for reading
+      const wallet = new NodeWallet(new Uint8Array(32));
       const provider = new AnchorProvider(connection, wallet as any, {
         commitment: "confirmed",
         skipPreflight: false,
       });
       const program = new Program(IDL, new PublicKey(PROGRAM_ID), provider);
 
-      // Derive project PDA
       const [projectPDA] = PublicKey.findProgramAddressSync(
         [
           Buffer.from("project"),
@@ -109,17 +149,17 @@ export async function POST(req: Request) {
         program.programId
       );
 
-      // Fetch pool account
       const projectAccount = await program.account.project.fetch(projectPDA);
       
-      // Extract duration (convert seconds to days)
+      // Pool exists on-chain
+      poolExistsOnChain = true;
+      
       const poolDurationBn = (projectAccount as any).poolDuration;
       if (poolDurationBn) {
         duration = Math.floor(Number(poolDurationBn.toString()) / 86400);
         console.log(`✅ Fetched duration from blockchain: ${duration} days`);
       }
       
-      // Extract lock period (convert seconds to days)
       const lockPeriodBn = (projectAccount as any).lockPeriod;
       if (lockPeriodBn) {
         lockPeriod = Math.floor(Number(lockPeriodBn.toString()) / 86400);
@@ -127,21 +167,32 @@ export async function POST(req: Request) {
       }
       
     } catch (fetchError) {
-      console.error("⚠️ Error fetching on-chain pool data (using defaults):", fetchError);
-      // Continue with defaults if blockchain fetch fails
+      console.error("⚠️ Error fetching on-chain pool data:", fetchError);
+      // ✅ FIX: Require pool to exist on-chain before creating DB entry
+      return NextResponse.json({ 
+        error: "Pool not found on-chain. Please create the pool on-chain first." 
+      }, { status: 400 });
     }
     
-    // ✅ 4. Process referrer data
+    // ✅ 5. PROCESS REFERRER DATA
     const hasReferrer = body.referrerWallet && body.referrerWallet.length > 30;
     const referralSplitPercent = hasReferrer && body.referrerSplitBps 
-      ? body.referrerSplitBps / 100  // Convert bps to percent (5000 -> 50)
+      ? body.referrerSplitBps / 100
       : null;
     
+    // Validate referrer wallet if provided
     if (hasReferrer) {
-      console.log(`🔗 Pool has referrer: ${body.referrerWallet} (${referralSplitPercent}% split)`);
+      try {
+        new PublicKey(body.referrerWallet);
+        console.log(`🔗 Pool has referrer: ${body.referrerWallet} (${referralSplitPercent}% split)`);
+      } catch {
+        return NextResponse.json({ 
+          error: "Invalid referrer wallet address" 
+        }, { status: 400 });
+      }
     }
     
-    // 5. Create pool in database with fetched blockchain data
+    // ✅ 6. CREATE POOL IN DATABASE
     const pool = await prisma.pool.create({
       data: {
         tokenMint: body.tokenMint,
@@ -168,7 +219,6 @@ export async function POST(req: Request) {
         transferTaxBps: transferTaxBps,
         featured: false,
         hidden: false,
-        // ✅ REFERRER DATA
         referralEnabled: hasReferrer,
         referralWallet: hasReferrer ? body.referrerWallet : null,
         referralSplitPercent: referralSplitPercent,
