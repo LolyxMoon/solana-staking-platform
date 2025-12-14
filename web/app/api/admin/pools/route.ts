@@ -189,7 +189,8 @@ export async function PATCH(req: Request) {
         // Boolean fields
         processedData[key] = Boolean(value);
       } else if (key === 'platformFeePercent' || key === 'flatSolFee' || 
-                 key === 'referralSplitPercent' || key === 'totalStaked' || key === 'views') {
+                 key === 'referralSplitPercent' || key === 'totalStaked' || key === 'views' ||
+                 key === 'featured_order') {
         // Numeric fields
         processedData[key] = value ? parseFloat(value as string) : null;
       } else {
