@@ -441,7 +441,7 @@ export default function LandingPage() {
                                 {pool.liveRateType ? pool.liveRateType.toUpperCase() : "Variable"}
                               </p>
                             </div>
-                            <ChevronRight className="w-4 h-4 text-gray-600 group-hover:translate-x-0.5 transition-all flex-shrink-0 ml-1" style={{ ['--hover-color' as any]: '#fb57ff' }} onMouseEnter={(e) => e.currentTarget.style.color = '#fb57ff'} onMouseLeave={(e) => e.currentTarget.style.color = ''} />
+                            <ChevronRight className="w-4 h-4 text-gray-400 group-hover:translate-x-0.5 transition-all flex-shrink-0 ml-1" style={{ ['--hover-color' as any]: '#fb57ff' }} onMouseEnter={(e) => e.currentTarget.style.color = '#fb57ff'} onMouseLeave={(e) => e.currentTarget.style.color = ''} />
                           </div>
                         </div>
                       ))}
@@ -757,7 +757,7 @@ export default function LandingPage() {
             </div>
 
             <div className="text-center">
-              <p className="text-xs text-gray-600">
+              <p className="text-xs text-gray-400">
                 Please get in touch before creating a pool if you would like marketing support!
               </p>
             </div>
