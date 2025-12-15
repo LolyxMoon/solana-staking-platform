@@ -194,7 +194,7 @@ export default function PoolCard(props: PoolCardProps) {
     setTokenDecimals(cachedDecimals);
   }, [effectiveMintAddress, getDecimals]);
 
-  / Use batched token balance from provider
+  // Use batched token balance from provider
   useEffect(() => {
     if (!effectiveMintAddress || !connected) {
       setTokenBalance(0);
