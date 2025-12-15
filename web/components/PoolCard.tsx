@@ -352,6 +352,26 @@ export default function PoolCard(props: PoolCardProps) {
       return;
     }
     
+    // Known stablecoins - hardcode to $1
+    const STABLECOINS: Record<string, number> = {
+      'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 1.00,
+      'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 1.00,
+      'USDH1SM1ojwWUga67PGrgFWUHibbjqMvuMaDkRJTgkX': 1.00,
+    };
+
+    if (STABLECOINS[effectiveMintAddress]) {
+      setPrice(STABLECOINS[effectiveMintAddress]);
+      setPriceChange24h(0);
+      setPriceLoading(false);
+      return;
+    }
+    
+    const { price: cachedPrice, change } = getPrice(effectiveMintAddress);
+    setPrice(cachedPrice);
+    setPriceChange24h(change);
+    setPriceLoading(false);
+  }, [effectiveMintAddress, getPrice]);
+
   const handleQuickSelect = (percent: number) => {
     if (openModal === "stake") {
       setAmount((tokenBalance * percent) / 100);
