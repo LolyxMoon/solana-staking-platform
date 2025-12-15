@@ -28,7 +28,6 @@ const POOLS_CACHE_TTL = 300000; // 5 minutes
 
 export default function Navbar({ onMenuClick }: NavbarProps) {
 
-export default function Navbar({ onMenuClick }: NavbarProps) {
   const router = useRouter();
   const [price, setPrice] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
