@@ -24,6 +24,7 @@ import { useStakingProgram } from "@/hooks/useStakingProgram";
 import ManageLiquidityModal from "@/components/ManageLiquidityModal";
 import { getDexInfo } from "@/lib/liquidity-router";
 import { useSolanaBalance } from "@/hooks/useSolanaBalance";
+import { usePoolData } from "@/hooks/usePoolData";
 import { useToast } from "@/components/ToastContainer";
 import { useRealtimeRewards } from "@/utils/calculatePendingRewards";
 import IntegrateModal from "@/components/IntegrateModal";
@@ -73,6 +74,15 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
   
   const effectiveMintAddress = pool.tokenAddress;
   const { balance: tokenBalance, loading: balanceLoading } = useSolanaBalance(effectiveMintAddress);
+  
+  const { loadAllPoolData, getPoolProject, isPoolDataLoading } = usePoolData();
+  
+  // Load pool data from blockchain on mount
+  useEffect(() => {
+    if (effectiveMintAddress && poolId !== undefined) {
+      loadAllPoolData([{ tokenMint: effectiveMintAddress, poolId }]);
+    }
+  }, [effectiveMintAddress, poolId, loadAllPoolData]);
 
   useEffect(() => {
     if (!effectiveMintAddress || !connection) return;
@@ -126,8 +136,61 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
   const isPaused = pool.isPaused || false;
   const poolId = pool.poolId ?? 0;
 
-  // Calculate display APY (same logic as PoolCard)
-  const displayAPY = dynamicRate ?? pool.apy ?? 0;
+  // Get blockchain project data
+  const blockchainProject = getPoolProject(effectiveMintAddress, poolId);
+  
+  // Calculate display values from blockchain (same as PoolCard)
+  const displayAPY = useMemo(() => {
+    if (!blockchainProject) return dynamicRate ?? pool.apy ?? 0;
+    
+    if (blockchainProject.rateMode === 0) {
+      // Locked pool - static APY
+      return blockchainProject.rateBpsPerYear?.toNumber?.() 
+        ? blockchainProject.rateBpsPerYear.toNumber() / 100 
+        : (blockchainProject.rateBpsPerYear || 0) / 100;
+    } else {
+      // Variable pool - calculate APR
+      const rewardRatePerSecond = BigInt(blockchainProject.rewardRatePerSecond?.toString() || '0');
+      const totalStaked = BigInt(blockchainProject.totalStaked?.toString() || '1');
+      
+      if (totalStaked > 0n && rewardRatePerSecond > 0n) {
+        const SECONDS_PER_YEAR = 31_536_000;
+        const annualRewards = rewardRatePerSecond * BigInt(SECONDS_PER_YEAR);
+        return Number((annualRewards * 10000n) / totalStaked) / 100;
+      }
+    }
+    return dynamicRate ?? pool.apy ?? 0;
+  }, [blockchainProject, dynamicRate, pool.apy]);
+
+  // Get lock period and duration from blockchain
+  const displayLockPeriod = useMemo(() => {
+    if (blockchainProject?.lockupSeconds) {
+      const days = Math.floor(blockchainProject.lockupSeconds.toNumber?.() 
+        ? blockchainProject.lockupSeconds.toNumber() / 86400 
+        : blockchainProject.lockupSeconds / 86400);
+      return days > 0 ? days : null;
+    }
+    return pool.lockPeriodDays;
+  }, [blockchainProject, pool.lockPeriodDays]);
+
+  const displayDuration = useMemo(() => {
+    if (blockchainProject?.poolDurationSeconds) {
+      const seconds = blockchainProject.poolDurationSeconds.toNumber?.() 
+        ? blockchainProject.poolDurationSeconds.toNumber() 
+        : blockchainProject.poolDurationSeconds;
+      return Math.floor(seconds / 86400);
+    }
+    return pool.duration;
+  }, [blockchainProject, pool.duration]);
+
+  // Get total staked from blockchain
+  const displayTotalStaked = useMemo(() => {
+    if (blockchainProject?.totalStaked) {
+      const raw = blockchainProject.totalStaked.toString();
+      return parseFloat(raw) / decimalsMultiplier;
+    }
+    return onChainTotalStaked || pool.totalStaked || 0;
+  }, [blockchainProject, onChainTotalStaked, pool.totalStaked, decimalsMultiplier]);
 
   const realtimeRewards = useRealtimeRewards(projectData, stakeData);
 
@@ -448,7 +511,7 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
                 <Lock className="w-4 h-4 text-[#fb57ff]" />
                 <span className="text-sm text-gray-400">Lock Period</span>
               </div>
-              <p className="text-2xl font-bold">{formatLockPeriod(pool.lockPeriodDays)}</p>
+              <p className="text-2xl font-bold">{formatLockPeriod(displayLockPeriod)}</p>
             </div>
 
             <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4">
@@ -456,7 +519,7 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
                 <Clock className="w-4 h-4 text-[#fb57ff]" />
                 <span className="text-sm text-gray-400">Duration</span>
               </div>
-              <p className="text-2xl font-bold">{pool.duration} days</p>
+              <p className="text-2xl font-bold">{displayDuration} days</p>
             </div>
           </div>
 
@@ -508,8 +571,8 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
               <div className="flex items-center justify-between">
                 <span className="text-gray-400">Total Staked</span>
                 <span className="text-white font-mono">
-                  {onChainTotalStaked > 0 
-                    ? `${onChainTotalStaked.toLocaleString()} ${pool.symbol}`
+                  {displayTotalStaked > 0 
+                    ? `${displayTotalStaked.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${pool.symbol}`
                     : `0 ${pool.symbol}`
                   }
                 </span>
