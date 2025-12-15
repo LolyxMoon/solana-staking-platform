@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 
@@ -9,7 +9,7 @@ interface CacheEntry {
 }
 
 const balanceCache = new Map<string, CacheEntry>();
-const CACHE_DURATION = 30000; // Increased to 30 seconds cache
+const CACHE_DURATION = 120000; // 2 minutes cache (was 30 seconds)
 
 // VERY aggressive rate limiter
 class RateLimiter {
@@ -83,6 +83,10 @@ export function useSolanaBalance(mintAddress?: string | null) {
   const { publicKey } = useWallet();
   const [balance, setBalance] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
+  
+  // Store connection in ref to avoid dependency issues
+  const connectionRef = useRef(connection);
+  connectionRef.current = connection;
 
   useEffect(() => {
     if (!publicKey || !mintAddress) {
@@ -113,12 +117,14 @@ export function useSolanaBalance(mintAddress?: string | null) {
           if (!mounted) return;
           
           try {
+            const conn = connectionRef.current;
+            
             // ✅ CHECK IF NATIVE SOL
             const NATIVE_SOL_MINT = "So11111111111111111111111111111111111111112";
             
             if (mintAddress === NATIVE_SOL_MINT) {
               // ✅ For Native SOL, get lamport balance directly
-              const solBalance = await connection.getBalance(publicKey);
+              const solBalance = await conn.getBalance(publicKey);
               const balanceValue = solBalance / 1e9; // Convert lamports to SOL
               
               if (mounted) {
@@ -131,24 +137,11 @@ export function useSolanaBalance(mintAddress?: string | null) {
               return;
             }
             
-            // ✅ For SPL tokens, use token account lookup
+            // ✅ For SPL tokens, use token account lookup directly
+            // (removed unnecessary getAccountInfo call - saves 1 RPC per fetch)
             const mint = new PublicKey(mintAddress);
             
-            // Validate mint address exists
-            const mintInfo = await connection.getAccountInfo(mint);
-            if (!mintInfo) {
-              console.warn(`Mint address ${mintAddress} does not exist`);
-              if (mounted) {
-                setBalance(0);
-                balanceCache.set(cacheKey, {
-                  value: 0,
-                  timestamp: Date.now()
-                });
-              }
-              return;
-            }
-            
-            const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+            const tokenAccounts = await conn.getParsedTokenAccountsByOwner(
               publicKey,
               { mint }
             );
@@ -167,7 +160,7 @@ export function useSolanaBalance(mintAddress?: string | null) {
                 timestamp: Date.now()
               });
             }
-          } catch (error) {
+          } catch (error: any) {
             console.warn(`Token balance fetch failed for ${mintAddress}:`, error.message || error);
             if (mounted) {
               setBalance(0);
@@ -195,7 +188,7 @@ export function useSolanaBalance(mintAddress?: string | null) {
     return () => {
       mounted = false;
     };
-  }, [connection, publicKey, mintAddress]);
+  }, [publicKey, mintAddress]); // ✅ Removed connection from deps
 
   return { balance, loading };
 }
@@ -206,6 +199,10 @@ export function useSolBalance() {
   const { publicKey } = useWallet();
   const [balance, setBalance] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
+  
+  // Store connection in ref to avoid dependency issues
+  const connectionRef = useRef(connection);
+  connectionRef.current = connection;
 
   useEffect(() => {
     if (!publicKey) {
@@ -236,7 +233,7 @@ export function useSolBalance() {
           if (!mounted) return;
           
           try {
-            const solBalance = await connection.getBalance(publicKey);
+            const solBalance = await connectionRef.current.getBalance(publicKey);
             const balanceValue = solBalance / 1e9;
             
             if (mounted) {
@@ -270,7 +267,7 @@ export function useSolBalance() {
     return () => {
       mounted = false;
     };
-  }, [connection, publicKey]);
+  }, [publicKey]); // ✅ Removed connection from deps
 
   return { balance, loading };
 }
