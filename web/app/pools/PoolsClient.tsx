@@ -41,7 +41,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
   const [apyMin, setApyMin] = useState<number>(0);
   const [apyMax, setApyMax] = useState<number>(1000);
   const [searchQuery, setSearchQuery] = useState("");
-  const [showFilters, setShowFilters] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [showCreatePoolModal, setShowCreatePoolModal] = useState(false);
