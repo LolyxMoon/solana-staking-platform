@@ -129,7 +129,7 @@ export default function PoolCard(props: PoolCardProps) {
   const { connection } = useConnection();
   const { showSuccess, showError, showWarning } = useToast();
   
-  const { getDecimals, getPrice, getSolBalance, getUserTokenBalance, isUserDataLoading } = usePoolData();
+  const { getDecimals, getPrice, getSolBalance, getUserTokenBalance, isUserDataLoading, getPoolProject, getUserStake: getCachedUserStake } = usePoolData();
   const [tokenBalance, setTokenBalance] = useState(0);
   const [balanceLoading, setBalanceLoading] = useState(true);
   const { 
@@ -258,46 +258,39 @@ export default function PoolCard(props: PoolCardProps) {
     };
   }, [amount, platformFeePercent, flatSolFee]);
 
-  // ✅ PUBLIC DATA: Fetch pool info WITHOUT wallet (anyone can see APY, TVL, etc.)
+  // ✅ PUBLIC DATA: Use batched project data from provider
   useEffect(() => {
     if (!effectiveMintAddress) return;
 
-    const fetchPublicData = async () => {
-      await waitForRpcSlot();
+    const cachedProject = getPoolProject(effectiveMintAddress, poolId);
+    if (cachedProject) {
+      setProjectData(cachedProject);
       
-      try {
-        // Fetch rate AND project in one call (getPoolRate now returns project)
-        if (dynamicRate === null) {
-          try {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            const result = await getPoolRate(effectiveMintAddress, poolId);
-            if (result?.rate !== undefined) {
-              setDynamicRate(result.rate);
-            }
-            // Use project from getPoolRate - no second fetch needed!
-            if (result?.project) {
-              setProjectData(result.project);
-            }
-          } catch (error) {
-            // Silent fail - will use database APY/APR value
-          }
+      // Calculate rate from cached project
+      if (cachedProject.rateMode === 0) {
+        // Locked pool - static APY
+        const rate = cachedProject.rateBpsPerYear?.toNumber?.() 
+          ? cachedProject.rateBpsPerYear.toNumber() / 100 
+          : (cachedProject.rateBpsPerYear || 0) / 100;
+        setDynamicRate(rate);
+      } else {
+        // Variable pool - calculate APR
+        const rewardRatePerSecond = BigInt(cachedProject.rewardRatePerSecond?.toString() || '0');
+        const totalStaked = BigInt(cachedProject.totalStaked?.toString() || '0');
+        
+        if (totalStaked > 0n && rewardRatePerSecond > 0n) {
+          const SECONDS_PER_YEAR = 31_536_000;
+          const annualRewards = rewardRatePerSecond * BigInt(SECONDS_PER_YEAR);
+          const apr = Number((annualRewards * 10000n) / totalStaked) / 100;
+          setDynamicRate(apr);
         }
-      } catch (error) {
-        // Silent fail
       }
-    };
+    }
+  }, [effectiveMintAddress, poolId, getPoolProject]);
 
-    fetchPublicData();
-    
-    // Refresh every 5 minutes
-    const interval = setInterval(fetchPublicData, 300000);
-    return () => clearInterval(interval);
-  }, [effectiveMintAddress, poolId]); // ✅ NO connected/publicKey dependency
-
-  // ✅ USER DATA: Fetch user-specific data (requires wallet connection)
+  // ✅ USER DATA: Use batched stake data from provider
   useEffect(() => {
     if (!connected || !publicKey || !effectiveMintAddress) {
-      // Reset user data when wallet disconnected
       setUserStakedAmount(0);
       setUserStakeTimestamp(0);
       setStakeData(null);
@@ -305,45 +298,22 @@ export default function PoolCard(props: PoolCardProps) {
       return;
     }
 
-    const fetchUserData = async () => {
-      await waitForRpcSlot();
-      
-      try {
-        // 1. Use batched SOL balance
-        setSolBalance(getSolBalance());
+    // Use batched SOL balance
+    setSolBalance(getSolBalance());
 
-        // 2. Fetch user stake
-        await waitForRpcSlot();
-        try {
-          const userStake = await getUserStake(effectiveMintAddress, poolId);
-          
-          if (userStake) {
-            const actualDecimals = tokenDecimals;
-            const amountStr = userStake.amount.toString();
-            setUserStakedAmount(parseFloat(amountStr) / Math.pow(10, actualDecimals));
-            setUserStakeTimestamp(userStake.lastStakeTimestamp?.toNumber() || 0);
-            setStakeData(userStake);
-          } else {
-            setStakeData(null);
-            setUserStakedAmount(0);
-            setUserStakeTimestamp(0);
-          }
-        } catch (error) {
-          // Silent fail
-        }
-      } catch (error) {
-        // Silent fail
-      }
-    };
-
-    fetchUserData();
-    
-    // Refresh every 2 minutes with jitter
-    const randomInterval = 300000 + Math.random() * 60000;
-    const interval = setInterval(fetchUserData, randomInterval);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected, publicKey, effectiveMintAddress, poolId, tokenDecimals]);
+    // Use cached user stake
+    const cachedStake = getCachedUserStake(effectiveMintAddress, poolId);
+    if (cachedStake) {
+      const amountStr = cachedStake.amount?.toString() || '0';
+      setUserStakedAmount(parseFloat(amountStr) / Math.pow(10, tokenDecimals));
+      setUserStakeTimestamp(cachedStake.lastStakeTimestamp?.toNumber?.() || 0);
+      setStakeData(cachedStake);
+    } else {
+      setStakeData(null);
+      setUserStakedAmount(0);
+      setUserStakeTimestamp(0);
+    }
+  }, [connected, publicKey, effectiveMintAddress, poolId, tokenDecimals, getSolBalance, getCachedUserStake]);
 
   // Use batched price from provider
   useEffect(() => {
