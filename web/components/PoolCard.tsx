@@ -36,6 +36,8 @@ const priceCache = new Map<string, {
   timestamp: number;
 }>();
 
+const decimalsCache = new Map<string, number>();
+
 // 🔒 GLOBAL REQUEST QUEUE - Prevents all pools from hitting RPC at once
 let lastRpcCall = 0;
 const MIN_RPC_DELAY = 2000; // 2 seconds between ANY RPC call across all pools
@@ -185,22 +187,26 @@ export default function PoolCard(props: PoolCardProps) {
 
   // Fetch token decimals
   useEffect(() => {
-    if (!effectiveMintAddress || !connection) return;
+    if (!effectiveMintAddress) return;
+    
+    if (decimalsCache.has(effectiveMintAddress)) {
+      setTokenDecimals(decimalsCache.get(effectiveMintAddress)!);
+      return;
+    }
     
     const fetchDecimals = async () => {
       try {
         const mintInfo = await connection.getParsedAccountInfo(new PublicKey(effectiveMintAddress));
         const decimals = (mintInfo.value?.data as any)?.parsed?.info?.decimals || 9;
+        decimalsCache.set(effectiveMintAddress, decimals);
         setTokenDecimals(decimals);
-        console.log(`✅ Token decimals for ${symbol}:`, decimals);
       } catch (error) {
-        console.error("Error fetching decimals:", error);
-        setTokenDecimals(9); // fallback
+        setTokenDecimals(9);
       }
     };
     
-    fetchDecimals();  // ✅ ADD THIS LINE
-  }, [effectiveMintAddress, connection, symbol]);  // ✅ ADD THIS LINE
+    fetchDecimals();
+  }, [effectiveMintAddress]);
 
   const lockupInfo = useMemo(() => {
     if (!lockPeriod || type !== "locked" || !userStakeTimestamp) {
