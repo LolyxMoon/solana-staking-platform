@@ -15,7 +15,11 @@ export default function PopUpAd() {
 
   useEffect(() => {
     if (mounted) {
-      fetchActivePopUp();
+      // ✅ Delay fetching until page is loaded (3 seconds)
+      const timer = setTimeout(() => {
+        fetchActivePopUp();
+      }, 3000);
+      return () => clearTimeout(timer);
     }
   }, [mounted]);
 
@@ -29,7 +33,8 @@ export default function PopUpAd() {
         
         if (shouldDisplayAd(ad)) {
           setPopUpData(ad);
-          setTimeout(() => setIsVisible(true), 1000);
+          // ✅ Reduced from 1000ms to 500ms since we already waited
+          setTimeout(() => setIsVisible(true), 500);
         }
       }
     } catch (error) {
