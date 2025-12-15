@@ -178,7 +178,7 @@ export default function PoolCard(props: PoolCardProps) {
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentTime(Math.floor(Date.now() / 1000));
-    }, 10000);
+    }, 30000);
     
     return () => clearInterval(interval);
   }, []);
@@ -201,112 +201,6 @@ export default function PoolCard(props: PoolCardProps) {
     
     fetchDecimals();  // ✅ ADD THIS LINE
   }, [effectiveMintAddress, connection, symbol]);  // ✅ ADD THIS LINE
-
-  // Fetch reflection balance - USER'S PENDING REFLECTIONS
-  useEffect(() => {
-    if (!connected || !publicKey || !effectiveMintAddress) {
-      setReflectionBalance(0);
-      return;
-    }
-
-    const fetchReflectionBalance = async () => {
-      setReflectionLoading(true);
-      try {
-        // Get fresh project and stake data
-        const project = await getProjectInfo(effectiveMintAddress, poolId);
-        const userStake = await getUserStake(effectiveMintAddress, poolId);
-        
-        if (!project || !userStake) {
-          console.log(`⚠️ [${name}] No project or stake data`);
-          setReflectionBalance(0);
-          setReflectionLoading(false);
-          return;
-        }
-
-        // Only check reflectionVault if reflections are enabled in database
-        if ((hasSelfReflections || hasExternalReflections) && !project.reflectionVault) {
-          console.log(`⚠️ [${name}] Reflections enabled in DB but not on-chain`);
-          setReflectionBalance(0);
-          setReflectionLoading(false);
-          return;
-        }
-
-        // Get user's staked amount (in lamports)
-        const userStakedLamports = userStake.amount ? parseFloat(userStake.amount.toString()) : 0;
-
-        
-        if (userStakedLamports === 0) {
-          console.log(`⚠️ [${name}] User has no stake`);
-          setReflectionBalance(0);
-          setReflectionLoading(false);
-          return;
-        }
-
-        // Get reflection rates
-        const userReflectionPerTokenPaid = userStake.reflectionPerTokenPaid 
-          ? userStake.reflectionPerTokenPaid.toNumber() 
-          : 0;
-        
-        const currentReflectionPerToken = project.reflectionPerTokenStored 
-          ? project.reflectionPerTokenStored.toNumber() 
-          : 0;
-
-        // ✅ FIX: Read reflections_pending directly from blockchain
-        const pendingReflectionsLamports = userStake.reflectionsPending 
-          ? userStake.reflectionsPending.toNumber() 
-          : 0;
-
-        const isNativeSOL = project.reflectionToken?.toString() === 'So11111111111111111111111111111111111111112';
-
-        const pendingReflections = pendingReflectionsLamports / LAMPORTS_PER_SOL;
-
-        // ✅ NEW: Account for 0.003 SOL fixed buffer for Native SOL reflections
-        const isNativeSOLReflections = project.reflectionToken?.toString() === 'So11111111111111111111111111111111111111112';
-
-        let displayReflections = pendingReflections;
-
-        if (isNativeSOLReflections) {
-          // For Native SOL, check actual vault balance and subtract 0.003 SOL buffer
-          try {
-            const vaultBalance = await connection.getBalance(new PublicKey(project.reflectionVault || project.key()));
-            const FIXED_BUFFER = 0.003; // SOL (rent-exempt ~0.002 + safety 0.001)
-            const availableInVault = Math.max(0, (vaultBalance / LAMPORTS_PER_SOL) - FIXED_BUFFER);
-            
-            // Show the MINIMUM of what user is owed vs what's actually available
-            displayReflections = Math.min(pendingReflections, availableInVault);
-          } catch (error) {
-            console.error('Error fetching vault balance:', error);
-          }
-        }
-                                  
-        console.log(`🔍 [${name}] Reflection Calculation:`, {
-          userStakedLamports: userStakedLamports,
-          userStakedTokens: userStakedLamports / decimalsMultiplier,
-          currentRate: currentReflectionPerToken,
-          pendingLamports: pendingReflectionsLamports,
-          pendingTokens: pendingReflections,
-          displayReflections: displayReflections,
-          isNativeSOL: isNativeSOLReflections,
-          reflectionToken: project.reflectionToken?.toString(),
-        });
-
-        setReflectionBalance(Math.max(0, displayReflections));
-                
-      } catch (error: any) {
-
-        playSound('error'); 
-        console.error(`❌ [${name}] Error fetching reflection balance:`, error);
-        setReflectionBalance(0);
-      } finally {
-        setReflectionLoading(false);
-      }
-    };
-
-    fetchReflectionBalance();
-    
-    const interval = setInterval(fetchReflectionBalance, 10000);
-    return () => clearInterval(interval);
-  }, [connected, publicKey, name, stakeData, effectiveMintAddress, poolId]);
 
   const lockupInfo = useMemo(() => {
     if (!lockPeriod || type !== "locked" || !userStakeTimestamp) {
@@ -399,7 +293,7 @@ export default function PoolCard(props: PoolCardProps) {
     fetchPublicData();
     
     // Refresh every 2 minutes
-    const interval = setInterval(fetchPublicData, 120000);
+    const interval = setInterval(fetchPublicData, 300000);
     return () => clearInterval(interval);
   }, [effectiveMintAddress, poolId]); // ✅ NO connected/publicKey dependency
 
@@ -460,7 +354,7 @@ export default function PoolCard(props: PoolCardProps) {
     fetchUserData();
     
     // Refresh every 2 minutes with jitter
-    const randomInterval = 120000 + Math.random() * 30000;
+    const randomInterval = 300000 + Math.random() * 60000;
     const interval = setInterval(fetchUserData, randomInterval);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -545,7 +439,7 @@ export default function PoolCard(props: PoolCardProps) {
     fetchPrice();
     const interval = setInterval(() => {
       if (isMounted) fetchPrice();
-    }, 120000);
+    }, 300000);
 
     return () => {
       isMounted = false;

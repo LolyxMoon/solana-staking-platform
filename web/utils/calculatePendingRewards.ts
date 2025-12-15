@@ -130,7 +130,6 @@ export function useRealtimeRewards(
     const calculate = () => {
       const pending = calculatePendingRewards(project, stake, decimals);
       setRewards(pending);
-      console.log("🔄 UI Update:", { timestamp: new Date().toISOString(), pending });
     };
 
     calculate();
