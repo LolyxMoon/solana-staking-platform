@@ -445,78 +445,99 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
         <div className="animate-in fade-in duration-500">
           {/* Header Row */}
           <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2 text-xs text-gray-400 font-medium border-b border-white/[0.05]">
-            <div className="col-span-3">Pool</div>
-            <div className="col-span-2 text-center">Type</div>
+            <div className="col-span-2">Pool</div>
+            <div className="col-span-1 text-center">Type</div>
             <div className="col-span-2 text-center">APR/APY</div>
+            <div className="col-span-2 text-center">Lock Period</div>
             <div className="col-span-2 text-center">Total Staked</div>
             <div className="col-span-3 text-center">Actions</div>
           </div>
           
           {/* Pool Rows */}
           <div className="space-y-1">
-            {sortedPools.map((pool, index) => (
-              <div
-                key={pool.id}
-                className="grid grid-cols-12 gap-2 items-center px-4 py-3 bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.05] rounded-lg transition-all cursor-pointer animate-in slide-in-from-left duration-300"
-                style={{ animationDelay: `${index * 20}ms` }}
-                onMouseEnter={(e) => e.currentTarget.style.borderColor = 'rgba(251, 87, 255, 0.3)'}
-                onMouseLeave={(e) => e.currentTarget.style.borderColor = ''}
-                onClick={() => window.location.href = `/pool/${pool.id}`}
-              >
-                {/* Pool Name & Logo */}
-                <div className="col-span-6 sm:col-span-3 flex items-center gap-3">
-                  {pool.logo ? (
-                    <img src={pool.logo} alt={pool.name} className="w-8 h-8 rounded-full border border-white/[0.1]" />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs" style={{ background: 'rgba(251, 87, 255, 0.2)' }}>
-                      {pool.symbol.slice(0, 2)}
+            {sortedPools.map((pool, index) => {
+              const project = getPoolProject(pool.tokenMint, pool.poolId);
+              const lockPeriodDays = project?.lockupSeconds 
+                ? Math.floor((project.lockupSeconds.toNumber?.() || project.lockupSeconds) / 86400)
+                : pool.lockPeriod || 0;
+              const durationDays = project?.poolDurationSeconds
+                ? Math.floor((project.poolDurationSeconds.toNumber?.() || project.poolDurationSeconds) / 86400)
+                : pool.lockPeriod || 0;
+              
+              return (
+                <div
+                  key={pool.id}
+                  className="grid grid-cols-12 gap-2 items-center px-4 py-3 bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.05] rounded-lg transition-all cursor-pointer animate-in slide-in-from-left duration-300"
+                  style={{ animationDelay: `${index * 20}ms` }}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = 'rgba(251, 87, 255, 0.3)'}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = ''}
+                  onClick={() => window.location.href = `/pool/${pool.id}`}
+                >
+                  {/* Pool Name & Logo */}
+                  <div className="col-span-6 sm:col-span-2 flex items-center gap-2">
+                    {pool.logo ? (
+                      <img src={pool.logo} alt={pool.name} className="w-8 h-8 rounded-full border border-white/[0.1]" />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs" style={{ background: 'rgba(251, 87, 255, 0.2)' }}>
+                        {pool.symbol.slice(0, 2)}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-white font-semibold text-sm truncate">{pool.name}</p>
+                      <p className="text-gray-400 text-xs">{pool.symbol}</p>
                     </div>
-                  )}
-                  <div className="min-w-0">
-                    <p className="text-white font-semibold text-sm truncate">{pool.name}</p>
+                  </div>
+
+                  {/* Type */}
+                  <div className="hidden sm:flex col-span-1 justify-center">
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      pool.type === "locked" 
+                        ? "bg-orange-500/20 text-orange-400" 
+                        : "bg-green-500/20 text-green-400"
+                    }`}>
+                      {pool.type === "locked" ? "🔒" : "🔓"}
+                    </span>
+                  </div>
+
+                  {/* APR/APY */}
+                  <div className="col-span-3 sm:col-span-2 text-center">
+                    <p className="font-bold text-sm" style={{ color: '#fb57ff' }}>
+                      {getPoolRate(pool).toFixed(2)}%
+                    </p>
+                    <p className="text-gray-400 text-xs">{pool.type === "locked" ? "APY" : "APR"}</p>
+                  </div>
+
+                  {/* Lock Period */}
+                  <div className="hidden sm:block col-span-2 text-center">
+                    <p className="text-white text-sm font-medium">
+                      {lockPeriodDays > 0 ? `${lockPeriodDays}d` : 'Flex'}
+                    </p>
+                    <p className="text-gray-400 text-xs">
+                      {durationDays > 0 ? `${durationDays}d pool` : ''}
+                    </p>
+                  </div>
+
+                  {/* Total Staked */}
+                  <div className="hidden sm:block col-span-2 text-center">
+                    <p className="text-white text-sm font-medium">
+                      {getPoolTVL(pool).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                    </p>
                     <p className="text-gray-400 text-xs">{pool.symbol}</p>
                   </div>
-                </div>
 
-                {/* Type */}
-                <div className="hidden sm:flex col-span-2 justify-center">
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${
-                    pool.type === "locked" 
-                      ? "bg-orange-500/20 text-orange-400" 
-                      : "bg-green-500/20 text-green-400"
-                  }`}>
-                    {pool.type === "locked" ? "🔒 Locked" : "🔓 Flex"}
-                  </span>
+                  {/* Actions */}
+                  <div className="col-span-3 flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => window.location.href = `/pool/${pool.id}`}
+                      className="px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all"
+                      style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}
+                    >
+                      Stake
+                    </button>
+                  </div>
                 </div>
-
-                {/* APR/APY */}
-                <div className="col-span-3 sm:col-span-2 text-center">
-                  <p className="font-bold text-sm" style={{ color: '#fb57ff' }}>
-                    {getPoolRate(pool).toFixed(2)}%
-                  </p>
-                  <p className="text-gray-400 text-xs">{pool.type === "locked" ? "APY" : "APR"}</p>
-                </div>
-
-                {/* Total Staked */}
-                <div className="hidden sm:block col-span-2 text-center">
-                  <p className="text-white text-sm font-medium">
-                    {getPoolTVL(pool).toLocaleString('en-US', { maximumFractionDigits: 2 })}
-                  </p>
-                  <p className="text-gray-400 text-xs">{pool.symbol}</p>
-                </div>
-
-                {/* Actions */}
-                <div className="col-span-3 flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    onClick={() => window.location.href = `/pool/${pool.id}`}
-                    className="px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all"
-                    style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}
-                  >
-                    Stake
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
