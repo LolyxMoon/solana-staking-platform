@@ -845,7 +845,7 @@ export default function PoolCard(props: PoolCardProps) {
             {priceLoading ? (
               <div className="flex items-center gap-1 mt-0.5 sm:mt-1">
                 <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 border-2 border-green-400 border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-[9px] sm:text-[10px] text-gray-500">Loading...</span>
+                <span className="text-[9px] sm:text-[10px] text-gray-400">Loading...</span>
               </div>
             ) : price !== null ? (
               <div className="flex items-center gap-1 sm:gap-1.5 mt-0.5 sm:mt-1">
@@ -862,7 +862,7 @@ export default function PoolCard(props: PoolCardProps) {
                 )}
               </div>
             ) : (
-              <p className="text-[9px] sm:text-[10px] text-gray-500 mt-0.5">Price unavailable</p>
+              <p className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">Price unavailable</p>
             )}
           </div>
         </div>
@@ -992,7 +992,7 @@ export default function PoolCard(props: PoolCardProps) {
                 {platformFeePercent}% + {flatSolFee} SOL
               </span>
             </div>
-            <div className="text-[8px] sm:text-[9px] text-gray-500 mt-0.5">
+            <div className="text-[8px] sm:text-[9px] text-gray-400 mt-0.5">
               SOL Balance: {solBalance.toFixed(4)} SOL
             </div>
           </div>

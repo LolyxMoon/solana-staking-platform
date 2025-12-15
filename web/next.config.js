@@ -21,7 +21,7 @@ const nextConfig = {
         http: false,
         https: false,
         zlib: false,
-        querystring: false, // ⬅️ ADD THIS
+        querystring: false,
       };
     }
     return config;
@@ -31,6 +31,29 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '2mb',
     },
+  },
+  
+  // ✅ Security headers + HTTP preconnects
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          // Security headers
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+          { key: 'X-DNS-Prefetch-Control', value: 'on' },
+          { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+          // HTTP preconnects (faster than HTML)
+          { 
+            key: 'Link', 
+            value: '<https://ipfs.io>; rel=preconnect, <https://cdn.dexscreener.com>; rel=preconnect, <https://image2url.com>; rel=preconnect, <https://api.dexscreener.com>; rel=preconnect' 
+          },
+        ],
+      },
+    ];
   },
 };
 

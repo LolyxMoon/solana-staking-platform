@@ -964,7 +964,7 @@ export default function PoolCard(props: PoolCardProps) {
             {priceLoading ? (
               <div className="flex items-center gap-1 mt-0.5 sm:mt-1">
                 <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#fb57ff', borderTopColor: 'transparent' }}></div>
-                <span className="text-[9px] sm:text-[10px] text-gray-500">Loading...</span>
+                <span className="text-[9px] sm:text-[10px] text-gray-400">Loading...</span>
               </div>
             ) : price !== null ? (
               <div className="flex items-center gap-1 sm:gap-1.5 mt-0.5 sm:mt-1">
@@ -981,14 +981,14 @@ export default function PoolCard(props: PoolCardProps) {
                 )}
               </div>
             ) : (
-              <p className="text-[9px] sm:text-[10px] text-gray-500 mt-0.5">Price unavailable</p>
+              <p className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">Price unavailable</p>
             )}
           </div>
         </div>
 
         <div className="relative z-10">
           <div className="p-2.5 sm:p-3 md:p-4 rounded-lg text-center bg-white/[0.02] border border-white/[0.05]">
-            <p className="text-[9px] sm:text-[10px] md:text-xs text-gray-500 uppercase tracking-wide mb-0.5">
+            <p className="text-[9px] sm:text-[10px] md:text-xs text-gray-400 uppercase tracking-wide mb-0.5">
               APR
             </p>
             <p className="text-xl sm:text-2xl md:text-3xl font-bold leading-none truncate" style={{ color: '#fb57ff' }} title={`${typeof rate === 'number' ? rate.toFixed(2) : rate ?? "-"}%`}>
@@ -1000,7 +1000,7 @@ export default function PoolCard(props: PoolCardProps) {
         {/* Total Staked & Contract Address */}
         <div className="grid grid-cols-2 gap-2 text-xs sm:text-sm relative z-10">
           <div className="bg-white/[0.02] p-2 rounded-lg border border-white/[0.05]">
-            <p className="text-gray-500 text-[9px] sm:text-[10px] md:text-xs mb-0.5 leading-tight">Total Staked</p>
+            <p className="text-gray-400 text-[9px] sm:text-[10px] md:text-xs mb-0.5 leading-tight">Total Staked</p>
             <p className="font-semibold text-[11px] sm:text-xs md:text-sm leading-tight truncate" style={{ color: '#fb57ff' }}>
               {projectData?.totalStaked 
                 ? `${(Number(projectData.totalStaked.toString()) / Math.pow(10, tokenDecimals)).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${symbol}` 
@@ -1013,7 +1013,7 @@ export default function PoolCard(props: PoolCardProps) {
             onClick={() => effectiveMintAddress && copyToClipboard(effectiveMintAddress)}
             title={effectiveMintAddress || "No address"}
           >
-            <p className="text-gray-500 text-[9px] sm:text-[10px] md:text-xs mb-0.5 leading-tight">Contract</p>
+            <p className="text-gray-400 text-[9px] sm:text-[10px] md:text-xs mb-0.5 leading-tight">Contract</p>
             <p className="text-white font-semibold text-[11px] sm:text-xs md:text-sm leading-tight flex items-center gap-1">
               <span className="font-mono truncate">
                 {effectiveMintAddress ? `${effectiveMintAddress.slice(0, 4)}...${effectiveMintAddress.slice(-4)}` : "-"}
@@ -1032,14 +1032,14 @@ export default function PoolCard(props: PoolCardProps) {
         {/* Your Stake & Lock Period - EXISTING */}
         <div className="grid grid-cols-2 gap-2 text-xs sm:text-sm relative z-10">
           <div className="bg-white/[0.02] p-2 rounded-lg border border-white/[0.05]">
-            <p className="text-gray-500 text-[9px] sm:text-[10px] md:text-xs mb-0.5 leading-tight">Your Stake</p>
+            <p className="text-gray-400 text-[9px] sm:text-[10px] md:text-xs mb-0.5 leading-tight">Your Stake</p>
             <p className="text-white font-semibold text-[11px] sm:text-xs md:text-sm leading-tight truncate">
               {connected ? `${displayStakedAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${symbol}` : "-"}
             </p>
           </div>
           
           <div className="bg-white/[0.02] p-2 rounded-lg border border-white/[0.05]">
-            <p className="text-gray-500 text-[9px] sm:text-[10px] md:text-xs mb-0.5 leading-tight">
+            <p className="text-gray-400 text-[9px] sm:text-[10px] md:text-xs mb-0.5 leading-tight">
               {type === "locked" && lockupInfo.isLocked ? "Unlocks In" : "Lock Period"}
             </p>
             <p className="text-white font-semibold text-[11px] sm:text-xs md:text-sm leading-tight truncate">
@@ -1072,7 +1072,7 @@ export default function PoolCard(props: PoolCardProps) {
               </span>
             </div>
             {poolEndInfo.endsAt && (
-              <p className="text-[8px] sm:text-[9px] text-gray-500 mt-1">
+              <p className="text-[8px] sm:text-[9px] text-gray-400 mt-1">
                 Ended: {poolEndInfo.endsAt.toLocaleDateString()} at {poolEndInfo.endsAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </p>
             )}
@@ -1117,7 +1117,7 @@ export default function PoolCard(props: PoolCardProps) {
               </span>
             </div>
             {poolEndInfo.endsAt && (
-              <p className="text-[8px] sm:text-[9px] text-gray-500 mt-1">
+              <p className="text-[8px] sm:text-[9px] text-gray-400 mt-1">
                 {poolEndInfo.endsAt.toLocaleDateString()} at {poolEndInfo.endsAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </p>
             )}
@@ -1129,7 +1129,7 @@ export default function PoolCard(props: PoolCardProps) {
           className="w-full bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.05] p-2 rounded-lg relative z-10 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between"
         >
           <div className="flex items-center gap-2">
-            <Coins className="w-4 h-4 text-gray-500" />
+            <Coins className="w-4 h-4 text-gray-400" />
             <span className="text-sm font-medium text-white">View Balances</span>
           </div>
           <div className="flex items-center gap-2">

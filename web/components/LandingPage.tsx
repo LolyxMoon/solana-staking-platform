@@ -389,7 +389,7 @@ export default function LandingPage() {
                       <h3 className="text-lg font-bold text-white mb-1">
                         Trending Pools
                       </h3>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-400">
                         {pools.length} pools available
                       </p>
                     </div>
@@ -429,7 +429,7 @@ export default function LandingPage() {
                               <p className="font-semibold text-white text-sm truncate">
                                 {pool.name}
                               </p>
-                              <p className="text-xs text-gray-500">{pool.symbol}</p>
+                              <p className="text-xs text-gray-400">{pool.symbol}</p>
                             </div>
                             <div className="text-right">
                               <p className="text-sm font-bold text-accent-green">
@@ -437,7 +437,7 @@ export default function LandingPage() {
                                   ? `${pool.liveRate.toFixed(2)}%`
                                   : "—"}
                               </p>
-                              <p className="text-[10px] text-gray-500 uppercase tracking-wide">
+                              <p className="text-[10px] text-gray-400 uppercase tracking-wide">
                                 {pool.liveRateType ? pool.liveRateType.toUpperCase() : "Variable"}
                               </p>
                             </div>
@@ -494,7 +494,7 @@ export default function LandingPage() {
             <h2 className="text-3xl lg:text-4xl font-bold mb-2" style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
               Why Choose Our Platform
             </h2>
-            <p className="text-sm text-gray-500 max-w-2xl mx-auto">
+            <p className="text-sm text-gray-400 max-w-2xl mx-auto">
               Built for the future of DeFi
             </p>
           </div>
@@ -518,7 +518,7 @@ export default function LandingPage() {
                     {feature.title}
                   </h3>
                 </div>
-                <p className="text-xs text-gray-500 leading-relaxed">
+                <p className="text-xs text-gray-400 leading-relaxed">
                   {feature.description}
                 </p>
               </div>
@@ -534,7 +534,7 @@ export default function LandingPage() {
             <h2 className="text-3xl lg:text-4xl font-bold mb-2" style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
               Everything You Need
             </h2>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-400">
               Join thousands earning passive income on Solana
             </p>
           </div>
@@ -545,7 +545,7 @@ export default function LandingPage() {
               <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-5 h-full flex flex-col">
                 <div className="mb-4">
                   <h3 className="text-lg font-bold text-white mb-1">Platform Benefits</h3>
-                  <p className="text-xs text-gray-500">Everything you need to succeed</p>
+                  <p className="text-xs text-gray-400">Everything you need to succeed</p>
                 </div>
                 
                 <div className="flex-1 relative">
@@ -624,7 +624,7 @@ export default function LandingPage() {
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-white">Get Started</h3>
-                    <p className="text-xs text-gray-500">In 3 simple steps</p>
+                    <p className="text-xs text-gray-400">In 3 simple steps</p>
                   </div>
                 </div>
 
@@ -675,7 +675,7 @@ export default function LandingPage() {
                 List Your Project
               </h2>
               
-              <p className="text-sm text-gray-500 max-w-2xl mx-auto">
+              <p className="text-sm text-gray-400 max-w-2xl mx-auto">
                 Join the growing ecosystem offering staking rewards. Increase engagement, build loyalty, and grow your holder base.
               </p>
             </div>
@@ -692,7 +692,7 @@ export default function LandingPage() {
                 <h3 className="text-sm font-semibold text-white mb-1.5">
                   Grow Your Community
                 </h3>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-400">
                   Attract and retain holders
                 </p>
               </div>
@@ -708,7 +708,7 @@ export default function LandingPage() {
                 <h3 className="text-sm font-semibold text-white mb-1.5">
                   Increase Token Utility
                 </h3>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-400">
                   Add real value and use cases
                 </p>
               </div>
@@ -724,7 +724,7 @@ export default function LandingPage() {
                 <h3 className="text-sm font-semibold text-white mb-1.5">
                   Battle-Tested Security
                 </h3>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-400">
                   Audited smart contracts
                 </p>
               </div>
@@ -771,7 +771,7 @@ export default function LandingPage() {
           <h2 className="text-3xl lg:text-4xl font-bold mb-3" style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
             Start Earning Today
           </h2>
-          <p className="text-sm text-gray-500 mb-6">
+          <p className="text-sm text-gray-400 mb-6">
             Join the future of decentralized finance on Solana
           </p>
           <button

@@ -159,7 +159,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
           <h1 className="text-2xl sm:text-3xl font-bold mb-1 sm:mb-2" style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
             Staking Pools
           </h1>
-          <p className="text-sm sm:text-base text-gray-500">
+          <p className="text-sm sm:text-base text-gray-400">
             Showing <span className="font-semibold" style={{ color: '#fb57ff' }}>{sortedPools.length}</span> of{" "}
             <span className="font-semibold" style={{ color: '#fb57ff' }}>{pools.length}</span> pools
           </p>
@@ -236,7 +236,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
         <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4 sm:p-6 mb-4 sm:mb-6 animate-in slide-in-from-top duration-300">
           {/* Search Bar - MOBILE RESPONSIVE */}
           <div className="relative mb-4">
-            <Search className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-gray-500 w-4 h-4 sm:w-5 sm:h-5" />
+            <Search className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 sm:w-5 sm:h-5" />
             <input
               type="text"
               placeholder="Search pools by name or symbol..."
@@ -247,7 +247,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors active:scale-90"
+                className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors active:scale-90"
               >
                 <X className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
@@ -258,7 +258,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
             {/* Sort By - MOBILE RESPONSIVE */}
             <div>
-              <label className="block text-xs sm:text-sm text-gray-500 mb-2 font-medium">Sort By</label>
+              <label className="block text-xs sm:text-sm text-gray-400 mb-2 font-medium">Sort By</label>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
@@ -273,7 +273,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
 
             {/* Pool Type - MOBILE RESPONSIVE */}
             <div>
-              <label className="block text-xs sm:text-sm text-gray-500 mb-2 font-medium">Pool Type</label>
+              <label className="block text-xs sm:text-sm text-gray-400 mb-2 font-medium">Pool Type</label>
               <select
                 value={filterType}
                 onChange={(e) => setFilterType(e.target.value as any)}
@@ -287,7 +287,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
 
             {/* APY/APR Range - MOBILE RESPONSIVE */}
             <div className="sm:col-span-2 lg:col-span-1">
-              <label className="block text-xs sm:text-sm text-gray-500 mb-2 font-medium">Min Rate (%)</label>
+              <label className="block text-xs sm:text-sm text-gray-400 mb-2 font-medium">Min Rate (%)</label>
               <input
                 type="number"
                 min="0"
@@ -299,7 +299,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
             </div>
 
             <div className="sm:col-span-2 lg:col-span-1">
-              <label className="block text-xs sm:text-sm text-gray-500 mb-2 font-medium">Max Rate (%)</label>
+              <label className="block text-xs sm:text-sm text-gray-400 mb-2 font-medium">Max Rate (%)</label>
               <input
                 type="number"
                 min={apyMin}

@@ -674,7 +674,7 @@ function SwapPageContent() {
           >
             Token Swap
           </h1>
-          <p className="text-gray-500">
+          <p className="text-gray-400">
             Powered by StakePoint
           </p>
           
@@ -712,7 +712,7 @@ function SwapPageContent() {
               {/* Slippage Mode Toggle */}
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <label className="text-sm text-gray-500">Slippage Tolerance</label>
+                  <label className="text-sm text-gray-400">Slippage Tolerance</label>
                   <div className="flex gap-1 bg-white/[0.05] rounded-lg p-1">
                     <button
                       onClick={() => setSlippageMode("auto")}
@@ -748,7 +748,7 @@ function SwapPageContent() {
                         {autoSlippage.toFixed(2)}%
                       </span>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-400 mt-1">
                       ✨ Automatically adjusted based on market conditions
                     </p>
                   </div>
@@ -800,7 +800,7 @@ function SwapPageContent() {
 
               {/* ✅ Priority Fee Control */}
               <div>
-                <label className="text-sm text-gray-500 mb-2 block">
+                <label className="text-sm text-gray-400 mb-2 block">
                   Priority Fee (SOL)
                 </label>
                 <div className="flex gap-2">
@@ -824,7 +824,7 @@ function SwapPageContent() {
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-400 mt-1">
                   Higher priority = faster confirmation
                 </p>
               </div>
@@ -834,7 +834,7 @@ function SwapPageContent() {
           {/* From Token */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-sm text-gray-500">You Pay</label>
+              <label className="text-sm text-gray-400">You Pay</label>
               {publicKey && fromToken && (
                 <div className="flex gap-1">
                   <button
@@ -876,7 +876,7 @@ function SwapPageContent() {
                 />
               </div>
               {publicKey && fromToken && tokenBalance !== null && (
-                <div className="text-right text-xs text-gray-500">
+                <div className="text-right text-xs text-gray-400">
                   Balance: {tokenBalance.toFixed(6)} {fromToken.symbol}
                 </div>
               )}
@@ -896,7 +896,7 @@ function SwapPageContent() {
 
           {/* To Token */}
           <div className="space-y-2">
-            <label className="text-sm text-gray-500">You Receive</label>
+            <label className="text-sm text-gray-400">You Receive</label>
             <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-4">
               <div className="flex items-center gap-2 sm:gap-3 mb-2">
                 <button
@@ -911,7 +911,7 @@ function SwapPageContent() {
                 </button>
                 <div className="flex-1 min-w-0 text-right text-lg sm:text-2xl font-bold overflow-hidden">
                   {quoteLoading ? (
-                    <span className="text-gray-500">Loading...</span>
+                    <span className="text-gray-400">Loading...</span>
                   ) : (
                     <span className="block truncate">{toAmount || "0.00"}</span>
                   )}
@@ -924,12 +924,12 @@ function SwapPageContent() {
           {fromAmount && toAmount && (
             <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-3 space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-500">Route</span>
+                <span className="text-gray-400">Route</span>
                 <span className="text-white">Jupiter</span>
               </div>
               {fromToken && toToken && (
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Rate</span>
+                  <span className="text-gray-400">Rate</span>
                   <span className="text-white">
                     1 {fromToken.symbol} ≈ {(parseFloat(toAmount) / parseFloat(fromAmount)).toFixed(6)} {toToken.symbol}
                   </span>
@@ -937,18 +937,18 @@ function SwapPageContent() {
               )}
               {JUPITER_REFERRAL_ACCOUNT && (
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Fee ({jupiterFeePercentage}%)</span>
+                  <span className="text-gray-400">Fee ({jupiterFeePercentage}%)</span>
                   <span className="text-white">
                     {((parseFloat(fromAmount) * jupiterFeePercentage) / 100).toFixed(6)} {fromToken?.symbol}
                   </span>
                 </div>
               )}
               <div className="flex justify-between">
-                <span className="text-gray-500">Slippage</span>
+                <span className="text-gray-400">Slippage</span>
                 <span className="text-white">{slippage.toFixed(2)}% {slippageMode === "auto" && "✨"}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Priority Fee</span>
+                <span className="text-gray-400">Priority Fee</span>
                 <span className="text-white">{priorityFee} SOL</span>
               </div>
             </div>
@@ -1016,7 +1016,7 @@ function SwapPageContent() {
               <Zap className="w-5 h-5" style={{ color: '#fb57ff' }} />
               <span className="font-semibold text-white">Jupiter Routing</span>
             </div>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-400">
               Premium routing with the very best prices available!
             </p>
           </div>
@@ -1026,7 +1026,7 @@ function SwapPageContent() {
               <TrendingUp className="w-5 h-5" style={{ color: '#fb57ff' }} />
               <span className="font-semibold text-white">Best Execution</span>
             </div>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-400">
               Fast and reliable swaps to ensure super speed swap execution!
             </p>
           </div>
@@ -1036,7 +1036,7 @@ function SwapPageContent() {
               <Info className="w-5 h-5" style={{ color: '#fb57ff' }} />
               <span className="font-semibold text-white">Swap Rewards</span>
             </div>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-400">
               {JUPITER_REFERRAL_ACCOUNT 
                 ? "Swap your way to the top of the weekly leaderboard to earn swap rewards!"
                 : "Coming soon"}

@@ -134,11 +134,11 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
             className="flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-white/[0.05] transition-colors"
             title="Copy Contract Address"
           >
-            <span className="text-[10px] text-gray-500 font-mono">6uUU...xrm7</span>
+            <span className="text-[10px] text-gray-400 font-mono">6uUU...xrm7</span>
             {copied ? (
               <Check className="w-3.5 h-3.5 text-green-400" />
             ) : (
-              <Copy className="w-3.5 h-3.5 text-gray-500 hover:text-white" />
+              <Copy className="w-3.5 h-3.5 text-gray-400 hover:text-white" />
             )}
           </button>
         </div>

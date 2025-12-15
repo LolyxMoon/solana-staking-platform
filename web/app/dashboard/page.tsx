@@ -177,7 +177,7 @@ export default function Dashboard() {
           <h1 className="text-2xl sm:text-3xl font-bold mb-1 sm:mb-2" style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
             Staking Dashboard
           </h1>
-          <p className="text-sm sm:text-base text-gray-500">Monitor your staking platform</p>
+          <p className="text-sm sm:text-base text-gray-400">Monitor your staking platform</p>
         </div>
 
         {/* Featured Pools Section */}
@@ -224,13 +224,13 @@ export default function Dashboard() {
                       <h3 className="font-bold text-white text-sm sm:text-base truncate" title={pool.name}>
                         {pool.name}
                       </h3>
-                      <p className="text-gray-500 text-xs truncate">{pool.symbol}</p>
+                      <p className="text-gray-400 text-xs truncate">{pool.symbol}</p>
                     </div>
                     <div className="w-full">
                       <p className="text-xl sm:text-2xl font-bold" style={{ color: '#fb57ff' }}>
                         {pool.type === "locked" ? pool.apy : pool.apr}%
                       </p>
-                      <p className="text-xs text-gray-500">{pool.type === "locked" ? "APY" : "APR"}</p>
+                      <p className="text-xs text-gray-400">{pool.type === "locked" ? "APY" : "APR"}</p>
                     </div>
                     <button 
                       onClick={() => handleStakeNow(pool.id)}
@@ -245,7 +245,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="text-center py-8">
-              <p className="text-gray-500 text-sm">No featured pools available</p>
+              <p className="text-gray-400 text-sm">No featured pools available</p>
               <p className="text-gray-600 text-xs mt-1">Set pools as featured in the admin panel</p>
             </div>
           )}
@@ -255,7 +255,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4 sm:p-5 hover:bg-white/[0.04] transition-all">
             <div className="flex items-center justify-between mb-2 sm:mb-3">
-              <div className="text-gray-500 text-xs sm:text-sm">Total Value Locked</div>
+              <div className="text-gray-400 text-xs sm:text-sm">Total Value Locked</div>
               <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" style={{ color: '#fb57ff' }} />
             </div>
             {statsLoading ? (
@@ -278,7 +278,7 @@ export default function Dashboard() {
 
           <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4 sm:p-5 hover:bg-white/[0.04] transition-all">
             <div className="flex items-center justify-between mb-2 sm:mb-3">
-              <div className="text-gray-500 text-xs sm:text-sm">Total Stakers</div>
+              <div className="text-gray-400 text-xs sm:text-sm">Total Stakers</div>
               <Users className="w-4 h-4 sm:w-5 sm:h-5" style={{ color: '#fb57ff' }} />
             </div>
             {statsLoading ? (
@@ -337,12 +337,12 @@ export default function Dashboard() {
                           <div className="text-white font-semibold text-sm flex items-center gap-2">
                             {getActivityLabel(activity.type)}
                             {activity.pool && (
-                              <span className="text-gray-500 font-normal">
+                              <span className="text-gray-400 font-normal">
                                 • {activity.pool.symbol}
                               </span>
                             )}
                           </div>
-                          <div className="text-gray-500 text-xs mt-0.5">
+                          <div className="text-gray-400 text-xs mt-0.5">
                             {formatTimeAgo(activity.timestamp)}
                           </div>
                         </div>
@@ -353,7 +353,7 @@ export default function Dashboard() {
                             <div className="text-sm font-medium text-white">
                               {activity.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}
                             </div>
-                            <div className="text-xs text-gray-500">tokens</div>
+                            <div className="text-xs text-gray-400">tokens</div>
                           </div>
                         )}
                         {activity.txSignature && (
@@ -376,13 +376,13 @@ export default function Dashboard() {
               <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-3 sm:p-4">
                 <div>
                   <div className="text-white font-semibold text-sm">No activity yet</div>
-                  <div className="text-gray-500 text-xs mt-1">Your staking transactions will appear here</div>
+                  <div className="text-gray-400 text-xs mt-1">Your staking transactions will appear here</div>
                 </div>
               </div>
             )
           ) : (
             <div className="text-center py-6 sm:py-8">
-              <div className="text-sm sm:text-base text-gray-500">Connect your wallet to view activity</div>
+              <div className="text-sm sm:text-base text-gray-400">Connect your wallet to view activity</div>
             </div>
           )}
         </div>
