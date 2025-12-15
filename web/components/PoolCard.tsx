@@ -4,6 +4,7 @@ import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import { useSolanaBalance } from '@/hooks/useSolanaBalance';
 import { useStakingProgram } from '@/hooks/useStakingProgram';
+import { usePoolData } from '@/hooks/usePoolData';
 import { useToast } from "@/components/ToastContainer";
 import { LoadingSpinner } from "@/components/SkeletonLoaders";
 import { useRealtimeRewards, formatRewards } from "@/utils/calculatePendingRewards";
@@ -130,6 +131,7 @@ export default function PoolCard(props: PoolCardProps) {
   const { showSuccess, showError, showWarning } = useToast();
   
   const { balance: tokenBalance, loading: balanceLoading } = useSolanaBalance(effectiveMintAddress);
+  const { getDecimals, getPrice, getSolBalance } = usePoolData();
   const { 
     stake: blockchainStake, 
     unstake: blockchainUnstake, 
@@ -185,28 +187,12 @@ export default function PoolCard(props: PoolCardProps) {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch token decimals
+  // Use batched decimals from provider
   useEffect(() => {
     if (!effectiveMintAddress) return;
-    
-    if (decimalsCache.has(effectiveMintAddress)) {
-      setTokenDecimals(decimalsCache.get(effectiveMintAddress)!);
-      return;
-    }
-    
-    const fetchDecimals = async () => {
-      try {
-        const mintInfo = await connection.getParsedAccountInfo(new PublicKey(effectiveMintAddress));
-        const decimals = (mintInfo.value?.data as any)?.parsed?.info?.decimals || 9;
-        decimalsCache.set(effectiveMintAddress, decimals);
-        setTokenDecimals(decimals);
-      } catch (error) {
-        setTokenDecimals(9);
-      }
-    };
-    
-    fetchDecimals();
-  }, [effectiveMintAddress]);
+    const cachedDecimals = getDecimals(effectiveMintAddress);
+    setTokenDecimals(cachedDecimals);
+  }, [effectiveMintAddress, getDecimals]);
 
   const lockupInfo = useMemo(() => {
     if (!lockPeriod || type !== "locked" || !userStakeTimestamp) {
@@ -359,12 +345,32 @@ export default function PoolCard(props: PoolCardProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, publicKey, effectiveMintAddress, poolId, tokenDecimals]);
 
-  // Price fetching - uses mint address instead of pair address
+  // Use batched price from provider
   useEffect(() => {
     if (!effectiveMintAddress) {
       setPriceLoading(false);
       return;
     }
+    
+    // Known stablecoins - hardcode to $1
+    const STABLECOINS: Record<string, number> = {
+      'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 1.00,
+      'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 1.00,
+      'USDH1SM1ojwWUga67PGrgFWUHibbjqMvuMaDkRJTgkX': 1.00,
+    };
+
+    if (STABLECOINS[effectiveMintAddress]) {
+      setPrice(STABLECOINS[effectiveMintAddress]);
+      setPriceChange24h(0);
+      setPriceLoading(false);
+      return;
+    }
+    
+    const { price: cachedPrice, change } = getPrice(effectiveMintAddress);
+    setPrice(cachedPrice);
+    setPriceChange24h(change);
+    setPriceLoading(false);
+  }, [effectiveMintAddress, getPrice]);
 
     // Known stablecoins - hardcode to $1
     const STABLECOINS: Record<string, number> = {

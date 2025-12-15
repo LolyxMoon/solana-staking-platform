@@ -5,6 +5,7 @@ import PoolCard from "@/components/PoolCard";
 import { useToast } from "@/components/ToastContainer";
 import { PoolCardSkeleton, LoadingSpinner } from "@/components/SkeletonLoaders";
 import { Search, Filter, X, SlidersHorizontal, Grid3x3, List, Plus } from "lucide-react";
+import { usePoolData } from "@/hooks/usePoolData";
 import CreatePoolModal from "@/components/CreatePoolModal";
 import { useWallet } from "@solana/wallet-adapter-react";
 
@@ -47,6 +48,19 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
   
   const { showInfo, showSuccess } = useToast();
   const { connected } = useWallet();
+
+  const { showInfo, showSuccess } = useToast();
+  const { connected } = useWallet();
+  
+  const { loadPoolsData } = usePoolData();
+
+  // Batch load all pool data on mount
+  useEffect(() => {
+    const uniqueMints = [...new Set(pools.map(p => p.tokenMint).filter(Boolean))];
+    if (uniqueMints.length > 0) {
+      loadPoolsData(uniqueMints);
+    }
+  }, [pools, loadPoolsData]);
 
   // Simulate initial loading
   useEffect(() => {
