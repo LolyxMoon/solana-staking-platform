@@ -2,7 +2,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
-import { useSolanaBalance } from '@/hooks/useSolanaBalance';
 import { useStakingProgram } from '@/hooks/useStakingProgram';
 import { usePoolData } from '@/hooks/usePoolData';
 import { useToast } from "@/components/ToastContainer";
@@ -130,8 +129,9 @@ export default function PoolCard(props: PoolCardProps) {
   const { connection } = useConnection();
   const { showSuccess, showError, showWarning } = useToast();
   
-  const { balance: tokenBalance, loading: balanceLoading } = useSolanaBalance(effectiveMintAddress);
-  const { getDecimals, getPrice, getSolBalance } = usePoolData();
+  const { getDecimals, getPrice, getSolBalance, getUserTokenBalance, isUserDataLoading } = usePoolData();
+  const [tokenBalance, setTokenBalance] = useState(0);
+  const [balanceLoading, setBalanceLoading] = useState(true);
   const { 
     stake: blockchainStake, 
     unstake: blockchainUnstake, 
@@ -193,6 +193,18 @@ export default function PoolCard(props: PoolCardProps) {
     const cachedDecimals = getDecimals(effectiveMintAddress);
     setTokenDecimals(cachedDecimals);
   }, [effectiveMintAddress, getDecimals]);
+
+  / Use batched token balance from provider
+  useEffect(() => {
+    if (!effectiveMintAddress || !connected) {
+      setTokenBalance(0);
+      setBalanceLoading(false);
+      return;
+    }
+    const balance = getUserTokenBalance(effectiveMintAddress);
+    setTokenBalance(balance);
+    setBalanceLoading(isUserDataLoading);
+  }, [effectiveMintAddress, connected, getUserTokenBalance, isUserDataLoading]);
 
   const lockupInfo = useMemo(() => {
     if (!lockPeriod || type !== "locked" || !userStakeTimestamp) {
