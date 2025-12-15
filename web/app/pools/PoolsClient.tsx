@@ -48,9 +48,6 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
   
   const { showInfo, showSuccess } = useToast();
   const { connected } = useWallet();
-
-  const { showInfo, showSuccess } = useToast();
-  const { connected } = useWallet();
   
   const { loadPoolsData } = usePoolData();
 
