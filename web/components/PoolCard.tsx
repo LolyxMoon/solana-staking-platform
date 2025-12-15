@@ -297,13 +297,8 @@ export default function PoolCard(props: PoolCardProps) {
       await waitForRpcSlot();
       
       try {
-        // 1. Fetch SOL balance
-        try {
-          const balance = await connection.getBalance(publicKey);
-          setSolBalance(balance / LAMPORTS_PER_SOL);
-        } catch (error) {
-          // Silent fail
-        }
+        // 1. Use batched SOL balance
+        setSolBalance(getSolBalance());
 
         // 2. Fetch user stake
         await waitForRpcSlot();
@@ -311,14 +306,7 @@ export default function PoolCard(props: PoolCardProps) {
           const userStake = await getUserStake(effectiveMintAddress, poolId);
           
           if (userStake) {
-            // Fetch decimals directly to ensure accuracy
-            let actualDecimals = tokenDecimals;
-            try {
-              const mintInfo = await connection.getParsedAccountInfo(new PublicKey(effectiveMintAddress));
-              actualDecimals = (mintInfo.value?.data as any)?.parsed?.info?.decimals || 9;
-            } catch (e) {
-              console.error("Error fetching decimals:", e);
-            }
+            const actualDecimals = tokenDecimals;
             const amountStr = userStake.amount.toString();
             setUserStakedAmount(parseFloat(amountStr) / Math.pow(10, actualDecimals));
             setUserStakeTimestamp(userStake.lastStakeTimestamp?.toNumber() || 0);
