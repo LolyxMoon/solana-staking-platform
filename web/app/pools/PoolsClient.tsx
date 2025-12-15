@@ -49,7 +49,9 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
   const { showInfo, showSuccess } = useToast();
   const { connected } = useWallet();
   
-  const { loadPoolsData, loadAllPoolData } = usePoolData();
+  const { loadPoolsData, loadAllPoolData, getPoolProject, isPoolDataLoading } = usePoolData();
+  const [dynamicRates, setDynamicRates] = useState<Map<string, number>>(new Map());
+  const [dynamicTVL, setDynamicTVL] = useState<Map<string, number>>(new Map());
 
   // Batch load all pool data on mount
   useEffect(() => {
@@ -64,6 +66,45 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
       loadAllPoolData(poolInfos);
     }
   }, [pools, loadPoolsData, loadAllPoolData]);
+
+  // Calculate dynamic rates from blockchain data
+  useEffect(() => {
+    if (pools.length === 0 || isPoolDataLoading) return;
+    
+    const rates = new Map<string, number>();
+    const tvl = new Map<string, number>();
+    
+    pools.forEach(pool => {
+      const project = getPoolProject(pool.tokenMint, pool.poolId);
+      if (!project) return;
+      
+      // Get total staked from blockchain
+      const totalStakedRaw = project.totalStaked?.toString() || '0';
+      tvl.set(pool.id, parseFloat(totalStakedRaw) / Math.pow(10, 9));
+      
+      if (project.rateMode === 0) {
+        // Locked pool - static APY
+        const rate = project.rateBpsPerYear?.toNumber?.() 
+          ? project.rateBpsPerYear.toNumber() / 100 
+          : (project.rateBpsPerYear || 0) / 100;
+        rates.set(pool.id, rate);
+      } else {
+        // Variable pool - calculate APR
+        const rewardRatePerSecond = BigInt(project.rewardRatePerSecond?.toString() || '0');
+        const totalStaked = BigInt(project.totalStaked?.toString() || '1');
+        
+        if (totalStaked > 0n && rewardRatePerSecond > 0n) {
+          const SECONDS_PER_YEAR = 31_536_000;
+          const annualRewards = rewardRatePerSecond * BigInt(SECONDS_PER_YEAR);
+          const apr = Number((annualRewards * 10000n) / totalStaked) / 100;
+          rates.set(pool.id, apr);
+        }
+      }
+    });
+    
+    setDynamicRates(rates);
+    setDynamicTVL(tvl);
+  }, [pools, getPoolProject, isPoolDataLoading]);
 
   // Simulate initial loading
   useEffect(() => {
@@ -100,7 +141,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
     if (filterType !== "all" && pool.type !== filterType) return false;
     if (filterFeatured && !pool.featured) return false;
 
-    const rate = pool.type === "locked" ? Number(pool.apy ?? 0) : Number(pool.apr ?? 0);
+    const rate = dynamicRates.get(pool.id) ?? (pool.type === "locked" ? Number(pool.apy ?? 0) : Number(pool.apr ?? 0));
     if (rate < apyMin || rate > apyMax) return false;
 
     if (searchQuery) {
@@ -118,8 +159,8 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
     if (sortBy === "az") return a.name.localeCompare(b.name);
     if (sortBy === "za") return b.name.localeCompare(a.name);
     if (sortBy === "rate") {
-      const rateA = a.type === "locked" ? Number(a.apy ?? 0) : Number(a.apr ?? 0);
-      const rateB = b.type === "locked" ? Number(b.apy ?? 0) : Number(b.apr ?? 0);
+      const rateA = dynamicRates.get(a.id) ?? (a.type === "locked" ? Number(a.apy ?? 0) : Number(a.apr ?? 0));
+      const rateB = dynamicRates.get(b.id) ?? (b.type === "locked" ? Number(b.apy ?? 0) : Number(b.apr ?? 0));
       return rateB - rateA;
     }
     if (sortBy === "newest") {
@@ -141,6 +182,16 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
   };
 
   const hasActiveFilters = filterType !== "all" || filterFeatured || apyMin > 0 || apyMax < 1000 || searchQuery !== "";
+
+  // Helper to get rate (dynamic or fallback to database)
+  const getPoolRate = (pool: Pool): number => {
+    return dynamicRates.get(pool.id) ?? (pool.type === "locked" ? Number(pool.apy ?? 0) : Number(pool.apr ?? 0));
+  };
+
+  // Helper to get TVL (dynamic or fallback to database)
+  const getPoolTVL = (pool: Pool): number => {
+    return dynamicTVL.get(pool.id) ?? Number(pool.totalStaked || 0);
+  };
 
   if (isLoading) {
     return (
@@ -279,7 +330,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
-                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-white/[0.02] border border-white/[0.05] rounded-lg text-white focus:outline-none transition-colors text-sm sm:text-base min-h-[48px] cursor-pointer"
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-[#1a1a1a] border border-white/[0.05] rounded-lg text-white focus:outline-none transition-colors text-sm sm:text-base min-h-[48px] cursor-pointer [&>option]:bg-[#1a1a1a] [&>option]:text-white"
               >
                 <option value="az">A → Z</option>
                 <option value="za">Z → A</option>
@@ -294,7 +345,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
               <select
                 value={filterType}
                 onChange={(e) => setFilterType(e.target.value as any)}
-                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-white/[0.02] border border-white/[0.05] rounded-lg text-white focus:outline-none transition-colors text-sm sm:text-base min-h-[48px] cursor-pointer"
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-[#1a1a1a] border border-white/[0.05] rounded-lg text-white focus:outline-none transition-colors text-sm sm:text-base min-h-[48px] cursor-pointer [&>option]:bg-[#1a1a1a] [&>option]:text-white"
               >
                 <option value="all">All Pools</option>
                 <option value="locked">Locked Only</option>
@@ -441,7 +492,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
                 {/* APR/APY */}
                 <div className="col-span-3 sm:col-span-2 text-center">
                   <p className="font-bold text-sm" style={{ color: '#fb57ff' }}>
-                    {pool.type === "locked" ? pool.apy : pool.apr}%
+                    {getPoolRate(pool).toFixed(2)}%
                   </p>
                   <p className="text-gray-400 text-xs">{pool.type === "locked" ? "APY" : "APR"}</p>
                 </div>
@@ -449,7 +500,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
                 {/* Total Staked */}
                 <div className="hidden sm:block col-span-2 text-center">
                   <p className="text-white text-sm font-medium">
-                    {Number(pool.totalStaked || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                    {getPoolTVL(pool).toLocaleString('en-US', { maximumFractionDigits: 2 })}
                   </p>
                   <p className="text-gray-400 text-xs">{pool.symbol}</p>
                 </div>
