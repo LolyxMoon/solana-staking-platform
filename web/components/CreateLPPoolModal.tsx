@@ -497,7 +497,7 @@ export default function CreateLPPoolModal({ onClose, onSuccess }: CreateLPPoolMo
 
       console.log("🔍 [SAVING LP POOL TO DB]:", poolData);
 
-      const response = await fetch("/api/admin/lp-pools/create-lp-pool", {
+      const response = await fetch("/api/lp-pools/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(poolData),

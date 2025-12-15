@@ -379,7 +379,7 @@ export default function CreateLockModal({
           console.log("✅ Pool initialized with lockup");
           
           // Sync pool to database
-          const syncResponse = await fetch("/api/admin/pools/create-user-pool", {
+          const syncResponse = await fetch("/api/pools/create", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
