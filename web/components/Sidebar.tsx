@@ -177,7 +177,7 @@ export default function Sidebar({ isMobileMenuOpen, onClose }: SidebarProps) {
               </svg>
             </a>
             <a
-              href="https://t.me"
+              href="https://t.me/StakePointPortal"
               target="_blank"
               rel="noopener noreferrer"
               className="p-2 rounded-lg hover:bg-white/5 transition-colors active:scale-95"
