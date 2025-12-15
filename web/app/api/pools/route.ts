@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { Connection, PublicKey } from '@solana/web3.js'
 import { getReadOnlyProgram, getPDAs } from '@/lib/anchor-program'
+import { verifyAdminToken } from '@/lib/adminMiddleware'
 
 // Add these to prevent static generation
 export const dynamic = 'force-dynamic'
@@ -95,7 +96,7 @@ async function getLiveRate(
   }
 }
 
-// ✅ GET: Fetch all pools with live rates
+// ✅ GET: Fetch all pools with live rates (PUBLIC - no auth needed)
 export async function GET() {
   try {
     console.log('🔍 Pools API called');
@@ -210,8 +211,17 @@ export async function GET() {
   }
 }
 
-// ✅ POST: Create new pool
+// ✅ POST: Create new pool - ADMIN ONLY
 export async function POST(request: Request) {
+  // 🛡️ SECURITY: Verify admin token
+  const authResult = await verifyAdminToken(request);
+  if (!authResult.isValid) {
+    return NextResponse.json(
+      { error: authResult.error || 'Unauthorized' },
+      { status: 401 }
+    );
+  }
+
   try {
     const body = await request.json()
     const {
@@ -279,7 +289,7 @@ export async function POST(request: Request) {
       }
     })
     
-    console.log('✅ Pool created:', pool.id)
+    console.log(`✅ Pool created by admin ${authResult.wallet}:`, pool.id)
     
     return NextResponse.json(pool, { status: 201 })
   } catch (error: any) {
@@ -303,8 +313,17 @@ export async function POST(request: Request) {
   }
 }
 
-// ✅ PATCH: Update existing pool
+// ✅ PATCH: Update existing pool - ADMIN ONLY
 export async function PATCH(request: Request) {
+  // 🛡️ SECURITY: Verify admin token
+  const authResult = await verifyAdminToken(request);
+  if (!authResult.isValid) {
+    return NextResponse.json(
+      { error: authResult.error || 'Unauthorized' },
+      { status: 401 }
+    );
+  }
+
   try {
     const body = await request.json()
     const { id, tokenMint, poolId, ...updateData } = body
@@ -357,7 +376,7 @@ export async function PATCH(request: Request) {
       })
     }
     
-    console.log('✅ Pool updated successfully')
+    console.log(`✅ Pool updated by admin ${authResult.wallet}`)
     
     return NextResponse.json(pool)
   } catch (error: any) {
@@ -377,8 +396,17 @@ export async function PATCH(request: Request) {
   }
 }
 
-// ✅ DELETE: Remove pool
+// ✅ DELETE: Remove pool - ADMIN ONLY
 export async function DELETE(request: Request) {
+  // 🛡️ SECURITY: Verify admin token
+  const authResult = await verifyAdminToken(request);
+  if (!authResult.isValid) {
+    return NextResponse.json(
+      { error: authResult.error || 'Unauthorized' },
+      { status: 401 }
+    );
+  }
+
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
@@ -411,7 +439,7 @@ export async function DELETE(request: Request) {
       })
     }
     
-    console.log('✅ Pool deleted successfully')
+    console.log(`✅ Pool deleted by admin ${authResult.wallet}`)
     
     return NextResponse.json({ success: true, pool })
   } catch (error: any) {

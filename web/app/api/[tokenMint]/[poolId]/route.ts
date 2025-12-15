@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { verifyAdminToken } from '@/lib/adminMiddleware'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-// ✅ GET: Fetch single pool by tokenMint + poolId
+// ✅ GET: Fetch single pool by tokenMint + poolId (PUBLIC)
 export async function GET(
   req: NextRequest,
   { params }: { params: { tokenMint: string; poolId: string } }
@@ -50,11 +51,20 @@ export async function GET(
   }
 }
 
-// ✅ PATCH: Update single pool by tokenMint + poolId
+// ✅ PATCH: Update single pool by tokenMint + poolId - ADMIN ONLY
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { tokenMint: string; poolId: string } }
 ) {
+  // 🛡️ SECURITY: Verify admin token
+  const authResult = await verifyAdminToken(req);
+  if (!authResult.isValid) {
+    return NextResponse.json(
+      { error: authResult.error || 'Unauthorized' },
+      { status: 401 }
+    );
+  }
+
   try {
     const body = await req.json()
     
@@ -70,7 +80,7 @@ export async function PATCH(
       data: body
     })
     
-    console.log('✅ Pool updated')
+    console.log(`✅ Pool updated by admin ${authResult.wallet}`)
     
     return NextResponse.json(pool)
   } catch (error: any) {
@@ -90,11 +100,20 @@ export async function PATCH(
   }
 }
 
-// ✅ DELETE: Remove single pool
+// ✅ DELETE: Remove single pool - ADMIN ONLY
 export async function DELETE(
   req: NextRequest,
   { params }: { params: { tokenMint: string; poolId: string } }
 ) {
+  // 🛡️ SECURITY: Verify admin token
+  const authResult = await verifyAdminToken(req);
+  if (!authResult.isValid) {
+    return NextResponse.json(
+      { error: authResult.error || 'Unauthorized' },
+      { status: 401 }
+    );
+  }
+
   try {
     console.log('🗑️ Deleting pool:', params.tokenMint, 'poolId:', params.poolId)
     
@@ -107,7 +126,7 @@ export async function DELETE(
       }
     })
     
-    console.log('✅ Pool deleted')
+    console.log(`✅ Pool deleted by admin ${authResult.wallet}`)
     
     return NextResponse.json({ success: true, pool })
   } catch (error: any) {

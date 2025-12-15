@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { verifyAdminToken } from "@/lib/adminMiddleware";
 
 const prisma = new PrismaClient();
 
-// GET - Fetch SEO data for a specific page
+// GET - Fetch SEO data for a specific page (PUBLIC)
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -39,8 +40,17 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create new SEO entry
+// POST - Create new SEO entry - ADMIN ONLY
 export async function POST(request: NextRequest) {
+  // 🛡️ SECURITY: Verify admin token
+  const authResult = await verifyAdminToken(request);
+  if (!authResult.isValid) {
+    return NextResponse.json(
+      { error: authResult.error || "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
   try {
     const body = await request.json();
     const {
@@ -82,6 +92,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    console.log(`✅ SEO created by admin ${authResult.wallet}`);
+
     return NextResponse.json(seo, { status: 201 });
   } catch (error: any) {
     console.error("POST SEO Error:", error);
@@ -92,8 +104,17 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PATCH - Update existing SEO entry
+// PATCH - Update existing SEO entry - ADMIN ONLY
 export async function PATCH(request: NextRequest) {
+  // 🛡️ SECURITY: Verify admin token
+  const authResult = await verifyAdminToken(request);
+  if (!authResult.isValid) {
+    return NextResponse.json(
+      { error: authResult.error || "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
   try {
     const body = await request.json();
     const { page, ...updateData } = body;
@@ -110,6 +131,8 @@ export async function PATCH(request: NextRequest) {
       data: updateData,
     });
 
+    console.log(`✅ SEO updated by admin ${authResult.wallet}`);
+
     return NextResponse.json(seo);
   } catch (error: any) {
     console.error("PATCH SEO Error:", error);
@@ -120,8 +143,17 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-// DELETE - Delete SEO entry
+// DELETE - Delete SEO entry - ADMIN ONLY
 export async function DELETE(request: NextRequest) {
+  // 🛡️ SECURITY: Verify admin token
+  const authResult = await verifyAdminToken(request);
+  if (!authResult.isValid) {
+    return NextResponse.json(
+      { error: authResult.error || "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const page = searchParams.get("page");
@@ -136,6 +168,8 @@ export async function DELETE(request: NextRequest) {
     await prisma.sEO.delete({
       where: { page },
     });
+
+    console.log(`✅ SEO deleted by admin ${authResult.wallet}`);
 
     return NextResponse.json({ message: "SEO data deleted successfully" });
   } catch (error: any) {

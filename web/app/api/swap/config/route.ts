@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { verifyAdminToken } from "@/lib/adminMiddleware";
 
 const prisma = new PrismaClient();
 
-// GET - Fetch current swap configuration
+// GET - Fetch current swap configuration (PUBLIC)
 export async function GET() {
   try {
     let config = await prisma.swapConfig.findFirst();
@@ -24,7 +25,7 @@ export async function GET() {
       swapEnabled: config.enabled,
       platformFeeBps: config.platformFeeBps,
       treasuryWallet: config.treasuryWallet,
-      maxSlippageBps: config.maxSlippageBps || 100, // Default 1% if not set
+      maxSlippageBps: config.maxSlippageBps || 100,
     });
   } catch (error) {
     console.error("Error fetching swap config:", error);
@@ -35,14 +36,20 @@ export async function GET() {
   }
 }
 
-// POST - Update swap configuration (admin only)
+// POST - Update swap configuration - ADMIN ONLY
 export async function POST(req: NextRequest) {
+  // 🛡️ SECURITY: Verify admin token
+  const authResult = await verifyAdminToken(req);
+  if (!authResult.isValid) {
+    return NextResponse.json(
+      { error: authResult.error || "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
   try {
     const body = await req.json();
     const { swapEnabled, platformFeeBps, treasuryWallet, maxSlippageBps } = body;
-
-    // TODO: Add admin authentication check here
-    // if (!isAdmin(req)) { return NextResponse.json({ error: "Unauthorized" }, { status: 403 }) }
 
     // Validation
     if (platformFeeBps !== undefined && (platformFeeBps < 0 || platformFeeBps > 1000)) {
@@ -76,7 +83,8 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Return in the format the admin panel expects
+    console.log(`✅ Swap config updated by admin ${authResult.wallet}`);
+
     return NextResponse.json({
       success: true,
       config: {
