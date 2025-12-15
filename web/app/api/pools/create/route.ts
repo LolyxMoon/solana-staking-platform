@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { TelegramBotService } from '@/lib/telegram-bot';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+
+const ADMIN_WALLET = process.env.ADMIN_WALLET || "ecfvkqWdJiYJRyUtWvuYpPWP5faf9GBcA1K6TaDW7wS";
+const MIN_FEE_LAMPORTS = 10_000_000; // 0.01 SOL minimum (adjust to your actual fee)
 
 export async function POST(req: Request) {
   try {
@@ -35,6 +38,14 @@ export async function POST(req: Request) {
       paymentTx: body.paymentTxSignature,
     });
     
+    // Check if payment signature was already used
+    const existingPayment = await prisma.pool.findFirst({
+      where: {
+        // Store payment sig in a field - we'll use poolAddress temporarily
+        // Or create a separate table for used signatures
+      }
+    });
+    
     const connection = new Connection(process.env.NEXT_PUBLIC_RPC_ENDPOINT || "https://api.mainnet-beta.solana.com");
     
     // Verify payment transaction
@@ -57,7 +68,26 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Payment transaction was not signed by the creator wallet" }, { status: 400 });
       }
 
-      console.log("✅ Payment transaction verified on-chain");
+      // ✅ NEW: Verify payment went to admin wallet with correct amount
+      const accountKeys = tx.transaction.message.staticAccountKeys.map(k => k.toBase58());
+      const adminIndex = accountKeys.indexOf(ADMIN_WALLET);
+      
+      if (adminIndex === -1) {
+        console.log("❌ Admin wallet not in transaction");
+        return NextResponse.json({ error: "Invalid payment - wrong recipient" }, { status: 400 });
+      }
+      
+      // Check SOL transfer to admin
+      const preBalances = tx.meta?.preBalances || [];
+      const postBalances = tx.meta?.postBalances || [];
+      const adminReceived = postBalances[adminIndex] - preBalances[adminIndex];
+      
+      if (adminReceived < MIN_FEE_LAMPORTS) {
+        console.log(`❌ Insufficient payment: ${adminReceived} lamports (need ${MIN_FEE_LAMPORTS})`);
+        return NextResponse.json({ error: "Invalid payment - insufficient amount" }, { status: 400 });
+      }
+
+      console.log(`✅ Payment verified: ${adminReceived / LAMPORTS_PER_SOL} SOL to admin`);
       
     } catch (txError) {
       console.error("Error verifying payment transaction:", txError);
@@ -76,9 +106,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Pool #${body.poolId || 0} already exists for this token.` }, { status: 400 });
     }
     
+    // ✅ NEW: Check if this payment signature was already used
+    const signatureUsed = await prisma.pool.findFirst({
+      where: {
+        pairAddress: body.paymentTxSignature, // Reuse pairAddress field to store payment sig
+      }
+    });
+    
+    if (signatureUsed) {
+      console.log("❌ Payment signature already used");
+      return NextResponse.json({ error: "This payment has already been used" }, { status: 400 });
+    }
+    
     const transferTaxBps = body.transferTaxBps ? Math.min(10000, Math.max(0, parseInt(body.transferTaxBps))) : 0;
     
-    // Use values from frontend (already set during on-chain creation)
     const duration = body.duration ? parseInt(body.duration) : 365;
     const lockPeriod = body.lockPeriod ? parseInt(body.lockPeriod) : null;
     
@@ -98,7 +139,7 @@ export async function POST(req: Request) {
         duration: duration,
         rewards: body.rewards || "To be deposited",
         logo: body.logo || null,
-        pairAddress: body.pairAddress || null,
+        pairAddress: body.paymentTxSignature, // ✅ Store payment sig to prevent reuse
         hasSelfReflections: body.hasSelfReflections || false,
         hasExternalReflections: body.hasExternalReflections || false,
         externalReflectionMint: body.externalReflectionMint || null,
