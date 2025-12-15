@@ -4,6 +4,7 @@ import { TrendingUp, Users, ArrowUpRight, ArrowDownRight, Gift, AlertTriangle, E
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { UserStakedPools } from "@/components/UserStakedPools";
+import { usePoolData } from "@/hooks/usePoolData";
 
 type FeaturedPool = {
   id: string;
@@ -36,6 +37,8 @@ export default function Dashboard() {
   const router = useRouter();
   const [featuredPools, setFeaturedPools] = useState<FeaturedPool[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dynamicRates, setDynamicRates] = useState<Map<string, number>>(new Map());
+  const { loadAllPoolData, getPoolProject } = usePoolData();
   const [activities, setActivities] = useState<Activity[]>([]);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
   const [stats, setStats] = useState({
@@ -55,6 +58,15 @@ export default function Dashboard() {
         const pools = await response.json();
         const featured = pools.filter((pool: FeaturedPool) => pool.featured).slice(0, 5);
         setFeaturedPools(featured);
+        
+        // Load blockchain data for dynamic APR calculation
+        if (featured.length > 0) {
+          const poolInfos = featured.map((p: FeaturedPool) => ({ 
+            tokenMint: p.tokenMint, 
+            poolId: p.poolId 
+          }));
+          await loadAllPoolData(poolInfos);
+        }
       } catch (error) {
         console.error('Error fetching featured pools:', error);
         setFeaturedPools([]);
@@ -64,7 +76,40 @@ export default function Dashboard() {
     }
 
     fetchFeaturedPools();
-  }, []);
+  }, [loadAllPoolData]);
+
+  // Calculate dynamic rates from blockchain data
+  useEffect(() => {
+    if (featuredPools.length === 0) return;
+    
+    const rates = new Map<string, number>();
+    
+    featuredPools.forEach(pool => {
+      const project = getPoolProject(pool.tokenMint, pool.poolId);
+      if (!project) return;
+      
+      if (project.rateMode === 0) {
+        // Locked pool - static APY
+        const rate = project.rateBpsPerYear?.toNumber?.() 
+          ? project.rateBpsPerYear.toNumber() / 100 
+          : (project.rateBpsPerYear || 0) / 100;
+        rates.set(pool.id, rate);
+      } else {
+        // Variable pool - calculate APR
+        const rewardRatePerSecond = BigInt(project.rewardRatePerSecond?.toString() || '0');
+        const totalStaked = BigInt(project.totalStaked?.toString() || '0');
+        
+        if (totalStaked > 0n && rewardRatePerSecond > 0n) {
+          const SECONDS_PER_YEAR = 31_536_000;
+          const annualRewards = rewardRatePerSecond * BigInt(SECONDS_PER_YEAR);
+          const apr = Number((annualRewards * 10000n) / totalStaked) / 100;
+          rates.set(pool.id, apr);
+        }
+      }
+    });
+    
+    setDynamicRates(rates);
+  }, [featuredPools, getPoolProject]);
 
   // Fetch platform stats
   useEffect(() => {
@@ -228,7 +273,7 @@ export default function Dashboard() {
                     </div>
                     <div className="w-full">
                       <p className="text-xl sm:text-2xl font-bold" style={{ color: '#fb57ff' }}>
-                        {pool.type === "locked" ? pool.apy : pool.apr}%
+                        {dynamicRates.get(pool.id)?.toFixed(2) ?? (pool.type === "locked" ? pool.apy : pool.apr) ?? 0}%
                       </p>
                       <p className="text-xs text-gray-400">{pool.type === "locked" ? "APY" : "APR"}</p>
                     </div>
