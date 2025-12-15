@@ -2,6 +2,7 @@
 // This replaces your existing route with leaderboard functionality
 
 import { NextResponse } from "next/server";
+import { verifyAdminToken } from "@/lib/adminMiddleware";
 import fs from "fs";
 import path from "path";
 
@@ -221,7 +222,12 @@ export async function POST(request: Request) {
 }
 
 // DELETE: Reset analytics (admin only)
-export async function DELETE() {
+export async function DELETE(req: Request) {
+  const authResult = await verifyAdminToken(req);
+  if (!authResult.isValid) {
+    return NextResponse.json({ error: authResult.error || "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const defaultData = {
       totalVolume: 0,
