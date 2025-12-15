@@ -262,7 +262,7 @@ export default function PoolCard(props: PoolCardProps) {
       await waitForRpcSlot();
       
       try {
-        // 1. Fetch dynamic rate (public read - no wallet needed)
+        // Fetch rate AND project in one call (getPoolRate now returns project)
         if (dynamicRate === null) {
           try {
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -270,20 +270,13 @@ export default function PoolCard(props: PoolCardProps) {
             if (result?.rate !== undefined) {
               setDynamicRate(result.rate);
             }
+            // Use project from getPoolRate - no second fetch needed!
+            if (result?.project) {
+              setProjectData(result.project);
+            }
           } catch (error) {
             // Silent fail - will use database APY/APR value
           }
-        }
-
-        // 2. Fetch project info for TVL display (public read - no wallet needed)
-        await waitForRpcSlot();
-        try {
-          const project = await getProjectInfo(effectiveMintAddress, poolId);
-          if (project) {
-            setProjectData(project);
-          }
-        } catch (error) {
-          // Silent fail
         }
       } catch (error) {
         // Silent fail
@@ -292,7 +285,7 @@ export default function PoolCard(props: PoolCardProps) {
 
     fetchPublicData();
     
-    // Refresh every 2 minutes
+    // Refresh every 5 minutes
     const interval = setInterval(fetchPublicData, 300000);
     return () => clearInterval(interval);
   }, [effectiveMintAddress, poolId]); // ✅ NO connected/publicKey dependency

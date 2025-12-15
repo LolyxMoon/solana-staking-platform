@@ -23,6 +23,11 @@ interface Pool {
 
 const SPT_MINT = "6uUU2z5GBasaxnkcqiQVHa2SXL68mAXDsq1zYN5Qxrm7";
 
+let poolsCache: { data: Pool[]; timestamp: number } | null = null;
+const POOLS_CACHE_TTL = 300000; // 5 minutes
+
+export default function Navbar({ onMenuClick }: NavbarProps) {
+
 export default function Navbar({ onMenuClick }: NavbarProps) {
   const router = useRouter();
   const [price, setPrice] = useState<number | null>(null);
@@ -54,10 +59,20 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
 
   useEffect(() => {
     const fetchFeaturedPools = async () => {
+      // Check cache first
+      if (poolsCache && Date.now() - poolsCache.timestamp < POOLS_CACHE_TTL) {
+        const featured = poolsCache.data.filter((p: Pool) => p.featured && !p.hidden).slice(0, 5);
+        setFeaturedPools(featured);
+        return;
+      }
+
       try {
         const res = await fetch("/api/pools");
         const data = await res.json();
-        // Change this line (limit to 5 featured pools)
+        
+        // Update cache
+        poolsCache = { data, timestamp: Date.now() };
+        
         const featured = data.filter((p: Pool) => p.featured && !p.hidden).slice(0, 5);
         setFeaturedPools(featured);
       } catch (error) {
@@ -66,7 +81,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
     };
 
     fetchFeaturedPools();
-    const interval = setInterval(fetchFeaturedPools, 120000);
+    const interval = setInterval(fetchFeaturedPools, 300000); // 5 min instead of 2
     return () => clearInterval(interval);
   }, []);
 

@@ -100,7 +100,7 @@ export default function LPPoolCard({ pool }: { pool: LPPool }) {
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 15000); // Update every 15 seconds
+    const interval = setInterval(fetchData, 120000);
     return () => clearInterval(interval);
   }, [connected, pool.tokenMint, pool.poolId, decimalsMultiplier]);
 

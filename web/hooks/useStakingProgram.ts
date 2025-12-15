@@ -1432,7 +1432,7 @@ const claimUnclaimedTokens = async (tokenMint: string, poolId: number = 0) => {
       
       if (!project) {
         console.log(`❌ getPoolRate: No project found`);
-        return { rate: 0, type: "apy", rateMode: 0 };
+        return { rate: 0, type: "apy", rateMode: 0, project: null };
       }
       
       const rateMode = project.rateMode;
@@ -1442,22 +1442,22 @@ const claimUnclaimedTokens = async (tokenMint: string, poolId: number = 0) => {
         // Locked pool - static APY
         const apy = project.rateBpsPerYear.toNumber() / 100;
         console.log(`🔒 getPoolRate: Locked pool, APY = ${apy}%`);
-        return { rate: apy, type: "apy", rateMode: 0 };
+        return { rate: apy, type: "apy", rateMode: 0, project };
       } else {
         // Variable pool - dynamic APR
         console.log(`🔓 getPoolRate: Variable pool, calling calculateDynamicAPR...`);
         const apr = await calculateDynamicAPR(tokenMint, poolId);
         console.log(`✅ getPoolRate: Calculated APR = ${apr}%`);
-        return { rate: apr, type: "apr", rateMode: 1 };
+        return { rate: apr, type: "apr", rateMode: 1, project };
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("❌❌❌ Error in getPoolRate:", error);
       console.error("Error details:", {
         message: error.message,
         stack: error.stack,
         tokenMint
       });
-      return { rate: 0, type: "apy", rateMode: 0 };
+      return { rate: 0, type: "apy", rateMode: 0, project: null };
     }
   };
 

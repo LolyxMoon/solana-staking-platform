@@ -206,7 +206,7 @@ export default function EmbedPoolClient({ pool, buttonColor, theme }: EmbedPoolC
     };
 
     fetchUserStake();
-    const interval = setInterval(fetchUserStake, 10000);
+    const interval = setInterval(fetchUserStake, 60000);
     return () => clearInterval(interval);
   }, [publicKey, connected, effectiveMintAddress, poolId, isInitialized]);
 
@@ -227,7 +227,7 @@ export default function EmbedPoolClient({ pool, buttonColor, theme }: EmbedPoolC
     };
 
     fetchProjectData();
-    const interval = setInterval(fetchProjectData, 15000);
+    const interval = setInterval(fetchProjectData, 120000);
     return () => clearInterval(interval);
   }, [effectiveMintAddress, poolId, isInitialized]);
 
@@ -254,7 +254,7 @@ export default function EmbedPoolClient({ pool, buttonColor, theme }: EmbedPoolC
     };
 
     fetchRate();
-    const interval = setInterval(fetchRate, 30000);
+    const interval = setInterval(fetchRate, 120000);
     return () => clearInterval(interval);
   }, [effectiveMintAddress, poolId, isInitialized]);
 

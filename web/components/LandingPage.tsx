@@ -114,8 +114,30 @@ export default function LandingPage() {
   };
 
   useEffect(() => {
-    fetchFeaturedPools();
-    fetchPlatformStats();
+    const init = async () => {
+      // Fetch pools once, use for both featured and stats
+      try {
+        const res = await fetch("/api/pools");
+        const poolsData = await res.json();
+        
+        // Set featured pools
+        const featured = poolsData
+          .filter((p: Pool) => p.featured && !p.hidden)
+          .sort((a: Pool, b: Pool) => (a.featuredOrder || 99) - (b.featuredOrder || 99))
+          .slice(0, 3);
+        setPools(featured);
+        
+        // Calculate platform stats using same data
+        fetchPlatformStats(poolsData);
+      } catch (error) {
+        console.error("Failed to fetch pools:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    init();
+    
     if (SOLSTREAM_TOKEN_ADDRESS) {
       fetchTokenData();
       const interval = setInterval(fetchTokenData, 60000);
@@ -123,7 +145,7 @@ export default function LandingPage() {
     }
   }, []);
 
-  const fetchPlatformStats = async () => {
+  const fetchPlatformStats = async (poolsData?: any[]) => {
     try {
       const res = await fetch("/api/stats");
       const data = await res.json();
@@ -150,9 +172,8 @@ export default function LandingPage() {
         return Math.floor(num).toString();
       };
 
-      const poolsRes = await fetch("/api/pools");
-      const poolsData = await poolsRes.json();
-      const visiblePools = poolsData.filter((p: any) => !p.hidden);
+      // Use passed pools data instead of fetching again
+      const visiblePools = poolsData ? poolsData.filter((p: any) => !p.hidden) : [];
 
       const poolsWithRate = visiblePools.filter((p: any) => p.liveRate && p.liveRate > 0);
       const averageRate = poolsWithRate.length > 0 
@@ -261,26 +282,6 @@ export default function LandingPage() {
         holders: "TBA",
         loading: false,
       });
-    }
-  };
-
-  useEffect(() => {
-    fetchFeaturedPools();
-  }, []);
-
-  const fetchFeaturedPools = async () => {
-    try {
-      const res = await fetch("/api/pools");
-      const data = await res.json();
-      const featured = data
-        .filter((p: Pool) => p.featured && !p.hidden)
-        .sort((a: Pool, b: Pool) => (a.featuredOrder || 99) - (b.featuredOrder || 99))
-        .slice(0, 3);
-      setPools(featured);
-    } catch (error) {
-      console.error("Failed to fetch pools:", error);
-    } finally {
-      setLoading(false);
     }
   };
 

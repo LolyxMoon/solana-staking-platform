@@ -59,7 +59,7 @@ export function UserStakedPools() {
     fetchUserStakes();
 
     // Refresh every 30 seconds
-    const interval = setInterval(fetchUserStakes, 30000);
+    const interval = setInterval(fetchUserStakes, 120000);
     return () => clearInterval(interval);
   }, [connected, publicKey]);
 

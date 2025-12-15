@@ -159,7 +159,7 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
     };
 
     fetchUserStake();
-    const interval = setInterval(fetchUserStake, 10000);
+    const interval = setInterval(fetchUserStake, 60000);
     return () => clearInterval(interval);
   }, [publicKey, connected, effectiveMintAddress, poolId, isInitialized]);
 
@@ -198,7 +198,7 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
     };
 
     fetchProjectData();
-    const interval = setInterval(fetchProjectData, 15000);
+    const interval = setInterval(fetchProjectData, 120000);
     return () => clearInterval(interval);
   }, [effectiveMintAddress, poolId, isInitialized, tokenDecimals]);
 
@@ -221,7 +221,7 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
     };
 
     fetchReflectionBalance();
-    const interval = setInterval(fetchReflectionBalance, 12000);
+    const interval = setInterval(fetchReflectionBalance, 120000);
     return () => clearInterval(interval);
   }, [publicKey, connected, effectiveMintAddress, pool.reflectionEnabled, poolId, isInitialized]);
 

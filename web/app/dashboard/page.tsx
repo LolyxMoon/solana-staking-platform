@@ -87,7 +87,7 @@ export default function Dashboard() {
     }
 
     fetchStats();
-    const interval = setInterval(fetchStats, 30000);
+    const interval = setInterval(fetchStats, 120000);
     return () => clearInterval(interval);
   }, []);
 

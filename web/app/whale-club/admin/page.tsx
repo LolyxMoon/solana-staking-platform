@@ -64,7 +64,7 @@ export default function WhaleClubAdmin() {
     };
 
     fetchBalance();
-    const interval = setInterval(fetchBalance, 30000);
+    const interval = setInterval(fetchBalance, 120000);
     return () => clearInterval(interval);
   }, [connection]);
 
