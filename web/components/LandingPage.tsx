@@ -544,7 +544,7 @@ export default function LandingPage() {
             <div className="relative">
               <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-5 h-full flex flex-col">
                 <div className="mb-4">
-                  <h2 className="text-lg font-bold text-white mb-1">Platform Benefits</h3>
+                  <h2 className="text-lg font-bold text-white mb-1">Platform Benefits</h2>
                   <p className="text-xs text-gray-400">Everything you need to succeed</p>
                 </div>
                 
