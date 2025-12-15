@@ -38,7 +38,7 @@ export default function Dashboard() {
   const [featuredPools, setFeaturedPools] = useState<FeaturedPool[]>([]);
   const [loading, setLoading] = useState(true);
   const [dynamicRates, setDynamicRates] = useState<Map<string, number>>(new Map());
-  const { loadAllPoolData, getPoolProject } = usePoolData();
+  const { loadAllPoolData, getPoolProject, isPoolDataLoading } = usePoolData();
   const [activities, setActivities] = useState<Activity[]>([]);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
   const [stats, setStats] = useState({
@@ -109,7 +109,7 @@ export default function Dashboard() {
     });
     
     setDynamicRates(rates);
-  }, [featuredPools, getPoolProject]);
+  }, [featuredPools, getPoolProject, isPoolDataLoading]);
 
   // Fetch platform stats
   useEffect(() => {
