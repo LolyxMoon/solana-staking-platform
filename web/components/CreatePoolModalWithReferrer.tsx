@@ -524,7 +524,7 @@ useEffect(() => {
         referrerSplitBps: referrerWallet ? referrerSplitBps : null,
       };
 
-      const response = await fetch("/api/admin/pools/create-user-pool", {
+      const response = await fetch("/api/pools/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(poolData),
