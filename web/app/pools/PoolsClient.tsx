@@ -49,7 +49,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
   const { showInfo, showSuccess } = useToast();
   const { connected } = useWallet();
   
-  const { loadPoolsData } = usePoolData();
+  const { loadPoolsData, loadAllPoolData } = usePoolData();
 
   // Batch load all pool data on mount
   useEffect(() => {
@@ -57,7 +57,13 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
     if (uniqueMints.length > 0) {
       loadPoolsData(uniqueMints);
     }
-  }, [pools, loadPoolsData]);
+    
+    // Load all pool projects and stakes in batch
+    const poolInfos = pools.map(p => ({ tokenMint: p.tokenMint, poolId: p.poolId }));
+    if (poolInfos.length > 0) {
+      loadAllPoolData(poolInfos);
+    }
+  }, [pools, loadPoolsData, loadAllPoolData]);
 
   // Simulate initial loading
   useEffect(() => {

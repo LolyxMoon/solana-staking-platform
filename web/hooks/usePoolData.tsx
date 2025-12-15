@@ -1,8 +1,9 @@
 "use client";
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { PublicKey, LAMPORTS_PER_SOL, AccountInfo } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { getPDAs, getReadOnlyProgram } from "@/lib/anchor-program";
 
 interface TokenBalance {
   mint: string;
@@ -10,16 +11,15 @@ interface TokenBalance {
   decimals: number;
 }
 
-interface PoolCache {
-  decimals: number;
-  price?: number;
-  priceChange24h?: number;
-}
-
 interface UserData {
   solBalance: number;
   tokenBalances: Map<string, TokenBalance>;
   lastUpdated: number;
+}
+
+interface PoolInfo {
+  tokenMint: string;
+  poolId: number;
 }
 
 interface PoolDataContextType {
@@ -31,13 +31,19 @@ interface PoolDataContextType {
   getUserTokenBalance: (mint: string) => number;
   getSolBalance: () => number;
   
+  // Pool data
+  getPoolProject: (tokenMint: string, poolId: number) => any | null;
+  getUserStake: (tokenMint: string, poolId: number) => any | null;
+  
   // Batch loading
   loadPoolsData: (mints: string[]) => Promise<void>;
+  loadAllPoolData: (pools: PoolInfo[]) => Promise<void>;
   loadUserData: () => Promise<void>;
   
   // Status
   isLoading: boolean;
   isUserDataLoading: boolean;
+  isPoolDataLoading: boolean;
 }
 
 const PoolDataContext = createContext<PoolDataContextType | undefined>(undefined);
@@ -45,6 +51,8 @@ const PoolDataContext = createContext<PoolDataContextType | undefined>(undefined
 // Global caches (persist across renders)
 const decimalsCache = new Map<string, number>();
 const priceCache = new Map<string, { price: number | null; change: number | null; timestamp: number }>();
+const projectCache = new Map<string, any>();
+const stakeCache = new Map<string, any>();
 const PRICE_CACHE_DURATION = 120000; // 2 minutes
 
 export function PoolDataProvider({ children }: { children: ReactNode }) {
@@ -53,12 +61,15 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
   
   const [isLoading, setIsLoading] = useState(false);
   const [isUserDataLoading, setIsUserDataLoading] = useState(false);
+  const [isPoolDataLoading, setIsPoolDataLoading] = useState(false);
   const [userData, setUserData] = useState<UserData | null>(null);
+  const [poolsLoaded, setPoolsLoaded] = useState(false);
   
   const connectionRef = useRef(connection);
   connectionRef.current = connection;
   
-  const loadedMintsRef = useRef<Set<string>>(new Set());
+  const publicKeyRef = useRef(publicKey);
+  publicKeyRef.current = publicKey;
 
   // Batch load decimals for all mints
   const loadPoolsData = useCallback(async (mints: string[]) => {
@@ -88,7 +99,6 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
         } else {
           decimalsCache.set(mint, 9);
         }
-        loadedMintsRef.current.add(mint);
       });
       
       console.log(`✅ Batch loaded decimals for ${uniqueMints.length} mints in 1 RPC call`);
@@ -98,7 +108,6 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
       
     } catch (error) {
       console.error('Batch load error:', error);
-      // Fallback: set default decimals
       uniqueMints.forEach(mint => {
         if (!decimalsCache.has(mint)) {
           decimalsCache.set(mint, 9);
@@ -106,6 +115,86 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
       });
     } finally {
       setIsLoading(false);
+    }
+  }, []);
+
+  // ✅ NEW: Batch load ALL pool projects and user stakes in 2 RPC calls
+  const loadAllPoolData = useCallback(async (pools: PoolInfo[]) => {
+    if (pools.length === 0) return;
+    
+    setIsPoolDataLoading(true);
+    
+    try {
+      const conn = connectionRef.current;
+      const program = getReadOnlyProgram(conn);
+      
+      // Calculate all PDAs
+      const projectPDAs: PublicKey[] = [];
+      const userStakePDAs: PublicKey[] = [];
+      const poolKeys: string[] = [];
+      
+      for (const pool of pools) {
+        const mint = new PublicKey(pool.tokenMint);
+        const [projectPDA] = getPDAs.project(mint, pool.poolId);
+        projectPDAs.push(projectPDA);
+        poolKeys.push(`${pool.tokenMint}-${pool.poolId}`);
+      }
+      
+      // ✅ BATCH CALL 1: Fetch ALL project accounts
+      console.log(`🔄 Fetching ${projectPDAs.length} project accounts...`);
+      const projectAccounts = await conn.getMultipleAccountsInfo(projectPDAs);
+      
+      // Decode project accounts
+      projectAccounts.forEach((account, idx) => {
+        const key = poolKeys[idx];
+        if (account) {
+          try {
+            const decoded = program.coder.accounts.decode('project', account.data);
+            projectCache.set(key, {
+              ...decoded,
+              address: projectPDAs[idx],
+            });
+          } catch (e) {
+            console.warn(`Failed to decode project ${key}:`, e);
+          }
+        }
+      });
+      
+      console.log(`✅ Batch loaded ${projectAccounts.filter(Boolean).length} projects in 1 RPC call`);
+      
+      // ✅ BATCH CALL 2: Fetch ALL user stake accounts (if wallet connected)
+      if (publicKeyRef.current) {
+        const userStakePDAsForUser: PublicKey[] = [];
+        
+        for (let i = 0; i < pools.length; i++) {
+          const [userStakePDA] = getPDAs.userStake(projectPDAs[i], publicKeyRef.current);
+          userStakePDAsForUser.push(userStakePDA);
+        }
+        
+        console.log(`🔄 Fetching ${userStakePDAsForUser.length} user stake accounts...`);
+        const stakeAccounts = await conn.getMultipleAccountsInfo(userStakePDAsForUser);
+        
+        stakeAccounts.forEach((account, idx) => {
+          const key = poolKeys[idx];
+          if (account) {
+            try {
+              const decoded = program.coder.accounts.decode('stake', account.data);
+              stakeCache.set(key, decoded);
+            } catch (e) {
+              // User hasn't staked in this pool
+            }
+          }
+        });
+        
+        console.log(`✅ Batch loaded ${stakeAccounts.filter(Boolean).length} user stakes in 1 RPC call`);
+      }
+      
+      setPoolsLoaded(true);
+      
+    } catch (error) {
+      console.error('Batch pool data load error:', error);
+    } finally {
+      setIsPoolDataLoading(false);
     }
   }, []);
 
@@ -234,6 +323,8 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
       return () => clearInterval(interval);
     } else {
       setUserData(null);
+      // Clear user-specific caches
+      stakeCache.clear();
     }
   }, [connected, publicKey, loadUserData]);
 
@@ -256,16 +347,32 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
     return userData?.solBalance || 0;
   }, [userData]);
 
+  // ✅ NEW: Get cached pool project data
+  const getPoolProject = useCallback((tokenMint: string, poolId: number): any | null => {
+    const key = `${tokenMint}-${poolId}`;
+    return projectCache.get(key) || null;
+  }, []);
+
+  // ✅ NEW: Get cached user stake data
+  const getUserStake = useCallback((tokenMint: string, poolId: number): any | null => {
+    const key = `${tokenMint}-${poolId}`;
+    return stakeCache.get(key) || null;
+  }, []);
+
   return (
     <PoolDataContext.Provider value={{
       getDecimals,
       getPrice,
       getUserTokenBalance,
       getSolBalance,
+      getPoolProject,
+      getUserStake,
       loadPoolsData,
+      loadAllPoolData,
       loadUserData,
       isLoading,
       isUserDataLoading,
+      isPoolDataLoading,
     }}>
       {children}
     </PoolDataContext.Provider>
