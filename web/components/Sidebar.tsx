@@ -166,7 +166,7 @@ export default function Sidebar({ isMobileMenuOpen, onClose }: SidebarProps) {
           {/* Social Icons */}
           <div className="lg:hidden flex items-center justify-center gap-4 mb-4">
             <a
-              href="https://twitter.com"
+              href="https://x.com/StakePointApp"
               target="_blank"
               rel="noopener noreferrer"
               className="p-2 rounded-lg hover:bg-white/5 transition-colors active:scale-95"
