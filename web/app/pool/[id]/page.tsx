@@ -37,8 +37,12 @@ async function getPool(id: string) {
       apy: pool.apy || 0,
       rateBpsPerYear: 0, // Will be fetched from on-chain data
       rateMode: 1, // Dynamic APR
-      lockPeriodDays: pool.lockPeriod,
-      duration: pool.lockPeriod || 0, // Same as lock period for now
+      lockPeriodDays: pool.lockupSeconds > 0 
+        ? Math.floor(pool.lockupSeconds / 86400) 
+        : (pool.lockPeriod && pool.lockPeriod > 1000 ? Math.floor(pool.lockPeriod / 86400) : pool.lockPeriod),
+      duration: pool.poolDurationSeconds > 0 
+        ? Math.floor(pool.poolDurationSeconds / 86400) 
+        : (pool.lockPeriod && pool.lockPeriod > 1000 ? Math.floor(pool.lockPeriod / 86400) : pool.lockPeriod || 0),
       totalStaked: pool.totalStaked,
       expectedRewards: expectedRewards,
       isPaused: pool.isPaused,
