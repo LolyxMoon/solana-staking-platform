@@ -2,14 +2,9 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { TelegramBotService } from '@/lib/telegram-bot';
-import { Program, AnchorProvider } from "@coral-xyz/anchor";
-import IDL from "@/lib/staking_program.json";
-import NodeWallet from "@coral-xyz/anchor/dist/cjs/nodewallet";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-
-const PROGRAM_ID = process.env.NEXT_PUBLIC_PROGRAM_ID!;
 
 export async function POST(req: Request) {
   try {
@@ -42,6 +37,7 @@ export async function POST(req: Request) {
     
     const connection = new Connection(process.env.NEXT_PUBLIC_RPC_ENDPOINT || "https://api.mainnet-beta.solana.com");
     
+    // Verify payment transaction
     try {
       const tx = await connection.getTransaction(body.paymentTxSignature, {
         maxSupportedTransactionVersion: 0,
@@ -68,6 +64,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Could not verify payment transaction. Please try again." }, { status: 400 });
     }
     
+    // Check if pool already exists in database
     const existingPool = await prisma.pool.findFirst({
       where: {
         tokenMint: body.tokenMint,
@@ -81,35 +78,9 @@ export async function POST(req: Request) {
     
     const transferTaxBps = body.transferTaxBps ? Math.min(10000, Math.max(0, parseInt(body.transferTaxBps))) : 0;
     
-    let duration = body.duration || 365;
-    let lockPeriod = body.lockPeriod ? parseInt(body.lockPeriod) : null;
-    
-    try {
-      const wallet = new NodeWallet(new Uint8Array(32));
-      const provider = new AnchorProvider(connection, wallet as any, { commitment: "confirmed" });
-      const program = new Program(IDL as any, new PublicKey(PROGRAM_ID), provider);
-
-      const [projectPDA] = PublicKey.findProgramAddressSync(
-        [Buffer.from("project"), new PublicKey(body.tokenMint).toBuffer(), Buffer.from([body.poolId || 0])],
-        program.programId
-      );
-
-      const projectAccount = await program.account.project.fetch(projectPDA);
-      
-      const poolDurationBn = (projectAccount as any).poolDuration;
-      if (poolDurationBn) {
-        duration = Math.floor(Number(poolDurationBn.toString()) / 86400);
-      }
-      
-      const lockPeriodBn = (projectAccount as any).lockPeriod;
-      if (lockPeriodBn) {
-        lockPeriod = Math.floor(Number(lockPeriodBn.toString()) / 86400);
-      }
-      
-    } catch (fetchError) {
-      console.error("⚠️ Error fetching on-chain pool data:", fetchError);
-      return NextResponse.json({ error: "Pool not found on-chain. Please create the pool on-chain first." }, { status: 400 });
-    }
+    // Use values from frontend (already set during on-chain creation)
+    const duration = body.duration ? parseInt(body.duration) : 365;
+    const lockPeriod = body.lockPeriod ? parseInt(body.lockPeriod) : null;
     
     const hasReferrer = body.referrerWallet && body.referrerWallet.length > 30;
     const referralSplitPercent = hasReferrer && body.referrerSplitBps ? body.referrerSplitBps / 100 : null;
@@ -134,9 +105,9 @@ export async function POST(req: Request) {
         reflectionTokenAccount: body.reflectionTokenAccount || null,
         reflectionVaultAddress: body.reflectionVaultAddress || null,
         reflectionTokenSymbol: body.reflectionTokenSymbol || null,
-        isInitialized: body.isInitialized || false,
-        isPaused: body.isPaused !== undefined ? body.isPaused : true,
-        poolAddress: body.projectPda || null,
+        isInitialized: body.isInitialized !== undefined ? body.isInitialized : true,
+        isPaused: body.isPaused !== undefined ? body.isPaused : false,
+        poolAddress: body.projectPda || body.poolAddress || null,
         transferTaxBps: transferTaxBps,
         featured: false,
         hidden: false,
