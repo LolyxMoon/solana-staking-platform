@@ -14,6 +14,7 @@ const navItems = [
   { name: "Tools", href: "/tools", icon: Wrench }, 
   { name: "Whale Club", href: "/whale-club", icon: Crown },
   { name: "Refer & Earn", href: "/refer", icon: Gift },
+  { name: "Blog", href: "/blog", icon: FileText },
   { name: "Roadmap", href: "/roadmap", icon: Map },
   { name: "Whitepaper", href: "/whitepaper", icon: FileText },
   { name: "Documentation", href: "/docs", icon: BookOpen },

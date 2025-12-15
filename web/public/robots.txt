@@ -13,6 +13,8 @@ Allow: /locks
 Allow: /roadmap
 Allow: /whitepaper
 Allow: /dashboard
+Allow: /blog
+Allow: /blog/
 
 Disallow: /api/
 Disallow: /admin/
