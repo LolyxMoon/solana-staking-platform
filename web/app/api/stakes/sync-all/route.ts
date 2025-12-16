@@ -1,119 +1,142 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { prisma } from '@/lib/prisma';
-import { getPDAs, getReadOnlyProgram, PROGRAM_ID } from '@/lib/anchor-program';
+import { getPDAs, getReadOnlyProgram } from '@/lib/anchor-program';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-export async function POST(request: NextRequest) {
+const priceCache = new Map<string, { price: number; timestamp: number }>();
+const PRICE_CACHE_TTL = 5 * 60 * 1000;
+
+const STABLECOINS: Record<string, number> = {
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 1,
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 1,
+};
+
+async function getTokenPrice(tokenMint: string, pairAddress?: string | null): Promise<number> {
+  if (STABLECOINS[tokenMint]) return STABLECOINS[tokenMint];
+
+  const cached = priceCache.get(tokenMint);
+  if (cached && Date.now() - cached.timestamp < PRICE_CACHE_TTL) {
+    return cached.price;
+  }
+
   try {
-    const { adminKey } = await request.json();
-    if (adminKey !== process.env.ADMIN_SYNC_KEY) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    let price = 0;
+
+    if (pairAddress) {
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/pairs/solana/${pairAddress}`);
+      const data = await res.json();
+      if (data?.pairs?.[0]?.priceUsd) {
+        price = parseFloat(data.pairs[0].priceUsd);
+      }
     }
 
-    console.log('\n=== SYNCING ALL STAKES FROM BLOCKCHAIN ===\n');
+    if (price === 0) {
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`);
+      const data = await res.json();
+      if (data?.pairs?.length > 0) {
+        const sorted = data.pairs.sort((a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+        if (sorted[0]?.priceUsd) price = parseFloat(sorted[0].priceUsd);
+      }
+    }
 
+    priceCache.set(tokenMint, { price, timestamp: Date.now() });
+    return price;
+  } catch {
+    return 0;
+  }
+}
+
+function bnToNumber(bn: any): number {
+  try {
+    return parseFloat(bn.toString());
+  } catch {
+    return 0;
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
     const rpcEndpoint = process.env.HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com';
     const connection = new Connection(rpcEndpoint, 'confirmed');
     const program = getReadOnlyProgram(connection);
 
+    // Get pools config
     const pools = await prisma.pool.findMany();
-    console.log(`Found ${pools.length} pools to scan`);
+    
+    // Get staker count directly from database
+    const stakes = await prisma.userStake.findMany({
+      select: { userWallet: true }
+    });
+    const uniqueWallets = new Set(stakes.map(s => s.userWallet));
+    const totalStakers = uniqueWallets.size;
 
-    let totalSynced = 0;
+    // Build PDAs
+    const projectPDAs: PublicKey[] = [];
+    const poolConfigs: any[] = [];
 
-    // Fetch all program accounts and try to decode as stake
-    const allAccounts = await connection.getProgramAccounts(new PublicKey(PROGRAM_ID));
-    console.log(`Found ${allAccounts.length} total program accounts`);
+    for (const pool of pools) {
+      const mintPubkey = new PublicKey(pool.tokenMint);
+      const [projectPDA] = getPDAs.project(mintPubkey, pool.poolId);
+      projectPDAs.push(projectPDA);
+      poolConfigs.push(pool);
+    }
 
-    const validStakes: { pubkey: string; userWallet: string; tokenMint: string; poolId: number; amount: string }[] = [];
+    // Fetch blockchain data
+    const projectAccounts = await connection.getMultipleAccountsInfo(projectPDAs);
 
-    for (const { pubkey, account } of allAccounts) {
+    const tokenBreakdown = [];
+    let totalValueLocked = 0;
+
+    for (let i = 0; i < projectPDAs.length; i++) {
+      const account = projectAccounts[i];
+      const pool = poolConfigs[i];
+
+      if (!account) continue;
+
       try {
-        // Try to decode as stake account
-        const decoded = program.coder.accounts.decode('stake', account.data);
-        
-        // If successful, it's a stake account
-        const userWallet = decoded.user?.toString();
-        const amount = decoded.amount?.toString() || '0';
-        const projectPda = decoded.project?.toString();
-        
-        if (!userWallet || amount === '0' || !projectPda) {
-          continue;
-        }
+        const decoded = program.coder.accounts.decode('project', account.data);
+        const totalStakedRaw = bnToNumber(decoded.totalStaked);
+        const decimals = pool.tokenDecimals || 9;
+        const tokenAmount = totalStakedRaw / Math.pow(10, decimals);
+        const price = await getTokenPrice(pool.tokenMint, pool.pairAddress);
+        const usdValue = tokenAmount * price;
 
-        // Match to a pool
-        let matchedPool = null;
-        for (const pool of pools) {
-          const mintPubkey = new PublicKey(pool.tokenMint);
-          const [expectedProjectPDA] = getPDAs.project(mintPubkey, pool.poolId);
-          if (expectedProjectPDA.toString() === projectPda) {
-            matchedPool = pool;
-            break;
-          }
-        }
+        totalValueLocked += usdValue;
 
-        if (!matchedPool) {
-          console.log(`Could not match stake ${pubkey.toString().slice(0, 8)}... to any pool`);
-          continue;
-        }
-
-        validStakes.push({
-          pubkey: pubkey.toString(),
-          userWallet,
-          tokenMint: matchedPool.tokenMint,
-          poolId: matchedPool.poolId,
-          amount,
+        tokenBreakdown.push({
+          tokenMint: pool.tokenMint,
+          poolName: pool.name,
+          symbol: pool.symbol,
+          poolId: pool.poolId,
+          decimals,
+          totalStaked: tokenAmount,
+          totalStakedRaw: totalStakedRaw.toString(),
+          price,
+          usdValue,
         });
-
-        // Upsert to database
-        await prisma.userStake.upsert({
-          where: {
-            userWallet_tokenMint_poolId: {
-              userWallet,
-              tokenMint: matchedPool.tokenMint,
-              poolId: matchedPool.poolId,
-            },
-          },
-          update: {
-            stakedAmount: BigInt(amount),
-            stakePda: pubkey.toString(),
-            updatedAt: new Date(),
-          },
-          create: {
-            userWallet,
-            tokenMint: matchedPool.tokenMint,
-            poolId: matchedPool.poolId,
-            stakedAmount: BigInt(amount),
-            stakePda: pubkey.toString(),
-          },
-        });
-
-        totalSynced++;
-        console.log(`Synced: ${userWallet.slice(0, 8)}... -> ${matchedPool.symbol} (${amount})`);
-
       } catch (e) {
-        // Not a stake account, skip
-        continue;
+        console.error(`Failed to decode ${pool.symbol}:`, e);
       }
     }
 
-    console.log(`\n=== SYNC COMPLETE ===`);
-    console.log(`Synced: ${totalSynced} stakes\n`);
-
     return NextResponse.json({
       success: true,
-      synced: totalSynced,
-      stakes: validStakes.map(s => ({
-        wallet: s.userWallet.slice(0, 8) + '...',
-        pool: s.tokenMint.slice(0, 8) + '...',
-        amount: s.amount,
-      })),
+      totalStakers,
+      totalValueLocked,
+      tokenBreakdown,
     });
 
   } catch (error: any) {
-    console.error('Sync error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Stats error:', error);
+    return NextResponse.json({
+      success: false,
+      error: error.message,
+      totalStakers: 0,
+      totalValueLocked: 0,
+      tokenBreakdown: [],
+    }, { status: 500 });
   }
 }
