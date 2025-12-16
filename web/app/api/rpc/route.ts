@@ -9,23 +9,40 @@ const MAX_REQUESTS_PER_WINDOW = 100;
 
 // Allowed RPC methods (whitelist for security)
 const ALLOWED_METHODS = [
+  // Account queries
   'getAccountInfo',
   'getMultipleAccounts',
+  'getMultipleAccountsInfo',
+  'getParsedAccountInfo',
   'getBalance',
+  
+  // Token queries
   'getTokenAccountBalance',
   'getTokenAccountsByOwner',
   'getParsedTokenAccountsByOwner',
+  'getTokenSupply',
+  
+  // Transaction queries
   'getSignaturesForAddress',
+  'getSignatureStatus',
+  'getSignatureStatuses',
   'getTransaction',
+  
+  // Block/slot queries
   'getLatestBlockhash',
   'getSlot',
   'getBlockHeight',
+  'getGenesisHash',
+  
+  // Transaction submission
   'sendTransaction',
+  'sendRawTransaction',
   'simulateTransaction',
+  
+  // Fee queries
   'getMinimumBalanceForRentExemption',
   'getFeeForMessage',
   'getRecentPrioritizationFees',
-  'getSignatureStatuses',
 ];
 
 function getClientIP(request: NextRequest): string {
