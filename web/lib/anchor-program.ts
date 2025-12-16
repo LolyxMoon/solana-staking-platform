@@ -189,7 +189,10 @@ export const getPDAs = {
  * Create a connection to Solana
  */
 export function getConnection(): Connection {
-  return new Connection(RPC_ENDPOINT, "confirmed");
+  return new Connection(RPC_ENDPOINT, {
+    commitment: "confirmed",
+    wsEndpoint: process.env.NEXT_PUBLIC_WS_ENDPOINT || "wss://api.mainnet-beta.solana.com",
+  });
 }
 
 /**
