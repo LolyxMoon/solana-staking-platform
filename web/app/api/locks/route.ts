@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
 
     // ✅ VERIFY ON-CHAIN: Check that the lock/stake PDA exists
     const connection = new Connection(
-      process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com'
+      process.env.HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com'
     );
 
     try {

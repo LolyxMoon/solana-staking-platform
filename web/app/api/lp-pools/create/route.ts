@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       paymentTx: body.paymentTxSignature,
     });
     
-    const connection = new Connection(process.env.NEXT_PUBLIC_RPC_ENDPOINT || "https://api.mainnet-beta.solana.com");
+    const connection = new Connection(process.env.HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT || "https://api.mainnet-beta.solana.com");
     
     // Verify payment transaction
     try {

@@ -87,7 +87,7 @@ export async function PATCH(
     // ✅ If marking as unlocked, verify on-chain that lock is actually unlocked
     if (isUnlocked === true && existingLock.stakePda) {
       const connection = new Connection(
-        process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com'
+        process.env.HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com'
       );
 
       try {
@@ -202,7 +202,7 @@ export async function DELETE(
     // ✅ Verify on-chain that lock is actually closed/unlocked before allowing deletion
     if (existingLock.stakePda) {
       const connection = new Connection(
-        process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com'
+        process.env.HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com'
       );
 
       try {

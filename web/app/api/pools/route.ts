@@ -15,7 +15,7 @@ const rateCache = new Map<string, { rate: number; rateType: string; timestamp: n
 const CACHE_DURATION = 30000; // 30 seconds
 
 function getConnection() {
-  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com';
+  const rpcUrl = process.env.HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com';
   return new Connection(rpcUrl, 'confirmed');
 }
 

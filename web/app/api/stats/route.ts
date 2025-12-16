@@ -113,7 +113,7 @@ export async function GET(request: NextRequest) {
     console.log('\n📊 Fetching platform stats...');
 
     // Get RPC endpoint
-    const rpcEndpoint = process.env.NEXT_PUBLIC_RPC_URL || process.env.NEXT_PUBLIC_HELIUS_RPC || 'https://api.mainnet-beta.solana.com';
+    const rpcEndpoint = process.env.HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com';
     const connection = new Connection(rpcEndpoint, 'confirmed');
 
     // 1. Get all stakes from database (using UserStake model - the correct one!)

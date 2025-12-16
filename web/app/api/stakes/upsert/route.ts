@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ✅ VERIFY ON-CHAIN: Fetch the actual stake from blockchain
-    const connection = new Connection(process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com');
+    const connection = new Connection(process.env.HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com');
     
     try {
       // Check if the stake PDA account exists on-chain

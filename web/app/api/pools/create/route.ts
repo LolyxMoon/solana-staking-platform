@@ -46,7 +46,7 @@ export async function POST(req: Request) {
       }
     });
     
-    const connection = new Connection(process.env.NEXT_PUBLIC_RPC_ENDPOINT || "https://api.mainnet-beta.solana.com");
+    const connection = new Connection(process.env.HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT || "https://api.mainnet-beta.solana.com");
     
     // Verify payment transaction
     try {
