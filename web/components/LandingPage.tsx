@@ -328,7 +328,7 @@ export default function LandingPage() {
       <PopUpAd />
       <div className="min-h-screen bg-[#060609] relative">
         {/* Hero Section */}
-      <section className="relative overflow-hidden bg-[#060609]">
+      <div className="relative overflow-hidden bg-[#060609]">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-0 left-1/4 w-[800px] h-[800px] rounded-full blur-3xl" style={{ background: 'rgba(251, 87, 255, 0.05)' }} />
         </div>
@@ -467,7 +467,7 @@ export default function LandingPage() {
             </div>
           </div>
         </div>
-      </section>
+      </div>
 
       <section className="relative border-y border-white/[0.05] bg-[#060609]">
         <div className="max-w-7xl mx-auto px-6 py-12">
