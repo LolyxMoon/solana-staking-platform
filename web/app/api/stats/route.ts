@@ -1,66 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { getMint } from '@solana/spl-token';
 import { prisma } from '@/lib/prisma';
+import { getPDAs, getReadOnlyProgram } from '@/lib/anchor-program';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-// Cache for token decimals (in-memory, resets on server restart)
-const decimalsCache = new Map<string, number>();
-
 // Cache for token prices (5 minute TTL)
 const priceCache = new Map<string, { price: number; timestamp: number }>();
-const PRICE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const PRICE_CACHE_TTL = 5 * 60 * 1000;
 
-// Known token decimals (hardcoded for reliability)
-const KNOWN_DECIMALS: Record<string, number> = {
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 6, // USDC
-  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 6, // USDT
-  'So11111111111111111111111111111111111111112': 9,  // SOL
-};
-
-// Known stablecoin prices (always $1)
 const STABLECOINS: Record<string, number> = {
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 1, // USDC
-  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 1, // USDT
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 1,
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 1,
 };
-
-async function getTokenDecimals(connection: Connection, mintAddress: string, poolDecimals?: number | null): Promise<number> {
-  // Use database decimals if available
-  if (poolDecimals !== undefined && poolDecimals !== null) {
-    return poolDecimals;
-  }
-
-  // Check known tokens
-  if (KNOWN_DECIMALS[mintAddress] !== undefined) {
-    return KNOWN_DECIMALS[mintAddress];
-  }
-
-  // Check cache
-  if (decimalsCache.has(mintAddress)) {
-    return decimalsCache.get(mintAddress)!;
-  }
-
-  try {
-    const mint = new PublicKey(mintAddress);
-    const mintInfo = await getMint(connection, mint);
-    const decimals = mintInfo.decimals;
-    decimalsCache.set(mintAddress, decimals);
-    return decimals;
-  } catch (error) {
-    console.error(`❌ Failed to fetch decimals for ${mintAddress}:`, error);
-    return 9;
-  }
-}
 
 async function getTokenPrice(tokenMint: string, pairAddress?: string | null): Promise<number> {
-  // Check stablecoins first
-  if (STABLECOINS[tokenMint] !== undefined) {
-    return STABLECOINS[tokenMint];
-  }
+  if (STABLECOINS[tokenMint]) return STABLECOINS[tokenMint];
 
-  // Check cache
   const cached = priceCache.get(tokenMint);
   if (cached && Date.now() - cached.timestamp < PRICE_CACHE_TTL) {
     return cached.price;
@@ -69,147 +26,131 @@ async function getTokenPrice(tokenMint: string, pairAddress?: string | null): Pr
   try {
     let price = 0;
 
-    // Try DexScreener with pair address first
     if (pairAddress) {
-      const res = await fetch(`https://api.dexscreener.com/latest/dex/pairs/solana/${pairAddress}`, {
-        next: { revalidate: 60 }
-      });
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/pairs/solana/${pairAddress}`);
       const data = await res.json();
       if (data?.pairs?.[0]?.priceUsd) {
         price = parseFloat(data.pairs[0].priceUsd);
       }
     }
 
-    // Fallback: Try DexScreener token search
     if (price === 0) {
-      const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`, {
-        next: { revalidate: 60 }
-      });
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`);
       const data = await res.json();
       if (data?.pairs?.length > 0) {
-        // Sort by liquidity and get the best price
-        const sortedPairs = data.pairs.sort((a: any, b: any) => 
-          (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
-        );
-        if (sortedPairs[0]?.priceUsd) {
-          price = parseFloat(sortedPairs[0].priceUsd);
-        }
+        const sorted = data.pairs.sort((a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+        if (sorted[0]?.priceUsd) price = parseFloat(sorted[0].priceUsd);
       }
     }
 
-    // Cache the result
     priceCache.set(tokenMint, { price, timestamp: Date.now() });
-    console.log(`💵 Token ${tokenMint.substring(0, 8)}... price: $${price}`);
-    
     return price;
-  } catch (error) {
-    console.error(`❌ Failed to fetch price for ${tokenMint}:`, error);
+  } catch {
     return 0;
   }
 }
 
 export async function GET(request: NextRequest) {
   try {
-    console.log('\n📊 Fetching platform stats...');
+    console.log('\n📊 Fetching platform stats from BLOCKCHAIN...');
 
-    // Get RPC endpoint
-    const rpcEndpoint = process.env.HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com';
+    const rpcEndpoint = process.env.HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com';
     const connection = new Connection(rpcEndpoint, 'confirmed');
+    const program = getReadOnlyProgram(connection);
 
-    // 1. Get all stakes from database (using UserStake model - the correct one!)
-    const stakes = await prisma.userStake.findMany();
-    console.log(`📊 Found ${stakes.length} stakes in database`);
-
-    if (stakes.length === 0) {
+    // 1. Get all pools from database (just for config: decimals, pairAddress, symbol)
+    const pools = await prisma.pool.findMany();
+    
+    if (pools.length === 0) {
       return NextResponse.json({
         success: true,
         totalStakers: 0,
-        totalStakes: 0,
         totalValueLocked: 0,
         tokenBreakdown: [],
       });
     }
 
-    // 2. Count unique stakers
-    const uniqueStakers = new Set(stakes.map(s => s.userWallet));
-    const totalStakers = uniqueStakers.size;
-    console.log(`👥 ${totalStakers} unique stakers`);
+    // 2. Build PDAs for all pools
+    const projectPDAs: PublicKey[] = [];
+    const poolConfigs: any[] = [];
 
-    // 3. Group stakes by token mint
-    const byToken: Record<string, { stakes: any[], totalRaw: bigint }> = {};
-    
-    for (const stake of stakes) {
-      if (!byToken[stake.tokenMint]) {
-        byToken[stake.tokenMint] = {
-          stakes: [],
-          totalRaw: BigInt(0),
-        };
-      }
-      byToken[stake.tokenMint].stakes.push(stake);
-      byToken[stake.tokenMint].totalRaw += stake.stakedAmount; // Already BigInt
+    for (const pool of pools) {
+      const mintPubkey = new PublicKey(pool.tokenMint);
+      const [projectPDA] = getPDAs.project(mintPubkey, pool.poolId);
+      projectPDAs.push(projectPDA);
+      poolConfigs.push(pool);
     }
 
-    // 4. Fetch decimals, prices, and calculate USD values
+    // 3. Batch fetch ALL project accounts from blockchain
+    const projectAccounts = await connection.getMultipleAccountsInfo(projectPDAs);
+    console.log(`✅ Fetched ${projectAccounts.filter(Boolean).length} projects from blockchain`);
+
+    // 4. Decode and calculate stats
     const tokenBreakdown = [];
     let totalValueLocked = 0;
+    let totalStakers = 0;
 
-    for (const [tokenMint, data] of Object.entries(byToken)) {
-      // Get pool info first (we need it for decimals and price)
-      const pool = await prisma.pool.findFirst({
-        where: { tokenMint }
-      });
+    for (let i = 0; i < projectPDAs.length; i++) {
+      const account = projectAccounts[i];
+      const pool = poolConfigs[i];
 
-      // Use database decimals, fallback to RPC only if needed
-      const decimals = await getTokenDecimals(connection, tokenMint, pool?.tokenDecimals);
-      
-      // Calculate human-readable amount
-      const divisor = Math.pow(10, decimals);
-      const tokenAmount = Number(data.totalRaw) / divisor;
+      if (!account) continue;
 
-      // Fetch token price
-      const price = await getTokenPrice(tokenMint, pool?.pairAddress);
-      const usdValue = tokenAmount * price;
-      
-      console.log(`💰 ${pool?.symbol || tokenMint.substring(0, 8)}: ${tokenAmount.toFixed(4)} tokens × $${price} = $${usdValue.toFixed(2)}`);
+      try {
+        const decoded = program.coder.accounts.decode('project', account.data);
+        
+        // ✅ Get REAL on-chain values
+        const totalStakedRaw = decoded.totalStaked.toNumber();
+        const stakerCount = decoded.stakerCount?.toNumber?.() || 0;
+        
+        // Calculate human-readable amount
+        const decimals = pool.tokenDecimals || 9;
+        const tokenAmount = totalStakedRaw / Math.pow(10, decimals);
 
-      totalValueLocked += usdValue;
+        // Get price
+        const price = await getTokenPrice(pool.tokenMint, pool.pairAddress);
+        const usdValue = tokenAmount * price;
 
-      tokenBreakdown.push({
-        tokenMint,
-        poolName: pool?.name || 'Unknown',
-        symbol: pool?.symbol || 'Unknown',
-        decimals,
-        stakeCount: data.stakes.length,
-        amount: tokenAmount,
-        amountRaw: data.totalRaw.toString(),
-        price,
-        usdValue,
-      });
+        console.log(`💰 ${pool.symbol}: ${tokenAmount.toFixed(2)} tokens × $${price.toFixed(6)} = $${usdValue.toFixed(2)} (${stakerCount} stakers)`);
+
+        totalValueLocked += usdValue;
+        totalStakers += stakerCount;
+
+        tokenBreakdown.push({
+          tokenMint: pool.tokenMint,
+          poolName: pool.name,
+          symbol: pool.symbol,
+          poolId: pool.poolId,
+          decimals,
+          totalStaked: tokenAmount,
+          totalStakedRaw: totalStakedRaw.toString(),
+          stakerCount,
+          price,
+          usdValue,
+        });
+      } catch (e) {
+        console.error(`❌ Failed to decode project ${pool.symbol}:`, e);
+      }
     }
 
-    console.log(`✅ Total TVL: $${totalValueLocked.toFixed(2)}`);
+    console.log(`\n✅ Total TVL: $${totalValueLocked.toFixed(2)}`);
     console.log(`✅ Total Stakers: ${totalStakers}\n`);
 
     return NextResponse.json({
       success: true,
       totalStakers,
-      totalStakes: stakes.length,
-      totalValueLocked, // Now in USD!
+      totalValueLocked,
       tokenBreakdown,
     });
 
   } catch (error: any) {
     console.error('❌ Error fetching stats:', error);
-    return NextResponse.json(
-      { 
-        success: false,
-        error: error.message,
-        totalStakers: 0,
-        totalStakes: 0,
-        totalValueLocked: 0,
-        tokenBreakdown: [],
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      success: false,
+      error: error.message,
+      totalStakers: 0,
+      totalValueLocked: 0,
+      tokenBreakdown: [],
+    }, { status: 500 });
   }
 }
