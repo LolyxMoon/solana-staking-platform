@@ -23,10 +23,8 @@ export function SolanaWalletProvider({
 }: {
   children: React.ReactNode;
 }) {
-  // Set to devnet for testing, change to mainnet-beta for production
-  const network = WalletAdapterNetwork.Devnet;
+  const network = WalletAdapterNetwork.Mainnet;
 
-  // You can also provide a custom RPC endpoint (recommended for production)
   const endpoint = useMemo(() => {
     if (process.env.NEXT_PUBLIC_RPC_ENDPOINT) {
       return process.env.NEXT_PUBLIC_RPC_ENDPOINT;
@@ -34,7 +32,11 @@ export function SolanaWalletProvider({
     return clusterApiUrl(network);
   }, [network]);
 
-  // Setup wallet adapters
+  // WebSocket endpoint for transaction confirmations
+  const wsEndpoint = useMemo(() => {
+    return process.env.NEXT_PUBLIC_WS_ENDPOINT || "wss://api.mainnet-beta.solana.com";
+  }, []);
+
   const wallets = useMemo(
     () => [
       new PhantomWalletAdapter(),
@@ -45,7 +47,13 @@ export function SolanaWalletProvider({
   );
 
   return (
-    <ConnectionProvider endpoint={endpoint}>
+    <ConnectionProvider 
+      endpoint={endpoint}
+      config={{ 
+        commitment: "confirmed",
+        wsEndpoint: wsEndpoint,
+      }}
+    >
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>{children}</WalletModalProvider>
       </WalletProvider>
