@@ -132,6 +132,7 @@ export async function POST(req: Request) {
         poolId: body.poolId || 0,
         name: body.name || "Unknown Token",
         symbol: body.symbol || "UNKNOWN",
+        tokenDecimals: body.tokenDecimals ? parseInt(body.tokenDecimals) : null,
         apr: body.apr ? parseFloat(body.apr) : null,
         apy: body.apy ? parseFloat(body.apy) : null,
         type: body.type || "unlocked",

@@ -497,6 +497,7 @@ useEffect(() => {
       const poolData = {
         name: selectedToken.name,
         symbol: selectedToken.symbol,
+        tokenDecimals: selectedToken.decimals,
         tokenMint: selectedToken.mint,
         logo: selectedToken.logoURI,
         apr: "0",
