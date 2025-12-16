@@ -25,6 +25,7 @@ const ALLOWED_METHODS = [
   'getMinimumBalanceForRentExemption',
   'getFeeForMessage',
   'getRecentPrioritizationFees',
+  'getSignatureStatuses',
 ];
 
 function getClientIP(request: NextRequest): string {
