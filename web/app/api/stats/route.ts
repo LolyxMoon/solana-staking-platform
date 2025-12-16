@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { prisma } from '@/lib/prisma';
 import { getPDAs, getReadOnlyProgram } from '@/lib/anchor-program';
+import { BN } from '@coral-xyz/anchor';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -45,6 +46,17 @@ async function getTokenPrice(tokenMint: string, pairAddress?: string | null): Pr
 
     priceCache.set(tokenMint, { price, timestamp: Date.now() });
     return price;
+  } catch {
+    return 0;
+  }
+}
+
+// Safe conversion for large BN values
+function bnToNumber(bn: any): number {
+  try {
+    // Try toString first, then parse as float to handle large numbers
+    const str = bn.toString();
+    return parseFloat(str);
   } catch {
     return 0;
   }
@@ -94,14 +106,17 @@ export async function GET(request: NextRequest) {
       const account = projectAccounts[i];
       const pool = poolConfigs[i];
 
-      if (!account) continue;
+      if (!account) {
+        console.log(`⚠️ No account found for ${pool.symbol}`);
+        continue;
+      }
 
       try {
         const decoded = program.coder.accounts.decode('project', account.data);
         
-        // ✅ Get REAL on-chain values
-        const totalStakedRaw = decoded.totalStaked.toNumber();
-        const stakerCount = decoded.stakerCount?.toNumber?.() || 0;
+        // ✅ Use safe BN conversion for large numbers
+        const totalStakedRaw = bnToNumber(decoded.totalStaked);
+        const stakerCount = decoded.stakerCount ? bnToNumber(decoded.stakerCount) : 0;
         
         // Calculate human-readable amount
         const decimals = pool.tokenDecimals || 9;
@@ -111,7 +126,7 @@ export async function GET(request: NextRequest) {
         const price = await getTokenPrice(pool.tokenMint, pool.pairAddress);
         const usdValue = tokenAmount * price;
 
-        console.log(`💰 ${pool.symbol}: ${tokenAmount.toFixed(2)} tokens × $${price.toFixed(6)} = $${usdValue.toFixed(2)} (${stakerCount} stakers)`);
+        console.log(`💰 ${pool.symbol}: ${tokenAmount.toFixed(2)} tokens × $${price.toFixed(6)} = $${usdValue.toFixed(2)} (${stakerCount} stakers) [raw: ${totalStakedRaw}]`);
 
         totalValueLocked += usdValue;
         totalStakers += stakerCount;
@@ -154,3 +169,8 @@ export async function GET(request: NextRequest) {
     }, { status: 500 });
   }
 }
+```
+
+Now check the **Vercel logs** after deploying. It will show exactly what each pool is returning:
+```
+💰 SPT: 419138420.87 tokens × $0.000030 = $12574.15 (X stakers) [raw: 419138420870000000]
