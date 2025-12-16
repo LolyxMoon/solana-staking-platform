@@ -14,6 +14,7 @@ model Pool {
   tokenMint               String     @map("token_mint")
   name                    String
   symbol                  String
+  tokenDecimals           Int?       @map("token_decimals")
   apr                     Float?
   apy                     Float?
   type                    String

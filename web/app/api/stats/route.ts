@@ -26,8 +26,13 @@ const STABLECOINS: Record<string, number> = {
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 1, // USDT
 };
 
-async function getTokenDecimals(connection: Connection, mintAddress: string): Promise<number> {
-  // Check known tokens first
+async function getTokenDecimals(connection: Connection, mintAddress: string, poolDecimals?: number | null): Promise<number> {
+  // Use database decimals if available
+  if (poolDecimals !== undefined && poolDecimals !== null) {
+    return poolDecimals;
+  }
+
+  // Check known tokens
   if (KNOWN_DECIMALS[mintAddress] !== undefined) {
     return KNOWN_DECIMALS[mintAddress];
   }
@@ -41,15 +46,10 @@ async function getTokenDecimals(connection: Connection, mintAddress: string): Pr
     const mint = new PublicKey(mintAddress);
     const mintInfo = await getMint(connection, mint);
     const decimals = mintInfo.decimals;
-    
-    // Cache the result
     decimalsCache.set(mintAddress, decimals);
-    console.log(`📊 Token ${mintAddress.substring(0, 8)}... has ${decimals} decimals`);
-    
     return decimals;
   } catch (error) {
     console.error(`❌ Failed to fetch decimals for ${mintAddress}:`, error);
-    // Default to 9 if we can't fetch
     return 9;
   }
 }
@@ -154,17 +154,17 @@ export async function GET(request: NextRequest) {
     let totalValueLocked = 0;
 
     for (const [tokenMint, data] of Object.entries(byToken)) {
-      // Fetch real decimals from blockchain
-      const decimals = await getTokenDecimals(connection, tokenMint);
+      // Get pool info first (we need it for decimals and price)
+      const pool = await prisma.pool.findFirst({
+        where: { tokenMint }
+      });
+
+      // Use database decimals, fallback to RPC only if needed
+      const decimals = await getTokenDecimals(connection, tokenMint, pool?.tokenDecimals);
       
       // Calculate human-readable amount
       const divisor = Math.pow(10, decimals);
       const tokenAmount = Number(data.totalRaw) / divisor;
-
-      // Get pool info for price lookup
-      const pool = await prisma.pool.findFirst({
-        where: { tokenMint }
-      });
 
       // Fetch token price
       const price = await getTokenPrice(tokenMint, pool?.pairAddress);
