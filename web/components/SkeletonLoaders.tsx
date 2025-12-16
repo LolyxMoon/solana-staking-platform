@@ -4,15 +4,20 @@
 export function Skeleton({ className = "" }: { className?: string }) {
   return (
     <div
-      className={`animate-pulse bg-gradient-to-r from-slate-800 via-slate-700 to-slate-800 rounded ${className}`}
-    />
+      className={`bg-white/[0.05] rounded relative overflow-hidden ${className}`}
+    >
+      <div 
+        className="absolute inset-0 -translate-x-full animate-shimmer"
+        style={{ background: 'linear-gradient(90deg, transparent, rgba(251, 87, 255, 0.1), transparent)' }}
+      />
+    </div>
   );
 }
 
 // Pool Card Skeleton (for pools page)
 export function PoolCardSkeleton() {
   return (
-    <div className="bg-slate-900/50 backdrop-blur border border-slate-700 rounded-xl p-6 space-y-4">
+    <div className="bg-white/[0.02] backdrop-blur border border-white/[0.05] rounded-xl p-6 space-y-4">
       <div className="flex items-center gap-4">
         <Skeleton className="w-16 h-16 rounded-lg" />
         <div className="flex-1 space-y-2">
@@ -46,7 +51,7 @@ export function DashboardStatsSkeleton() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="bg-slate-900 rounded-xl p-6">
+        <div key={i} className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-6">
           <Skeleton className="h-4 w-24 mb-3" />
           <Skeleton className="h-8 w-32 mb-2" />
           <Skeleton className="h-3 w-20" />
@@ -78,7 +83,7 @@ export function ActivityListSkeleton({ count = 3 }: { count?: number }) {
   return (
     <div className="space-y-4">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="flex justify-between items-center border-b border-gray-700 pb-2">
+        <div key={i} className="flex justify-between items-center border-b border-white/[0.05] pb-2">
           <div className="space-y-2 flex-1">
             <Skeleton className="h-4 w-48" />
           </div>
@@ -113,7 +118,7 @@ export function LoadingSpinner({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
 
   return (
     <div className="flex items-center justify-center">
-      <div className={`${sizes[size]} border-4 border-slate-700 border-t-blue-500 rounded-full animate-spin`} />
+      <div className={`${sizes[size]} border-4 border-white/[0.1] rounded-full animate-spin`} style={{ borderTopColor: '#fb57ff' }} />
     </div>
   );
 }
