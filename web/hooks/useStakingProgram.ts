@@ -9,6 +9,32 @@ import { upsertStake, deleteStake } from '@/lib/prisma-stakes';
 const SECONDS_PER_YEAR = 31_536_000;
 
 /**
+ * Poll for transaction confirmation using HTTP (no WebSocket)
+ */
+async function pollForConfirmation(
+  connection: any,
+  signature: string,
+  maxAttempts: number = 30
+): Promise<boolean> {
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      const status = await connection.getSignatureStatus(signature);
+      if (status.value?.confirmationStatus === 'confirmed' || 
+          status.value?.confirmationStatus === 'finalized') {
+        return true;
+      }
+      if (status.value?.err) {
+        throw new Error(`Transaction failed: ${JSON.stringify(status.value.err)}`);
+      }
+    } catch (e: any) {
+      if (e.message?.includes('Transaction failed')) throw e;
+    }
+  }
+  return false;
+}
+
+/**
  * Hook for user staking functions - Updated for New Contract
  * Uses token mint addresses instead of pool IDs
  */
@@ -252,13 +278,8 @@ export function useStakingProgram() {
 
       console.log("✅ Transaction signature:", tx);
       
-      // Wait for confirmation with timeout
-      const confirmation = await connection.confirmTransaction(tx, 'confirmed');
-      
-      if (confirmation.value.err) {
-        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-      }
-
+      // Wait for confirmation using polling (no WebSocket)
+      await pollForConfirmation(connection, tx);
       console.log("✅ Transaction confirmed!");
       
       // ✅ NEW: Sync to database
@@ -569,7 +590,7 @@ try {
       const tx = await sendTransaction(transaction, connection);
       console.log("✅ Transaction signature (with ATA creation):", tx);
       
-      await connection.confirmTransaction(tx, 'confirmed');
+      await pollForConfirmation(connection, tx);
       console.log("✅ Transaction confirmed!");
       
       return tx;
@@ -585,12 +606,7 @@ try {
 
       console.log("✅ Transaction signature:", tx);
       
-      const confirmation = await connection.confirmTransaction(tx, 'confirmed');
-      
-      if (confirmation.value.err) {
-        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-      }
-
+      await pollForConfirmation(connection, tx);
       console.log("✅ Transaction confirmed!");
       
       // ✅ NEW: Sync to database
@@ -816,7 +832,7 @@ try {
         const tx = await sendTransaction(transaction, connection);
         console.log("✅ Claim transaction signature (with ATA creation):", tx);
 
-        await connection.confirmTransaction(tx, 'confirmed');
+        await pollForConfirmation(connection, tx);
         console.log("✅ Transaction confirmed!");
 
         return tx;
@@ -829,12 +845,7 @@ try {
 
         console.log("✅ Claim rewards transaction signature:", tx);
         
-        const confirmation = await connection.confirmTransaction(tx, 'confirmed');
-        
-        if (confirmation.value.err) {
-          throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-        }
-
+        await pollForConfirmation(connection, tx);
         console.log("✅ Transaction confirmed!");
         return tx;
       }
@@ -1020,7 +1031,7 @@ try {
         const signature = await sendTransaction(transaction, connection);
         console.log("✅ Claim reflections signature (with ATA creation):", signature);
         
-        await connection.confirmTransaction(signature, 'confirmed');
+        await pollForConfirmation(connection, signature);
         console.log("✅ Transaction confirmed!");
         
         return signature;
@@ -1057,14 +1068,9 @@ try {
       
       const tx = await sendTransaction(transaction, connection);
       
-      console.log("✅ Claim reflections transaction signature:", tx);
+       console.log("✅ Claim reflections transaction signature:", tx);
       
-      const confirmation = await connection.confirmTransaction(tx, 'confirmed');
-      
-      if (confirmation.value.err) {
-        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-      }
-
+      await pollForConfirmation(connection, tx);
       console.log("✅ Transaction confirmed!");
       return tx;
     }
@@ -1141,12 +1147,7 @@ try {
     console.log("✅ Refresh reflections transaction signature:", tx);
     console.log("⏳ Confirming transaction...");
 
-    const confirmation = await connection.confirmTransaction(tx, 'confirmed');
-
-    if (confirmation.value.err) {
-      throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-    }
-
+    await pollForConfirmation(connection, tx);
     console.log("✅ Transaction confirmed successfully!");
 
     // ✅ FIX: Fetch and return the updated stake account
@@ -1266,7 +1267,7 @@ const claimUnclaimedTokens = async (tokenMint: string, poolId: number = 0) => {
       const signature = await sendTransaction(transaction, connection);
       console.log("✅ Claim unclaimed tokens (with ATA creation):", signature);
       
-      await connection.confirmTransaction(signature, 'confirmed');
+      await pollForConfirmation(connection, signature);
       console.log("✅ Transaction confirmed!");
       
       return signature;
@@ -1287,12 +1288,7 @@ const claimUnclaimedTokens = async (tokenMint: string, poolId: number = 0) => {
 
       console.log("✅ Claim unclaimed tokens signature:", tx);
       
-      const confirmation = await connection.confirmTransaction(tx, 'confirmed');
-      
-      if (confirmation.value.err) {
-        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-      }
-
+      await pollForConfirmation(connection, tx);
       console.log("✅ Transaction confirmed!");
       return tx;
     }
