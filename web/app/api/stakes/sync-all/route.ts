@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { prisma } from '@/lib/prisma';
 import { getPDAs, getReadOnlyProgram, PROGRAM_ID } from '@/lib/anchor-program';
-import bs58 from 'bs58';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,40 +22,28 @@ export async function POST(request: NextRequest) {
     console.log(`Found ${pools.length} pools to scan`);
 
     let totalSynced = 0;
-    let totalDeleted = 0;
 
-    // Get stake discriminator from Anchor (first 8 bytes of sha256("account:Stake"))
-    const stakeDiscriminator = Buffer.from([150, 138, 56, 227, 57, 217, 200, 243]);
+    // Fetch all program accounts and try to decode as stake
+    const allAccounts = await connection.getProgramAccounts(new PublicKey(PROGRAM_ID));
+    console.log(`Found ${allAccounts.length} total program accounts`);
 
-    const allStakeAccounts = await connection.getProgramAccounts(
-      new PublicKey(PROGRAM_ID),
-      {
-        filters: [
-          { 
-            memcmp: { 
-              offset: 0, 
-              bytes: bs58.encode(stakeDiscriminator)
-            } 
-          }
-        ]
-      }
-    );
+    const validStakes: { pubkey: string; userWallet: string; tokenMint: string; poolId: number; amount: string }[] = [];
 
-    console.log(`Found ${allStakeAccounts.length} stake accounts on-chain`);
-
-    for (const { pubkey, account } of allStakeAccounts) {
+    for (const { pubkey, account } of allAccounts) {
       try {
+        // Try to decode as stake account
         const decoded = program.coder.accounts.decode('stake', account.data);
         
-        const userWallet = decoded.user?.toString() || decoded.owner?.toString();
+        // If successful, it's a stake account
+        const userWallet = decoded.user?.toString();
         const amount = decoded.amount?.toString() || '0';
+        const projectPda = decoded.project?.toString();
         
-        if (!userWallet || amount === '0') {
+        if (!userWallet || amount === '0' || !projectPda) {
           continue;
         }
 
-        const projectPda = decoded.project?.toString();
-        
+        // Match to a pool
         let matchedPool = null;
         for (const pool of pools) {
           const mintPubkey = new PublicKey(pool.tokenMint);
@@ -68,10 +55,19 @@ export async function POST(request: NextRequest) {
         }
 
         if (!matchedPool) {
-          console.log(`Could not match stake ${pubkey.toString()} to any pool`);
+          console.log(`Could not match stake ${pubkey.toString().slice(0, 8)}... to any pool`);
           continue;
         }
 
+        validStakes.push({
+          pubkey: pubkey.toString(),
+          userWallet,
+          tokenMint: matchedPool.tokenMint,
+          poolId: matchedPool.poolId,
+          amount,
+        });
+
+        // Upsert to database
         await prisma.userStake.upsert({
           where: {
             userWallet_tokenMint_poolId: {
@@ -98,30 +94,22 @@ export async function POST(request: NextRequest) {
         console.log(`Synced: ${userWallet.slice(0, 8)}... -> ${matchedPool.symbol} (${amount})`);
 
       } catch (e) {
-        console.error(`Failed to decode stake ${pubkey.toString()}:`, e);
-      }
-    }
-
-    const dbStakes = await prisma.userStake.findMany();
-    for (const stake of dbStakes) {
-      const exists = allStakeAccounts.some(s => s.pubkey.toString() === stake.stakePda);
-      if (!exists) {
-        await prisma.userStake.delete({
-          where: { id: stake.id }
-        });
-        totalDeleted++;
-        console.log(`Deleted stale stake: ${stake.userWallet.slice(0, 8)}...`);
+        // Not a stake account, skip
+        continue;
       }
     }
 
     console.log(`\n=== SYNC COMPLETE ===`);
-    console.log(`Synced: ${totalSynced} stakes`);
-    console.log(`Deleted: ${totalDeleted} stale records\n`);
+    console.log(`Synced: ${totalSynced} stakes\n`);
 
     return NextResponse.json({
       success: true,
       synced: totalSynced,
-      deleted: totalDeleted,
+      stakes: validStakes.map(s => ({
+        wallet: s.userWallet.slice(0, 8) + '...',
+        pool: s.tokenMint.slice(0, 8) + '...',
+        amount: s.amount,
+      })),
     });
 
   } catch (error: any) {
