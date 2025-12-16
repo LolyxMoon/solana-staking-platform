@@ -169,8 +169,3 @@ export async function GET(request: NextRequest) {
     }, { status: 500 });
   }
 }
-```
-
-Now check the **Vercel logs** after deploying. It will show exactly what each pool is returning:
-```
-💰 SPT: 419138420.87 tokens × $0.000030 = $12574.15 (X stakers) [raw: 419138420870000000]
