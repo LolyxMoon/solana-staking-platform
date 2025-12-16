@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { prisma } from '@/lib/prisma';
 import { getPDAs, getReadOnlyProgram } from '@/lib/anchor-program';
-import { BN } from '@coral-xyz/anchor';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -54,7 +53,6 @@ async function getTokenPrice(tokenMint: string, pairAddress?: string | null): Pr
 // Safe conversion for large BN values
 function bnToNumber(bn: any): number {
   try {
-    // Try toString first, then parse as float to handle large numbers
     const str = bn.toString();
     return parseFloat(str);
   } catch {
@@ -64,7 +62,7 @@ function bnToNumber(bn: any): number {
 
 export async function GET(request: NextRequest) {
   try {
-    console.log('\n📊 Fetching platform stats from BLOCKCHAIN...');
+    console.log('\nFetching platform stats from BLOCKCHAIN...');
 
     const rpcEndpoint = process.env.HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com';
     const connection = new Connection(rpcEndpoint, 'confirmed');
@@ -95,7 +93,7 @@ export async function GET(request: NextRequest) {
 
     // 3. Batch fetch ALL project accounts from blockchain
     const projectAccounts = await connection.getMultipleAccountsInfo(projectPDAs);
-    console.log(`✅ Fetched ${projectAccounts.filter(Boolean).length} projects from blockchain`);
+    console.log(`Fetched ${projectAccounts.filter(Boolean).length} projects from blockchain`);
 
     // 4. Decode and calculate stats
     const tokenBreakdown = [];
@@ -107,16 +105,34 @@ export async function GET(request: NextRequest) {
       const pool = poolConfigs[i];
 
       if (!account) {
-        console.log(`⚠️ No account found for ${pool.symbol}`);
+        console.log(`No account found for ${pool.symbol}`);
         continue;
       }
 
       try {
         const decoded = program.coder.accounts.decode('project', account.data);
         
-        // ✅ Use safe BN conversion for large numbers
+        // DEBUG: Log all fields to find staker count field name
+        console.log(`\n=== ${pool.symbol} PROJECT FIELDS ===`);
+        console.log('Available fields:', Object.keys(decoded));
+        console.log('stakerCount:', decoded.stakerCount?.toString());
+        console.log('staker_count:', decoded.staker_count?.toString());
+        console.log('totalStakers:', decoded.totalStakers?.toString());
+        console.log('numStakers:', decoded.numStakers?.toString());
+        console.log('activeStakers:', decoded.activeStakers?.toString());
+        
+        // Use safe BN conversion for large numbers
         const totalStakedRaw = bnToNumber(decoded.totalStaked);
-        const stakerCount = decoded.stakerCount ? bnToNumber(decoded.stakerCount) : 0;
+        
+        // Try different possible field names for staker count
+        const stakerCount = bnToNumber(
+          decoded.stakerCount || 
+          decoded.staker_count || 
+          decoded.totalStakers || 
+          decoded.numStakers ||
+          decoded.activeStakers ||
+          0
+        );
         
         // Calculate human-readable amount
         const decimals = pool.tokenDecimals || 9;
@@ -126,7 +142,7 @@ export async function GET(request: NextRequest) {
         const price = await getTokenPrice(pool.tokenMint, pool.pairAddress);
         const usdValue = tokenAmount * price;
 
-        console.log(`💰 ${pool.symbol}: ${tokenAmount.toFixed(2)} tokens × $${price.toFixed(6)} = $${usdValue.toFixed(2)} (${stakerCount} stakers) [raw: ${totalStakedRaw}]`);
+        console.log(`${pool.symbol}: ${tokenAmount.toFixed(2)} tokens x $${price.toFixed(6)} = $${usdValue.toFixed(2)} (${stakerCount} stakers)`);
 
         totalValueLocked += usdValue;
         totalStakers += stakerCount;
@@ -144,12 +160,12 @@ export async function GET(request: NextRequest) {
           usdValue,
         });
       } catch (e) {
-        console.error(`❌ Failed to decode project ${pool.symbol}:`, e);
+        console.error(`Failed to decode project ${pool.symbol}:`, e);
       }
     }
 
-    console.log(`\n✅ Total TVL: $${totalValueLocked.toFixed(2)}`);
-    console.log(`✅ Total Stakers: ${totalStakers}\n`);
+    console.log(`\nTotal TVL: $${totalValueLocked.toFixed(2)}`);
+    console.log(`Total Stakers: ${totalStakers}\n`);
 
     return NextResponse.json({
       success: true,
@@ -159,7 +175,7 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('❌ Error fetching stats:', error);
+    console.error('Error fetching stats:', error);
     return NextResponse.json({
       success: false,
       error: error.message,
