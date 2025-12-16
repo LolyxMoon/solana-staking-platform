@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { prisma } from '@/lib/prisma';
 import { getPDAs, getReadOnlyProgram, PROGRAM_ID } from '@/lib/anchor-program';
+import bs58 from 'bs58';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,13 +25,19 @@ export async function POST(request: NextRequest) {
     let totalSynced = 0;
     let totalDeleted = 0;
 
+    // Get stake discriminator from Anchor (first 8 bytes of sha256("account:Stake"))
     const stakeDiscriminator = Buffer.from([150, 138, 56, 227, 57, 217, 200, 243]);
 
     const allStakeAccounts = await connection.getProgramAccounts(
       new PublicKey(PROGRAM_ID),
       {
         filters: [
-          { memcmp: { offset: 0, bytes: stakeDiscriminator.toString('base64') } }
+          { 
+            memcmp: { 
+              offset: 0, 
+              bytes: bs58.encode(stakeDiscriminator)
+            } 
+          }
         ]
       }
     );
