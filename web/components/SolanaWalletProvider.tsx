@@ -21,11 +21,12 @@ export function SolanaWalletProvider({
   const network = WalletAdapterNetwork.Mainnet;
 
   const endpoint = useMemo(() => {
-    if (process.env.NEXT_PUBLIC_RPC_ENDPOINT) {
-      return process.env.NEXT_PUBLIC_RPC_ENDPOINT;
-    }
-    return clusterApiUrl(network);
+    return process.env.NEXT_PUBLIC_RPC_ENDPOINT || clusterApiUrl(network);
   }, [network]);
+
+  const wsEndpoint = useMemo(() => {
+    return process.env.NEXT_PUBLIC_WS_ENDPOINT || "wss://api.mainnet-beta.solana.com";
+  }, []);
 
   const wallets = useMemo(
     () => [
@@ -36,7 +37,13 @@ export function SolanaWalletProvider({
   );
 
   return (
-    <ConnectionProvider endpoint={endpoint}>
+    <ConnectionProvider 
+      endpoint={endpoint}
+      config={{ 
+        commitment: "confirmed",
+        wsEndpoint: wsEndpoint,
+      }}
+    >
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>{children}</WalletModalProvider>
       </WalletProvider>
