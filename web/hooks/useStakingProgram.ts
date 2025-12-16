@@ -4,7 +4,21 @@ import * as anchor from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
 import { getProgram, getPDAs, PROGRAM_ID } from "@/lib/anchor-program";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { upsertStake, deleteStake } from '@/lib/prisma-stakes';
+
+// Sync stake to database via API (verifies on-chain before saving)
+async function syncStakeToDb(userWallet: string, tokenMint: string, poolId: number) {
+  try {
+    const res = await fetch('/api/stakes/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userWallet, tokenMint, poolId }),
+    });
+    const data = await res.json();
+    console.log('DB sync result:', data);
+  } catch (e) {
+    console.error('DB sync failed (non-critical):', e);
+  }
+}
 
 const SECONDS_PER_YEAR = 31_536_000;
 
@@ -282,22 +296,8 @@ export function useStakingProgram() {
       await pollForConfirmation(connection, tx);
       console.log("✅ Transaction confirmed!");
       
-      // ✅ NEW: Sync to database
-      try {
-        const userStake = await getUserStake(tokenMint, poolId);
-        if (userStake) {
-          await upsertStake(
-            publicKey,
-            tokenMint,
-            poolId,
-            userStake.amount,
-            userStakePDA.toString()
-          );
-        }
-      } catch (dbError) {
-        console.error("⚠️ Database sync failed (non-critical):", dbError);
-        // Continue - don't let DB errors break the staking flow
-      }
+      // Sync to database
+      await syncStakeToDb(publicKey.toString(), tokenMint, poolId);
       
       return tx;
       
@@ -327,20 +327,7 @@ export function useStakingProgram() {
           console.log("✅ Found signature:", signature);
           
           // Try to sync to database even on "already processed" error
-          try {
-            const userStake = await getUserStake(tokenMint, poolId);
-            if (userStake) {
-              await upsertStake(
-                publicKey,
-                tokenMint,
-                poolId,
-                userStake.amount,
-                userStakePDA.toString()
-              );
-            }
-          } catch (dbError) {
-            console.error("⚠️ Database sync failed (non-critical):", dbError);
-          }
+          await syncStakeToDb(publicKey.toString(), tokenMint, poolId);
           
           return signature;
         }
@@ -612,34 +599,8 @@ try {
       await pollForConfirmation(connection, tx);
       console.log("✅ Transaction confirmed!");
       
-      // ✅ NEW: Sync to database
-      try {
-        const userStakeAfter = await getUserStake(tokenMint, poolId);
-        if (userStakeAfter && userStakeAfter.amount.toNumber() > 0) {
-          // Still has staked amount - update it
-          console.log("📊 Partial unstake - updating database with remaining amount:", userStakeAfter.amount.toString());
-          await upsertStake(
-            publicKey,
-            tokenMint,
-            poolId,
-            userStakeAfter.amount,
-            userStakePDA.toString()
-          );
-        } else {
-          // Fully unstaked - delete record
-          console.log("🗑️ Full unstake - deleting from database");
-          await deleteStake(publicKey, tokenMint, poolId);
-        }
-      } catch (dbError) {
-        console.error("⚠️ Database sync failed (non-critical):", dbError);
-        // If getUserStake failed, it likely means fully unstaked
-        console.log("🗑️ getUserStake failed (likely full unstake) - attempting delete");
-        try {
-          await deleteStake(publicKey, tokenMint, poolId);
-        } catch (deleteError) {
-          console.error("⚠️ Delete also failed:", deleteError);
-        }
-      }
+      // Sync to database
+      await syncStakeToDb(publicKey.toString(), tokenMint, poolId);
       
       return tx;
     }
@@ -653,32 +614,8 @@ try {
       if (signature) {
         console.log("✅ Found signature:", signature);
         
-        // Try to sync to database even on "already processed" error
-        try {
-          const userStakeAfter = await getUserStake(tokenMint, poolId);
-          if (userStakeAfter && userStakeAfter.amount.toNumber() > 0) {
-            console.log("📊 Partial unstake - updating database");
-            await upsertStake(
-              publicKey,
-              tokenMint,
-              poolId,
-              userStakeAfter.amount,
-              userStakePDA.toString()
-            );
-          } else {
-            console.log("🗑️ Full unstake - deleting from database");
-            await deleteStake(publicKey, tokenMint, poolId);
-          }
-        } catch (dbError) {
-          console.error("⚠️ Database sync failed (non-critical):", dbError);
-          // If getUserStake failed, it likely means fully unstaked
-          console.log("🗑️ getUserStake failed (likely full unstake) - attempting delete");
-          try {
-            await deleteStake(publicKey, tokenMint, poolId);
-          } catch (deleteError) {
-            console.error("⚠️ Delete also failed:", deleteError);
-          }
-        }
+         // Try to sync to database even on "already processed" error
+        await syncStakeToDb(publicKey.toString(), tokenMint, poolId);
         
         return signature;
       }
