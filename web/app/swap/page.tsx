@@ -538,15 +538,56 @@ function SwapPageContent() {
 
       showInfo('📤 Swap sent...');
 
-      // Wait for confirmation
+      // Wait for confirmation using polling (no WebSocket needed)
       try {
-        const latestBlockhash = await connection.getLatestBlockhash('finalized');
+        let confirmed = false;
+        let attempts = 0;
+        const maxAttempts = 30; // 30 seconds max
         
-        await connection.confirmTransaction({
-          signature: txid,
-          blockhash: latestBlockhash.blockhash,
-          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-        }, 'confirmed');
+        while (!confirmed && attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+          attempts++;
+          
+          const status = await connection.getSignatureStatus(txid);
+          
+          if (status.value?.confirmationStatus === 'confirmed' || 
+              status.value?.confirmationStatus === 'finalized') {
+            confirmed = true;
+            console.log('✅ Transaction confirmed!');
+            
+            playSound('swap');
+            
+            setSuccessModalData({
+              fromToken: fromToken.symbol,
+              toToken: toToken.symbol,
+              txSignature: txid,
+            });
+            setShowSuccessModal(true);
+            
+            setFromAmount("");
+            setToAmount("");
+            setCurrentQuote(null);
+            fetchTokenBalance();
+          } else if (status.value?.err) {
+            throw new Error(`Transaction failed: ${JSON.stringify(status.value.err)}`);
+          }
+        }
+        
+        if (!confirmed) {
+          // Transaction still pending after 30 seconds
+          showInfo('⏳ Swap sent - check wallet for confirmation');
+          setFromAmount("");
+          setToAmount("");
+          fetchTokenBalance();
+        }
+        
+      } catch (confirmError: any) {
+        console.warn('⚠️ Confirmation check failed:', confirmError.message);
+        showInfo('⏳ Swap sent - check wallet for confirmation');
+        setFromAmount("");
+        setToAmount("");
+        fetchTokenBalance();
+      }
 
         console.log('✅ Transaction confirmed!');
         
