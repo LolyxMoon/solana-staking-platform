@@ -66,12 +66,13 @@ export async function GET(request: NextRequest) {
     // Get pools config
     const pools = await prisma.pool.findMany();
     
-    // Get staker count directly from database
+    // Get staker counts from database
     const stakes = await prisma.userStake.findMany({
       select: { userWallet: true }
     });
     const uniqueWallets = new Set(stakes.map(s => s.userWallet));
     const totalStakers = uniqueWallets.size;
+    const totalStakes = stakes.length; // Total individual stake records
 
     // Build PDAs
     const projectPDAs: PublicKey[] = [];
@@ -125,6 +126,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       totalStakers,
+      totalStakes,
       totalValueLocked,
       tokenBreakdown,
     });
@@ -135,6 +137,7 @@ export async function GET(request: NextRequest) {
       success: false,
       error: error.message,
       totalStakers: 0,
+      totalStakes: 0,
       totalValueLocked: 0,
       tokenBreakdown: [],
     }, { status: 500 });
