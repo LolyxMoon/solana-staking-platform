@@ -4,9 +4,6 @@ import {
   Connection, 
   PublicKey, 
   VersionedTransaction,
-  TransactionMessage,
-  ComputeBudgetProgram,
-  AddressLookupTableAccount,
 } from "@solana/web3.js";
 
 const REFERRAL_ACCOUNT = process.env.NEXT_PUBLIC_JUPITER_REFERRAL_ACCOUNT || "";
@@ -172,20 +169,7 @@ export async function executeJupiterSwap(
     
     console.log('✅ Transaction sent:', txid);
 
-    // Step 4: Confirm transaction
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
-    
-    const confirmation = await connection.confirmTransaction({
-      signature: txid,
-      blockhash,
-      lastValidBlockHeight,
-    }, 'confirmed');
-
-    if (confirmation.value.err) {
-      throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-    }
-
-    console.log('✅ Swap confirmed!');
+    // Return immediately - let the caller handle confirmation with polling
     return txid;
 
   } catch (error: any) {
