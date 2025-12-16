@@ -190,6 +190,7 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
       }
       
       setPoolsLoaded(true);
+      loadedPoolsRef.current = pools;
       
     } catch (error) {
       console.error('Batch pool data load error:', error);
@@ -337,10 +338,19 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
     }
   }, [publicKey, connected]);
 
+  // Track loaded pools for re-fetching user stakes
+  const loadedPoolsRef = useRef<PoolInfo[]>([]);
+
   // Auto-load user data when wallet connects
   useEffect(() => {
     if (connected && publicKey) {
       loadUserData();
+      
+      // Re-fetch user stakes if pools were already loaded
+      if (loadedPoolsRef.current.length > 0) {
+        console.log('🔄 Wallet connected - refetching user stakes...');
+        loadAllPoolData(loadedPoolsRef.current);
+      }
       
       // Refresh every 2 minutes
       const interval = setInterval(loadUserData, 120000);
@@ -350,7 +360,7 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
       // Clear user-specific caches
       stakeCache.clear();
     }
-  }, [connected, publicKey, loadUserData]);
+  }, [connected, publicKey, loadUserData, loadAllPoolData]);
 
   // Getters
   const getDecimals = useCallback((mint: string): number => {
