@@ -2,7 +2,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey, LAMPORTS_PER_SOL, AccountInfo } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { getPDAs, getReadOnlyProgram } from "@/lib/anchor-program";
 
 interface TokenBalance {
@@ -259,7 +259,7 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
     console.log(`✅ Batch fetched prices for ${mintsNeedingPrice.length} tokens`);
   };
 
-  // Load all user token balances in ONE call
+  // Load all user token balances
   const loadUserData = useCallback(async () => {
     if (!publicKey || !connected) {
       setUserData(null);
@@ -271,16 +271,16 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
     try {
       const conn = connectionRef.current;
       
-      // ✅ SINGLE CALL: Get SOL balance
+      // Get SOL balance
       const solBalance = await conn.getBalance(publicKey);
       
-      // ✅ SINGLE CALL: Get ALL token accounts for user
+      const tokenBalances = new Map<string, TokenBalance>();
+      
+      // Fetch standard SPL tokens
       const tokenAccounts = await conn.getParsedTokenAccountsByOwner(
         publicKey,
         { programId: TOKEN_PROGRAM_ID }
       );
-      
-      const tokenBalances = new Map<string, TokenBalance>();
       
       tokenAccounts.value.forEach(account => {
         const parsed = account.account.data.parsed?.info;
@@ -291,12 +291,36 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
           
           tokenBalances.set(mint, { mint, balance, decimals });
           
-          // Also update decimals cache
           if (!decimalsCache.has(mint)) {
             decimalsCache.set(mint, decimals);
           }
         }
       });
+      
+      // ✅ ALSO fetch Token-2022 tokens (like SPT)
+      try {
+        const token2022Accounts = await conn.getParsedTokenAccountsByOwner(
+          publicKey,
+          { programId: TOKEN_2022_PROGRAM_ID }
+        );
+        
+        token2022Accounts.value.forEach(account => {
+          const parsed = account.account.data.parsed?.info;
+          if (parsed) {
+            const mint = parsed.mint;
+            const balance = parsed.tokenAmount?.uiAmount || 0;
+            const decimals = parsed.tokenAmount?.decimals || 9;
+            
+            tokenBalances.set(mint, { mint, balance, decimals });
+            
+            if (!decimalsCache.has(mint)) {
+              decimalsCache.set(mint, decimals);
+            }
+          }
+        });
+      } catch (e) {
+        console.warn('Token-2022 fetch failed:', e);
+      }
       
       setUserData({
         solBalance: solBalance / LAMPORTS_PER_SOL,
@@ -304,7 +328,7 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
         lastUpdated: Date.now()
       });
       
-      console.log(`✅ Loaded user data: ${tokenBalances.size} token accounts in 2 RPC calls`);
+      console.log(`✅ Loaded user data: ${tokenBalances.size} token accounts in 3 RPC calls`);
       
     } catch (error) {
       console.error('User data load error:', error);
@@ -347,13 +371,13 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
     return userData?.solBalance || 0;
   }, [userData]);
 
-  // ✅ NEW: Get cached pool project data
+  // Get cached pool project data
   const getPoolProject = useCallback((tokenMint: string, poolId: number): any | null => {
     const key = `${tokenMint}-${poolId}`;
     return projectCache.get(key) || null;
   }, []);
 
-  // ✅ NEW: Get cached user stake data
+  // Get cached user stake data
   const getUserStake = useCallback((tokenMint: string, poolId: number): any | null => {
     const key = `${tokenMint}-${poolId}`;
     return stakeCache.get(key) || null;
