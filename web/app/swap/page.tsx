@@ -588,44 +588,7 @@ function SwapPageContent() {
         setToAmount("");
         fetchTokenBalance();
       }
-
-        console.log('✅ Transaction confirmed!');
-        
-        playSound('swap');
-        
-        // Set modal data and show
-        setSuccessModalData({
-          fromToken: fromToken.symbol,
-          toToken: toToken.symbol,
-          txSignature: txid,
-        });
-        setShowSuccessModal(true);
-        
-        setFromAmount("");
-        setToAmount("");
-        setCurrentQuote(null);
-        fetchTokenBalance();
-        
-      } catch (confirmError: any) {
-        console.warn('⚠️ Confirmation issue:', confirmError.message);
-        
-        const status = await connection.getSignatureStatus(txid);
-        
-        if (status.value?.confirmationStatus === 'confirmed' || 
-            status.value?.confirmationStatus === 'finalized') {
-          playSound('swap'); // ✅ ADD THIS LINE
-          showSuccess(`✅ ${fromToken.symbol} → ${toToken.symbol}`);
-          setFromAmount("");
-          setToAmount("");
-          setCurrentQuote(null);
-          fetchTokenBalance();
-        } else if (status.value?.err) {
-          throw new Error(`Transaction failed: ${JSON.stringify(status.value.err)}`);
-        } else {
-          showInfo('⏳ Swap pending...');
-        }
-      }
-      
+    
       // Record stats
       try {
         const { calculateSwapVolumeUSD } = await import('@/lib/token-prices');
