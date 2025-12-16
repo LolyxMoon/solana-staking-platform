@@ -71,6 +71,9 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
   const publicKeyRef = useRef(publicKey);
   publicKeyRef.current = publicKey;
 
+  // Track loaded pools for re-fetching user stakes
+  const loadedPoolsRef = useRef<PoolInfo[]>([]);
+
   // Batch load decimals for all mints
   const loadPoolsData = useCallback(async (mints: string[]) => {
     const uniqueMints = [...new Set(mints)].filter(m => m && !decimalsCache.has(m));
@@ -337,9 +340,6 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
       setIsUserDataLoading(false);
     }
   }, [publicKey, connected]);
-
-  // Track loaded pools for re-fetching user stakes
-  const loadedPoolsRef = useRef<PoolInfo[]>([]);
 
   // Auto-load user data when wallet connects
   useEffect(() => {
