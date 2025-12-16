@@ -7,7 +7,6 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
-    // Simple auth check - use a secret key
     const { adminKey } = await request.json();
     if (adminKey !== process.env.ADMIN_SYNC_KEY) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -19,15 +18,12 @@ export async function POST(request: NextRequest) {
     const connection = new Connection(rpcEndpoint, 'confirmed');
     const program = getReadOnlyProgram(connection);
 
-    // Get all pools from database
     const pools = await prisma.pool.findMany();
     console.log(`Found ${pools.length} pools to scan`);
 
     let totalSynced = 0;
     let totalDeleted = 0;
 
-    // Get all stake accounts from the program
-    // The discriminator for "stake" accounts - first 8 bytes
     const stakeDiscriminator = Buffer.from([150, 138, 56, 227, 57, 217, 200, 243]);
 
     const allStakeAccounts = await connection.getProgramAccounts(
@@ -41,7 +37,6 @@ export async function POST(request: NextRequest) {
 
     console.log(`Found ${allStakeAccounts.length} stake accounts on-chain`);
 
-    // Decode each stake account
     for (const { pubkey, account } of allStakeAccounts) {
       try {
         const decoded = program.coder.accounts.decode('stake', account.data);
@@ -53,11 +48,8 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // Find which pool this stake belongs to
-        // We need to match by checking the project PDA
         const projectPda = decoded.project?.toString();
         
-        // Find the pool config for this project
         let matchedPool = null;
         for (const pool of pools) {
           const mintPubkey = new PublicKey(pool.tokenMint);
@@ -73,7 +65,6 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // Upsert to database
         await prisma.userStake.upsert({
           where: {
             userWallet_tokenMint_poolId: {
@@ -104,7 +95,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Clean up stakes that no longer exist on-chain
     const dbStakes = await prisma.userStake.findMany();
     for (const stake of dbStakes) {
       const exists = allStakeAccounts.some(s => s.pubkey.toString() === stake.stakePda);
@@ -132,8 +122,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-```
-
-**Add to your `.env`:**
-```
-ADMIN_SYNC_KEY=your-secret-key-here
