@@ -24,6 +24,16 @@ import {
   Mail,
 } from "lucide-react";
 
+// Loading skeleton component
+const LoadingValue = ({ width = "w-20" }: { width?: string }) => (
+  <span className={`inline-block ${width} h-8 bg-white/[0.05] rounded relative overflow-hidden`}>
+    <span 
+      className="absolute inset-0 -translate-x-full animate-shimmer"
+      style={{ background: 'linear-gradient(90deg, transparent, rgba(251, 87, 255, 0.1), transparent)' }}
+    />
+  </span>
+);
+
 interface Pool {
   id: string;
   name: string;
@@ -372,7 +382,7 @@ export default function LandingPage() {
                   <div key={idx} className="text-center lg:text-left">
                     <div className="flex items-center gap-2 text-3xl font-bold text-white mb-1">
                       <stat.icon className="w-6 h-6" style={{ color: '#fb57ff' }} />
-                      {stat.value}
+                      {platformStats.loading ? <LoadingValue /> : stat.value}
                     </div>
                     <p className="text-sm text-gray-400">{stat.label}</p>
                   </div>
@@ -477,7 +487,7 @@ export default function LandingPage() {
                 <div className="flex items-center justify-center gap-2 mb-2">
                   <stat.icon className="w-6 h-6" style={{ color: '#fb57ff' }} />
                   {platformStats.loading ? (
-                    <div className="h-9 bg-white/[0.05] rounded animate-pulse w-20"></div>
+                    <LoadingValue />
                   ) : (
                     <p className="text-3xl font-bold text-white">{stat.value}</p>
                   )}

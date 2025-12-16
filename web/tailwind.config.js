@@ -12,23 +12,30 @@ module.exports = {
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', 'monospace'],
       },
       colors: {
-        // Streamflow exact color palette
         dark: {
-          950: "#060609", // main background - almost pure black
-          900: "#0F1420", // secondary background - very dark
-          800: "#1A1F2E", // card background
-          700: "#242937", // elevated elements
-          600: "#2F3541", // borders/dividers - very subtle
+          950: "#060609",
+          900: "#0F1420",
+          800: "#1A1F2E",
+          700: "#242937",
+          600: "#2F3541",
         },
         primary: {
-          500: "#5B8DEF", // streamflow blue accent (softer)
-          600: "#4A7FE7", // hover state
-          700: "#3B71D4", // active state
+          500: "#5B8DEF",
+          600: "#4A7FE7",
+          700: "#3B71D4",
         },
         accent: {
-          green: "#10B981", // success/rewards
-          red: "#EF4444", // error/danger
-          yellow: "#F59E0B", // warning
+          green: "#10B981",
+          red: "#EF4444",
+          yellow: "#F59E0B",
+        },
+      },
+      animation: {
+        shimmer: 'shimmer 1.5s infinite',
+      },
+      keyframes: {
+        shimmer: {
+          '100%': { transform: 'translateX(100%)' },
         },
       },
     },
