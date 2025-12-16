@@ -598,12 +598,15 @@ try {
       console.log("✅ Withdrawal token account exists, proceeding with withdraw...");
       
       // Normal withdraw without ATA creation
-      const tx = await program.methods
+      const transaction = new Transaction();
+      const withdrawIx = await program.methods
         .withdraw(tokenMintPubkey, new BN(poolId), amountBN)
         .accountsPartial(accounts)
         .remainingAccounts(remainingAccountsUnstake)
-        .rpc({ skipPreflight: false, commitment: 'confirmed' });
-
+        .instruction();
+      transaction.add(withdrawIx);
+      
+      const tx = await sendTransaction(transaction, connection);
       console.log("✅ Transaction signature:", tx);
       
       await pollForConfirmation(connection, tx);
@@ -836,13 +839,16 @@ try {
         console.log("✅ Transaction confirmed!");
 
         return tx;
-        } else {
-       const tx = await program.methods
+         } else {
+       const transaction = new Transaction();
+       const claimIx = await program.methods
           .claim(tokenMintPubkey, new BN(poolId))
           .accountsPartial(accounts)
           .remainingAccounts(remainingAccountsClaim)
-          .rpc({ skipPreflight: false, commitment: 'confirmed' });
-
+          .instruction();
+       transaction.add(claimIx);
+       
+       const tx = await sendTransaction(transaction, connection);
         console.log("✅ Claim rewards transaction signature:", tx);
         
         await pollForConfirmation(connection, tx);
@@ -1130,19 +1136,21 @@ try {
 
     console.log("🎲 Unique compute units:", 200_000 + (timestamp % 10_000));
 
-    const tx = await program.methods
+    const transaction = new Transaction();
+    transaction.add(computeBudgetIx);
+    
+    const refreshIx = await program.methods
       .refreshReflections(tokenMintPubkey, new BN(poolId))
       .accounts({
         project: projectPDA,
         stake: userStakePDA,
-        reflectionVault: reflectionVaultPubkey,  // ✅ Use the STORED address!
+        reflectionVault: reflectionVaultPubkey,
         user: publicKey,
       })
-      .preInstructions([computeBudgetIx])
-      .rpc({
-        skipPreflight: true,
-        commitment: 'confirmed',
-      });
+      .instruction();
+    transaction.add(refreshIx);
+    
+    const tx = await sendTransaction(transaction, connection, { skipPreflight: true });
 
     console.log("✅ Refresh reflections transaction signature:", tx);
     console.log("⏳ Confirming transaction...");
@@ -1272,8 +1280,9 @@ const claimUnclaimedTokens = async (tokenMint: string, poolId: number = 0) => {
       
       return signature;
     } else {
-      // Admin account exists, claim directly
-      const tx = await program.methods
+       // Admin account exists, claim directly
+      const transaction = new Transaction();
+      const claimIx = await program.methods
         .claimUnclaimedTokens(tokenMintPubkey, new BN(poolId))
         .accounts({
           project: projectPDA,
@@ -1284,8 +1293,10 @@ const claimUnclaimedTokens = async (tokenMint: string, poolId: number = 0) => {
           tokenProgram: tokenProgramId,
           systemProgram: SystemProgram.programId,
         })
-        .rpc({ skipPreflight: false, commitment: 'confirmed' });
-
+        .instruction();
+      transaction.add(claimIx);
+      
+      const tx = await sendTransaction(transaction, connection);
       console.log("✅ Claim unclaimed tokens signature:", tx);
       
       await pollForConfirmation(connection, tx);
