@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 const ADMIN_WALLET = process.env.ADMIN_WALLET || "ecfvkqWdJiYJRyUtWvuYpPWP5faf9GBcA1K6TaDW7wS";
-const MIN_FEE_LAMPORTS = 10_000_000; // 0.01 SOL minimum (adjust to your actual fee)
+const DEFAULT_MIN_FEE_LAMPORTS = 1_000_000; // 0.001 SOL fallback
 
 export async function POST(req: Request) {
   try {
@@ -37,6 +37,17 @@ export async function POST(req: Request) {
       creator: body.creatorWallet,
       paymentTx: body.paymentTxSignature,
     });
+
+    // Fetch current pool creation fee from database
+    let minFeeLamports = DEFAULT_MIN_FEE_LAMPORTS;
+    try {
+      const settings = await prisma.adminSettings.findFirst();
+      if (settings?.poolCreationFeeLamports) {
+        minFeeLamports = settings.poolCreationFeeLamports;
+      }
+    } catch (e) {
+      console.log("⚠️ Could not fetch fee settings, using default");
+    }
     
     // Check if payment signature was already used
     const existingPayment = await prisma.pool.findFirst({
@@ -82,8 +93,8 @@ export async function POST(req: Request) {
       const postBalances = tx.meta?.postBalances || [];
       const adminReceived = postBalances[adminIndex] - preBalances[adminIndex];
       
-      if (adminReceived < MIN_FEE_LAMPORTS) {
-        console.log(`❌ Insufficient payment: ${adminReceived} lamports (need ${MIN_FEE_LAMPORTS})`);
+      if (adminReceived < minFeeLamports) {
+        console.log(`❌ Insufficient payment: ${adminReceived} lamports (need ${minFeeLamports})`);
         return NextResponse.json({ error: "Invalid payment - insufficient amount" }, { status: 400 });
       }
 
