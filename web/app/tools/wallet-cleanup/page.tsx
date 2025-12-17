@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey, Transaction, ComputeBudgetProgram } from "@solana/web3.js";
+import { confirmTransactionPolling } from "@/lib/confirmTransaction";
 import { 
   TOKEN_PROGRAM_ID, 
   TOKEN_2022_PROGRAM_ID,
@@ -284,11 +285,7 @@ export default function WalletCleanupPage() {
         
         setStatusMessage(`Confirming batch ${i + 1}/${batches.length}...`);
         
-        await connection.confirmTransaction({
-          signature,
-          blockhash,
-          lastValidBlockHeight,
-        }, 'confirmed');
+        await confirmTransactionPolling(connection, signature);
         
         successCount += batch.length;
         setProgress({ current: successCount + errorCount, total: selected.length });

@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { ComputeBudgetProgram } from "@solana/web3.js";
+import { confirmTransactionPolling } from "@/lib/confirmTransaction";
 import {
   PublicKey,
   Transaction,
@@ -358,14 +359,8 @@ export default function AirdropPage() {
           console.log(`📤 Batch ${batchIndex + 1} sent (attempt ${attempt}): ${txId}`);
 
           // Wait for confirmation with timeout
-          const confirmation = await connection.confirmTransaction(
-            { signature: txId, blockhash, lastValidBlockHeight },
-            "processed" // Use "processed" for faster confirmation
-          );
+          await confirmTransactionPolling(connection, txId);
 
-          if (confirmation.value.err) {
-            throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-          }
 
           // Success!
           success = true;
