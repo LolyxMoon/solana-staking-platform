@@ -261,7 +261,7 @@ useEffect(() => {
   };
 
   const handleCreatePool = async () => {
-    if (!publicKey || !signTransaction || !selectedToken || !wallet) {
+    if (!publicKey || !sendTransaction || !selectedToken || !wallet) {
       setError("Please connect your wallet");
       return;
     }
