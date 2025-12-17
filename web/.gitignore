@@ -1,22 +1,2 @@
 .vercel
 
-# Sensitive API routes - hidden from public repo
-app/api/admin/
-app/api/pools/create/
-app/api/lp-pools/create/
-app/api/locks/
-app/api/stakes/change-wallet/
-app/api/stakes/delete/
-app/api/stakes/sync-all/
-app/api/stakes/sync/
-app/api/stakes/upsert/
-app/api/telegram/
-app/api/volume-bot/
-app/api/whale-club/admin/
-app/api/whale-club/chat/
-app/api/whale-club/nickname/
-app/api/whale-club/register-twitter/
-app/api/whale-club/sync/
-app/api/whale-club/verify-wallet/
-app/api/twitter/
-app/api/test-jupiter/
