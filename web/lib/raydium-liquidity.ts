@@ -1,3 +1,4 @@
+import { confirmTransactionPolling } from "@/lib/confirmTransaction";
 import { Connection, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, createAssociatedTokenAccountInstruction } from '@solana/spl-token';
 import { Liquidity, LiquidityPoolKeys, TokenAmount, Token, Percent, Currency } from '@raydium-io/raydium-sdk';
@@ -171,7 +172,7 @@ export async function addLiquidityToPool(
     });
 
     console.log('Confirming transaction...');
-    await connection.confirmTransaction(txSignature, 'confirmed');
+    await confirmTransactionPolling(connection, txSignature);
 
     console.log('✅ Add liquidity successful! TX:', txSignature);
     return txSignature;
@@ -282,7 +283,7 @@ export async function removeLiquidityFromPool(
     });
 
     console.log('Confirming transaction...');
-    await connection.confirmTransaction(txSignature, 'confirmed');
+    await confirmTransactionPolling(connection, txSignature);
 
     console.log('✅ Remove liquidity successful! TX:', txSignature);
     return txSignature;

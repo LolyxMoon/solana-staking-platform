@@ -1,3 +1,4 @@
+import { confirmTransactionPolling } from "@/lib/confirmTransaction";
 import * as anchor from "@coral-xyz/anchor";
 import { useConnection, useWallet, useAnchorWallet } from "@solana/wallet-adapter-react";
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
@@ -48,11 +49,7 @@ const sendTransactionWithFreshBlockhash = async (
     preflightCommitment: 'confirmed',  // ✅ Use 'confirmed' to see recently created accounts
   });
 
-  await connection.confirmTransaction({
-    signature,
-    blockhash,
-    lastValidBlockHeight,
-  }, 'confirmed');
+  await confirmTransactionPolling(connection, signature);
 
   return signature;
 };

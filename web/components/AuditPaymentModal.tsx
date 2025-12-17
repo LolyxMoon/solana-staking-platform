@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmTransactionPolling } from "@/lib/confirmTransaction";
 import { useState, useEffect } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { 
@@ -156,11 +157,7 @@ export default function AuditPaymentModal({
       
       const burnSig = await sendTransaction(burnTx, connection);
       
-      await connection.confirmTransaction({
-        signature: burnSig,
-        blockhash,
-        lastValidBlockHeight,
-      }, "confirmed");
+      await confirmTransactionPolling(connection, burnSig);
       
       setBurnSignature(burnSig);
       console.log("🔥 Burn complete:", burnSig);

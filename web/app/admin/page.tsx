@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmTransactionPolling } from "@/lib/confirmTransaction";
 import { useState, useEffect, useMemo } from "react";
 import { useWallet, useConnection, useAnchorWallet } from "@solana/wallet-adapter-react";
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
@@ -557,11 +558,7 @@ export default function AdminPage() {
 
       console.log("📤 Transaction sent:", sig);
 
-      await connection.confirmTransaction({
-        signature: sig,
-        blockhash,
-        lastValidBlockHeight
-      }, "confirmed");
+      await confirmTransactionPolling(connection, sig);
 
       showSuccess(`✅ Token account created! TX: ${sig.slice(0, 8)}...`);
       console.log("✅ Full signature:", sig);

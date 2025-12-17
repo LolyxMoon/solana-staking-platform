@@ -1,4 +1,5 @@
 "use client";
+import { confirmTransactionPolling } from "@/lib/confirmTransaction";
 import { useState, useEffect } from "react";
 import { useWallet, useConnection, useAnchorWallet } from "@solana/wallet-adapter-react";
 import { PublicKey, SystemProgram, Transaction, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
@@ -383,7 +384,7 @@ useEffect(() => {
       
       const signedPaymentTx = await signTransaction(paymentTx);
       const paymentSignature = await connection.sendRawTransaction(signedPaymentTx.serialize());
-      await connection.confirmTransaction(paymentSignature, "confirmed");
+      await confirmTransactionPolling(connection, paymentSignature);
       console.log("✅ Payment successful:", paymentSignature);
 
       // Transaction 2: Create Project
