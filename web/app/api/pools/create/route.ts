@@ -49,14 +49,6 @@ export async function POST(req: Request) {
       console.log("⚠️ Could not fetch fee settings, using default");
     }
     
-    // Check if payment signature was already used
-    const existingPayment = await prisma.pool.findFirst({
-      where: {
-        // Store payment sig in a field - we'll use poolAddress temporarily
-        // Or create a separate table for used signatures
-      }
-    });
-    
     const connection = new Connection(process.env.HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT || "https://api.mainnet-beta.solana.com");
     
     // Verify payment transaction
@@ -79,26 +71,71 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Payment transaction was not signed by the creator wallet" }, { status: 400 });
       }
 
-      // ✅ NEW: Verify payment went to admin wallet with correct amount
+      // Parse instructions to find the actual transfer amount
       const accountKeys = tx.transaction.message.staticAccountKeys.map(k => k.toBase58());
       const adminIndex = accountKeys.indexOf(ADMIN_WALLET);
-      
+
       if (adminIndex === -1) {
         console.log("❌ Admin wallet not in transaction");
         return NextResponse.json({ error: "Invalid payment - wrong recipient" }, { status: 400 });
       }
-      
-      // Check SOL transfer to admin
-      const preBalances = tx.meta?.preBalances || [];
-      const postBalances = tx.meta?.postBalances || [];
-      const adminReceived = postBalances[adminIndex] - preBalances[adminIndex];
-      
-      if (adminReceived < minFeeLamports) {
-        console.log(`❌ Insufficient payment: ${adminReceived} lamports (need ${minFeeLamports})`);
+
+      let transferAmount = 0;
+      const SYSTEM_PROGRAM = "11111111111111111111111111111111";
+
+      // Check compiled instructions (versioned transactions)
+      const compiledInstructions = (tx.transaction.message as any).compiledInstructions || [];
+      for (const ix of compiledInstructions) {
+        const programId = accountKeys[ix.programIdIndex];
+        
+        if (programId === SYSTEM_PROGRAM && ix.data && ix.data.length >= 12) {
+          const data = Buffer.from(ix.data);
+          const instructionType = data.readUInt32LE(0);
+          
+          if (instructionType === 2) { // Transfer instruction
+            const lamports = data.readBigUInt64LE(4);
+            const toIndex = ix.accountKeyIndexes[1];
+            
+            if (toIndex === adminIndex) {
+              transferAmount = Number(lamports);
+              console.log(`✅ Found compiled transfer to admin: ${transferAmount} lamports`);
+              break;
+            }
+          }
+        }
+      }
+
+      // Fallback: try legacy instruction format
+      if (transferAmount === 0) {
+        const legacyInstructions = (tx.transaction.message as any).instructions || [];
+        for (const ix of legacyInstructions) {
+          const programId = accountKeys[ix.programIdIndex];
+          
+          if (programId === SYSTEM_PROGRAM && ix.data) {
+            const data = Buffer.from(ix.data, 'base64');
+            if (data.length >= 12) {
+              const instructionType = data.readUInt32LE(0);
+              if (instructionType === 2) {
+                const lamports = data.readBigUInt64LE(4);
+                const toIndex = ix.accounts ? ix.accounts[1] : -1;
+                
+                if (toIndex === adminIndex) {
+                  transferAmount = Number(lamports);
+                  console.log(`✅ Found legacy transfer to admin: ${transferAmount} lamports`);
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (transferAmount < minFeeLamports) {
+        console.log(`❌ Insufficient payment: ${transferAmount} lamports (need ${minFeeLamports})`);
         return NextResponse.json({ error: "Invalid payment - insufficient amount" }, { status: 400 });
       }
 
-      console.log(`✅ Payment verified: ${adminReceived / LAMPORTS_PER_SOL} SOL to admin`);
+      console.log(`✅ Payment verified: ${transferAmount / LAMPORTS_PER_SOL} SOL to admin`);
       
     } catch (txError) {
       console.error("Error verifying payment transaction:", txError);
@@ -117,10 +154,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Pool #${body.poolId || 0} already exists for this token.` }, { status: 400 });
     }
     
-    // ✅ NEW: Check if this payment signature was already used
+    // Check if this payment signature was already used
     const signatureUsed = await prisma.pool.findFirst({
       where: {
-        pairAddress: body.paymentTxSignature, // Reuse pairAddress field to store payment sig
+        pairAddress: body.paymentTxSignature,
       }
     });
     
@@ -151,7 +188,7 @@ export async function POST(req: Request) {
         duration: duration,
         rewards: body.rewards || "To be deposited",
         logo: body.logo || null,
-        pairAddress: body.paymentTxSignature, // ✅ Store payment sig to prevent reuse
+        pairAddress: body.paymentTxSignature,
         hasSelfReflections: body.hasSelfReflections || false,
         hasExternalReflections: body.hasExternalReflections || false,
         externalReflectionMint: body.externalReflectionMint || null,
