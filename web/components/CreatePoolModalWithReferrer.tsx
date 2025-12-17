@@ -45,7 +45,7 @@ export default function CreatePoolModalWithReferrer({
   referrerWallet = null,
   referrerSplitBps = 5000 // Default 50%
 }: CreatePoolModalWithReferrerProps) {
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
   const wallet = useAnchorWallet();
   
@@ -320,13 +320,12 @@ useEffect(() => {
       paymentTx.recentBlockhash = blockhash;
       paymentTx.feePayer = publicKey;
       
-      const signedPaymentTx = await signTransaction(paymentTx);
-      const paymentSignature = await connection.sendRawTransaction(signedPaymentTx.serialize());
+      const paymentSignature = await sendTransaction(paymentTx, connection);
       await confirmTransactionPolling(connection, paymentSignature);
 
       // Transaction 2: Create Project
       setStatusMessage("Step 2/4: Creating pool on-chain...");
-      const createProjectTx = await program.methods
+      const createProjectTxn = await program.methods
         .createProject(tokenMintPubkey, new anchor.BN(poolId))
         .accounts({
           project: projectPDA,
@@ -338,7 +337,13 @@ useEffect(() => {
           tokenProgram: tokenProgramId,
           rent: SYSVAR_RENT_PUBKEY,
         })
-        .rpc();
+        .transaction();
+
+      const { blockhash: createBlockhash } = await connection.getLatestBlockhash();
+      createProjectTxn.recentBlockhash = createBlockhash;
+      createProjectTxn.feePayer = publicKey;
+      const createProjectTx = await sendTransaction(createProjectTxn, connection);
+      await confirmTransactionPolling(connection, createProjectTx);
 
       // Transaction 3: Initialize Pool WITH REFERRER
       setStatusMessage("Step 3/4: Initializing pool parameters...");
@@ -412,19 +417,25 @@ useEffect(() => {
         initPoolAccounts.reflectionTokenProgram = program.programId;
       }
 
-      const initPoolTx = await program.methods
+      const initPoolTxn = await program.methods
         .initializePool(
           tokenMintPubkey,
           new anchor.BN(poolId),
           initParams
         )
         .accounts(initPoolAccounts)
-        .rpc();
+        .transaction();
+
+      const { blockhash: initBlockhash } = await connection.getLatestBlockhash();
+      initPoolTxn.recentBlockhash = initBlockhash;
+      initPoolTxn.feePayer = publicKey;
+      const initPoolTx = await sendTransaction(initPoolTxn, connection);
+      await confirmTransactionPolling(connection, initPoolTx);
 
       // Transaction 4: Deposit Rewards
       setStatusMessage("Step 4/4: Depositing rewards...");
       
-      const depositRewardsTx = await program.methods
+      const depositRewardsTxn = await program.methods
         .depositRewards(
           tokenMintPubkey,
           new anchor.BN(poolId),
@@ -439,7 +450,13 @@ useEffect(() => {
           tokenProgram: tokenProgramId,
           systemProgram: SystemProgram.programId,
         })
-        .rpc();
+        .transaction();
+
+      const { blockhash: depositBlockhash } = await connection.getLatestBlockhash();
+      depositRewardsTxn.recentBlockhash = depositBlockhash;
+      depositRewardsTxn.feePayer = publicKey;
+      const depositRewardsTx = await sendTransaction(depositRewardsTxn, connection);
+      await confirmTransactionPolling(connection, depositRewardsTx);
 
       setStatusMessage("Saving pool information...");
       
