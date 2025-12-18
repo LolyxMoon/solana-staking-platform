@@ -191,15 +191,25 @@ useEffect(() => {
                   (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
                 )[0];
                 
-                if (bestPair?.baseToken) {
-                  tokenInfo = {
-                    symbol: bestPair.baseToken.symbol,
-                    name: bestPair.baseToken.name,
-                    logoURI: bestPair.info?.imageUrl || null,
-                    price: parseFloat(bestPair.priceUsd) || null,
-                    liquidity: bestPair.liquidity?.usd || null,
-                    marketCap: bestPair.marketCap || null,
-                  };
+                if (bestPair) {
+                  const isBase = bestPair.baseToken?.address === mint;
+                  const tokenData = isBase ? bestPair.baseToken : bestPair.quoteToken;
+                  
+                  if (tokenData) {
+                    let price = parseFloat(bestPair.priceUsd) || null;
+                    if (!isBase && price) {
+                      price = 1 / price;
+                    }
+                    
+                    tokenInfo = {
+                      symbol: tokenData.symbol,
+                      name: tokenData.name,
+                      logoURI: bestPair.info?.imageUrl || null,
+                      price,
+                      liquidity: bestPair.liquidity?.usd || null,
+                      marketCap: bestPair.marketCap || null,
+                    };
+                  }
                   console.log(`✅ DexScreener found:`, tokenInfo.symbol);
                 }
               }

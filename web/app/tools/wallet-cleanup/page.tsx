@@ -96,11 +96,21 @@ export default function WalletCleanupPage() {
               (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
             )[0];
             
-            if (bestPair?.baseToken) {
-              symbol = bestPair.baseToken.symbol || symbol;
-              name = bestPair.baseToken.name || name;
+            if (bestPair) {
+            // Check if our mint is baseToken or quoteToken
+            const isBase = bestPair.baseToken?.address === mint;
+            const tokenData = isBase ? bestPair.baseToken : bestPair.quoteToken;
+            
+            if (tokenData) {
+              symbol = tokenData.symbol || symbol;
+              name = tokenData.name || name;
               logoURI = bestPair.info?.imageUrl || null;
               priceUsd = parseFloat(bestPair.priceUsd) || null;
+              
+              // If we're quoteToken, invert the price
+              if (!isBase && priceUsd) {
+                priceUsd = 1 / priceUsd;
+              }
             }
           }
         } catch (err) {
