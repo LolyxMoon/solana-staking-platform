@@ -9,8 +9,8 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { PoolDataProvider } from "@/hooks/usePoolData";
 import LayoutContent from "@/components/LayoutContent";
 import StructuredData from "@/components/StructuredData";
+import ChatWidgetLoader from "@/components/ChatWidgetLoader";
 
-// ✅ Use next/font instead of Google Fonts link (saves 780ms)
 const dmSans = DM_Sans({
   subsets: ["latin"],
   weight: ["400", "500", "700"],
@@ -99,7 +99,6 @@ export default function RootLayout({
   return (
     <html lang="en" className={`dark ${dmSans.variable}`} suppressHydrationWarning>
       <head>
-        {/* Google Analytics */}
         <script async src="https://www.googletagmanager.com/gtag/js?id=G-GY3EL774BV"></script>
         <script
           dangerouslySetInnerHTML={{
@@ -111,7 +110,6 @@ export default function RootLayout({
             `,
           }}
         />
-        {/* ✅ Preconnect to external image hosts (saves 300ms+) */}
         <link rel="preconnect" href="https://image2url.com" />
         <link rel="preconnect" href="https://cdn.dexscreener.com" />
         <link rel="preconnect" href="https://api.dexscreener.com" />
@@ -128,6 +126,7 @@ export default function RootLayout({
             </PoolDataProvider>
           </SolanaWalletProvider>
         </ThemeProvider>
+        <ChatWidgetLoader logoUrl="/favicon.jpg" primaryColor="#6366f1" />
       </body>
     </html>
   );
