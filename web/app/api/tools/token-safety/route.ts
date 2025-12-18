@@ -879,9 +879,19 @@ const LP_PROGRAMS = [
   "SSwapUtytfBdBn1b9NUGG6foMVPtcWgpRU32HToDUZr",  // Saros AMM
 ];
 
+// Known LP vaults / burn addresses
+const KNOWN_CONTRACTS = [
+  "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC", // Meteora LP Vault (SPT)
+];
+
 // Check if an address is a contract/LP pool (not a regular wallet)
 async function checkIfContract(connection: Connection, address: string): Promise<boolean> {
   try {
+    // Check if it's a known contract/LP vault
+    if (KNOWN_CONTRACTS.includes(address)) {
+      return true;
+    }
+    
     const pubkey = new PublicKey(address);
     const accountInfo = await connection.getAccountInfo(pubkey);
     
