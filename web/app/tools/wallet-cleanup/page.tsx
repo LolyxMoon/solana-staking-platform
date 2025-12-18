@@ -97,19 +97,20 @@ export default function WalletCleanupPage() {
             )[0];
             
             if (bestPair) {
-            // Check if our mint is baseToken or quoteToken
-            const isBase = bestPair.baseToken?.address === mint;
-            const tokenData = isBase ? bestPair.baseToken : bestPair.quoteToken;
-            
-            if (tokenData) {
-              symbol = tokenData.symbol || symbol;
-              name = tokenData.name || name;
-              logoURI = bestPair.info?.imageUrl || null;
-              priceUsd = parseFloat(bestPair.priceUsd) || null;
+              // Check if our mint is baseToken or quoteToken
+              const isBase = bestPair.baseToken?.address === mint;
+              const tokenData = isBase ? bestPair.baseToken : bestPair.quoteToken;
               
-              // If we're quoteToken, invert the price
-              if (!isBase && priceUsd) {
-                priceUsd = 1 / priceUsd;
+              if (tokenData) {
+                symbol = tokenData.symbol || symbol;
+                name = tokenData.name || name;
+                logoURI = bestPair.info?.imageUrl || null;
+                priceUsd = parseFloat(bestPair.priceUsd) || null;
+                
+                // If we're quoteToken, invert the price
+                if (!isBase && priceUsd) {
+                  priceUsd = 1 / priceUsd;
+                }
               }
             }
           }
