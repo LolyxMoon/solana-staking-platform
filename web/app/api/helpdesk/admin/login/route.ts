@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const refreshExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    await supabase.from('helpdesk_admin_sessions').insert({
+    const { error: insertError } = await supabase.from('helpdesk_admin_sessions').insert({
       admin_id: admin.admin_id,
       token_hash: tokenHash,
       refresh_token_hash: refreshHash,
@@ -43,6 +43,11 @@ export async function POST(request: NextRequest) {
       ip_address: request.headers.get('x-forwarded-for') || 'unknown',
       user_agent: request.headers.get('user-agent') || 'unknown'
     });
+
+    if (insertError) {
+      console.error('Session insert error:', insertError);
+      return NextResponse.json({ error: 'Session creation failed', debug: insertError.message }, { status: 500 });
+    }
 
     return NextResponse.json({
       adminId: admin.admin_id,
@@ -53,8 +58,8 @@ export async function POST(request: NextRequest) {
       refreshToken,
       expiresAt: expiresAt.toISOString()
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Login error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error', debug: error.message }, { status: 500 });
   }
 }
