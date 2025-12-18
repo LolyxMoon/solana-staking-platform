@@ -27,8 +27,9 @@ interface TokenSafetyResult {
   isToken2022: boolean;
   hasTransferTax: { status: "safe" | "warning"; taxBps: number | null; };
   metadataMutable: { status: "safe" | "warning"; mutable: boolean; };
-  topHolders: { wallet: string; percentage: number; }[];
+  topHolders: { wallet: string; percentage: number; isContract?: boolean }[];
   top10Concentration: number;
+  contractHeldPercentage: number;
   holderCount: number;
   lpInfo: { burned: number; locked: number; unlocked: number; } | null;
   createdAt: Date | null;
@@ -868,6 +869,23 @@ async function analyzeHoneypot(
   };
 }
 
+// Check if an address is a PDA/contract (not a regular wallet)
+async function checkIfContract(connection: Connection, address: string): Promise<boolean> {
+  try {
+    const pubkey = new PublicKey(address);
+    const accountInfo = await connection.getAccountInfo(pubkey);
+    
+    if (!accountInfo) return false;
+    
+    // System Program owns regular wallets
+    // If owned by something else, it's a PDA/contract
+    const SYSTEM_PROGRAM = "11111111111111111111111111111111";
+    return accountInfo.owner.toString() !== SYSTEM_PROGRAM;
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const { mint, fullAudit, paymentTx, walletAddress } = await req.json();
@@ -959,9 +977,10 @@ export async function POST(req: Request) {
     }
 
     // 3. Get top holders - use different method for Token-2022
-    let topHolders: { wallet: string; percentage: number; }[] = [];
+    let topHolders: { wallet: string; percentage: number; isContract?: boolean }[] = [];
     let holderCount = 0;
     let top10Concentration = 0;
+    let contractHeldPercentage = 0;
 
     try {
       const holderMap = new Map<string, number>();
@@ -1032,12 +1051,27 @@ export async function POST(req: Request) {
       holderCount = sortedHolders.length;
       const totalHeld = sortedHolders.reduce((sum, h) => sum + h.balance, 0);
 
-      topHolders = sortedHolders.slice(0, 10).map(h => ({
-        wallet: h.wallet,
-        percentage: totalHeld > 0 ? (h.balance / totalHeld) * 100 : 0,
-      }));
+      // Check top 10 for contracts
+      const top10WithContracts = await Promise.all(
+        sortedHolders.slice(0, 10).map(async (h) => {
+          const isContract = await checkIfContract(connection, h.wallet);
+          const percentage = totalHeld > 0 ? (h.balance / totalHeld) * 100 : 0;
+          return {
+            wallet: h.wallet,
+            percentage,
+            isContract,
+          };
+        })
+      );
 
+      topHolders = top10WithContracts;
       top10Concentration = topHolders.reduce((sum, h) => sum + h.percentage, 0);
+      contractHeldPercentage = topHolders
+        .filter(h => h.isContract)
+        .reduce((sum, h) => sum + h.percentage, 0);
+      
+      console.log(`Top 10 concentration: ${top10Concentration.toFixed(1)}%`);
+      console.log(`Contract-held: ${contractHeldPercentage.toFixed(1)}%`);
     } catch (err) {
       console.error("Error fetching holders:", err);
     }
@@ -1113,10 +1147,16 @@ export async function POST(req: Request) {
       if (taxBps > 500) score -= 10;
     }
 
-    if (top10Concentration > 50) {
+    // Adjust concentration check - exclude contract-held tokens
+    const walletConcentration = top10Concentration - contractHeldPercentage;
+    if (walletConcentration > 50) {
       score -= 20;
-    } else if (top10Concentration > 30) {
+    } else if (walletConcentration > 30) {
       score -= 10;
+    }
+    // Small penalty if ANY high concentration, even in contracts
+    if (top10Concentration > 70 && contractHeldPercentage > 50) {
+      score -= 5;
     }
 
     if (holderCount < 100) score -= 10;
@@ -1179,6 +1219,7 @@ export async function POST(req: Request) {
       },
       topHolders,
       top10Concentration,
+      contractHeldPercentage,
       holderCount,
       lpInfo,
       createdAt,

@@ -19,6 +19,7 @@ import {
   Check,
   Droplets,
   HelpCircle,
+  FileCode,
 } from "lucide-react";
 
 interface TokenSafetyResult {
@@ -33,8 +34,9 @@ interface TokenSafetyResult {
   isToken2022: boolean;
   hasTransferTax: { status: "safe" | "warning"; taxBps: number | null; };
   metadataMutable: { status: "safe" | "warning"; mutable: boolean; };
-  topHolders: { wallet: string; percentage: number; }[];
+  topHolders: { wallet: string; percentage: number; isContract?: boolean }[];
   top10Concentration: number;
+  contractHeldPercentage?: number;
   holderCount: number;
   lpInfo: { burned: number; locked: number; unlocked: number; } | null;
   createdAt: Date | null;
@@ -135,6 +137,20 @@ export default function TokenSafetyScanner() {
     if (supply >= 1e6) return `${(supply / 1e6).toFixed(2)}M`;
     if (supply >= 1e3) return `${(supply / 1e3).toFixed(2)}K`;
     return supply.toFixed(2);
+  };
+
+  // Calculate wallet-only concentration (excluding contracts)
+  const getWalletConcentration = () => {
+    if (!result) return 0;
+    return result.top10Concentration - (result.contractHeldPercentage || 0);
+  };
+
+  // Determine status based on wallet concentration, not total
+  const getHolderStatus = () => {
+    const walletConcentration = getWalletConcentration();
+    if (walletConcentration > 50) return "danger";
+    if (walletConcentration > 30) return "warning";
+    return "safe";
   };
 
   return (
@@ -293,15 +309,21 @@ export default function TokenSafetyScanner() {
                   <Users className="w-4 h-4 text-gray-400" />
                   <span className="text-sm text-gray-400">Top 10 Holders</span>
                 </div>
-                {getStatusIcon(result.top10Concentration > 50 ? "danger" : result.top10Concentration > 30 ? "warning" : "safe")}
+                {getStatusIcon(getHolderStatus())}
               </div>
               <p className={`mt-1 text-sm font-semibold ${
-                result.top10Concentration > 50 ? "text-red-400" : 
-                result.top10Concentration > 30 ? "text-yellow-400" : "text-green-400"
+                getHolderStatus() === "danger" ? "text-red-400" : 
+                getHolderStatus() === "warning" ? "text-yellow-400" : "text-green-400"
               }`}>
                 {result.top10Concentration.toFixed(1)}%
               </p>
               <p className="text-xs text-gray-500">{result.holderCount} holders</p>
+              {result.contractHeldPercentage && result.contractHeldPercentage > 0 && (
+                <p className="text-xs text-blue-400 mt-1 flex items-center gap-1">
+                  <FileCode className="w-3 h-3" />
+                  {result.contractHeldPercentage.toFixed(1)}% in contracts (staking/LP)
+                </p>
+              )}
             </div>
 
             {/* Token Age */}
@@ -385,7 +407,9 @@ export default function TokenSafetyScanner() {
                 {result.topHolders.slice(0, 5).map((holder, i) => (
                   <div key={holder.wallet} className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2">
-                      <span className={`text-xs ${i < 2 ? "text-red-400" : "text-gray-500"}`}>#{i + 1}</span>
+                      <span className={`text-xs ${holder.isContract ? "text-blue-400" : i < 2 ? "text-red-400" : "text-gray-500"}`}>
+                        #{i + 1}
+                      </span>
                       <a 
                         href={`https://solscan.io/account/${holder.wallet}`}
                         target="_blank"
@@ -395,8 +419,14 @@ export default function TokenSafetyScanner() {
                         {holder.wallet.slice(0, 4)}...{holder.wallet.slice(-4)}
                         <ExternalLink className="w-3 h-3" />
                       </a>
+                      {holder.isContract && (
+                        <span className="px-1.5 py-0.5 text-xs rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center gap-0.5">
+                          <FileCode className="w-3 h-3" />
+                          Contract
+                        </span>
+                      )}
                     </div>
-                    <span className={i < 2 ? "text-red-400 font-semibold" : "text-gray-300"}>
+                    <span className={holder.isContract ? "text-blue-400" : i < 2 ? "text-red-400 font-semibold" : "text-gray-300"}>
                       {holder.percentage.toFixed(2)}%
                     </span>
                   </div>
