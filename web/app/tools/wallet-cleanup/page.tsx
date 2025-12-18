@@ -111,7 +111,7 @@ export default function WalletCleanupPage() {
               if (tokenData) {
                 symbol = tokenData.symbol || symbol;
                 name = tokenData.name || name;
-                logoURI = bestPair.info?.imageUrl || null;
+                logoURI = KNOWN_LOGOS[mint] || bestPair.info?.imageUrl || null;
                 priceUsd = parseFloat(bestPair.priceUsd) || null;
                 
                 // If we're quoteToken, invert the price

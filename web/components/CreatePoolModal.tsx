@@ -211,7 +211,7 @@ useEffect(() => {
                     tokenInfo = {
                       symbol: tokenData.symbol,
                       name: tokenData.name,
-                      logoURI: bestPair.info?.imageUrl || null,
+                      logoURI: KNOWN_LOGOS[mint] || bestPair.info?.imageUrl || null,
                       price,
                       liquidity: bestPair.liquidity?.usd || null,
                       marketCap: bestPair.marketCap || null,
