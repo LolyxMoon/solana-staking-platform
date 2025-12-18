@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PublicKey, Connection } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import {
   Camera,
   Download,
@@ -39,12 +39,34 @@ interface TokenInfo {
 type SortField = "rank" | "balance" | "percentage";
 type SortOrder = "asc" | "desc";
 
-// Helius RPC endpoint
-const HELIUS_RPC = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=2bd046b7-358b-43fe-afe9-1dd227347aee";
-
 // Token program IDs
 const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+
+// Helper to make RPC calls through proxy
+async function rpcCall(method: string, params: any[]): Promise<any> {
+  const response = await fetch("/api/rpc", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: Date.now().toString(),
+      method,
+      params,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`RPC error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  if (data.error) {
+    throw new Error(data.error.message || "RPC error");
+  }
+
+  return data.result;
+}
 
 export default function SnapshotPage() {
   const [tokenMint, setTokenMint] = useState("");
@@ -71,26 +93,20 @@ export default function SnapshotPage() {
 
   const fetchTokenInfo = async (mint: string): Promise<TokenInfo | null> => {
     try {
-      const connection = new Connection(HELIUS_RPC, "confirmed");
-      const mintPubkey = new PublicKey(mint);
-      const mintAccountInfo = await connection.getAccountInfo(mintPubkey);
+      // Get account info to determine token type
+      const accountInfo = await rpcCall("getAccountInfo", [
+        mint,
+        { encoding: "jsonParsed" },
+      ]);
 
-      if (!mintAccountInfo) {
+      if (!accountInfo?.value) {
         return null;
       }
 
-      // Check if Token-2022 or regular Token
-      const programOwner = mintAccountInfo.owner.toBase58();
-      const isToken2022 = programOwner === TOKEN_2022_PROGRAM_ID;
+      const owner = accountInfo.value.owner;
+      const isToken2022 = owner === TOKEN_2022_PROGRAM_ID;
 
-      // Get parsed mint info
-      const mintInfo = await connection.getParsedAccountInfo(mintPubkey);
-
-      if (!mintInfo.value?.data || typeof mintInfo.value.data !== "object") {
-        return null;
-      }
-
-      const parsedData = (mintInfo.value.data as any).parsed?.info;
+      const parsedData = accountInfo.value.data?.parsed?.info;
       if (!parsedData) return null;
 
       const decimals = parsedData.decimals;
@@ -126,51 +142,31 @@ export default function SnapshotPage() {
     }
   };
 
-  // Fetch holders for regular SPL tokens using Helius DAS API
+  // Fetch holders for regular SPL tokens using Helius DAS API (via proxy)
   const fetchHoldersWithHelius = async (mint: string, decimals: number): Promise<Holder[]> => {
     const allHolders: Map<string, number> = new Map();
     let cursor: string | undefined = undefined;
     let page = 0;
     const maxPages = 100;
 
-    setStatusMessage("Fetching holders from Helius...");
+    setStatusMessage("Fetching holders...");
 
     while (page < maxPages) {
       page++;
       setStatusMessage(`Fetching page ${page}... (${allHolders.size} holders found)`);
 
-      const body: any = {
-        jsonrpc: "2.0",
-        id: `holders-${page}`,
-        method: "getTokenAccounts",
-        params: {
-          mint: mint,
-          limit: 1000,
-        },
+      const params: any = {
+        mint: mint,
+        limit: 1000,
       };
 
       if (cursor) {
-        body.params.cursor = cursor;
+        params.cursor = cursor;
       }
 
       try {
-        const response = await fetch(HELIUS_RPC, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP error: ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        if (data.error) {
-          throw new Error(data.error.message || "RPC error");
-        }
-
-        const accounts = data.result?.token_accounts || [];
+        const result = await rpcCall("getTokenAccounts", params);
+        const accounts = result?.token_accounts || [];
 
         if (accounts.length === 0) {
           break;
@@ -187,7 +183,7 @@ export default function SnapshotPage() {
           }
         }
 
-        cursor = data.result?.cursor;
+        cursor = result?.cursor;
         if (!cursor) {
           break;
         }
@@ -204,22 +200,14 @@ export default function SnapshotPage() {
   const fetchToken2022Holders = async (mint: string, decimals: number): Promise<Holder[]> => {
     const allHolders: Map<string, number> = new Map();
     
-    setStatusMessage("Fetching Token-2022 holders...");
+    setStatusMessage("Fetching Token-2022 holders (this may take a moment)...");
 
     try {
-      const connection = new Connection(HELIUS_RPC, "confirmed");
-      const mintPubkey = new PublicKey(mint);
-
-      // Fetch all token accounts for this mint using getProgramAccounts
-      setStatusMessage("Scanning Token-2022 accounts (this may take a moment)...");
-      
-      const accounts = await connection.getParsedProgramAccounts(
-        new PublicKey(TOKEN_2022_PROGRAM_ID),
+      const result = await rpcCall("getProgramAccounts", [
+        TOKEN_2022_PROGRAM_ID,
         {
+          encoding: "jsonParsed",
           filters: [
-            {
-              dataSize: 182, // Token-2022 account size (can vary with extensions)
-            },
             {
               memcmp: {
                 offset: 0,
@@ -227,13 +215,13 @@ export default function SnapshotPage() {
               },
             },
           ],
-        }
-      );
+        },
+      ]);
 
-      setStatusMessage(`Processing ${accounts.length} token accounts...`);
+      setStatusMessage(`Processing ${result?.length || 0} token accounts...`);
 
-      for (const account of accounts) {
-        const parsedData = (account.account.data as any).parsed?.info;
+      for (const account of result || []) {
+        const parsedData = account.account?.data?.parsed?.info;
         if (parsedData && parsedData.mint === mint) {
           const owner = parsedData.owner;
           const amount = Number(parsedData.tokenAmount?.amount || 0) / Math.pow(10, decimals);
@@ -245,41 +233,9 @@ export default function SnapshotPage() {
         }
       }
 
-      // If no results with dataSize filter, try without it (for tokens with extensions)
-      if (allHolders.size === 0) {
-        setStatusMessage("Trying alternative scan for extended Token-2022...");
-        
-        const accountsAlt = await connection.getParsedProgramAccounts(
-          new PublicKey(TOKEN_2022_PROGRAM_ID),
-          {
-            filters: [
-              {
-                memcmp: {
-                  offset: 0,
-                  bytes: mint,
-                },
-              },
-            ],
-          }
-        );
-
-        for (const account of accountsAlt) {
-          const parsedData = (account.account.data as any).parsed?.info;
-          if (parsedData && parsedData.mint === mint) {
-            const owner = parsedData.owner;
-            const amount = Number(parsedData.tokenAmount?.amount || 0) / Math.pow(10, decimals);
-
-            if (amount > 0) {
-              const existing = allHolders.get(owner) || 0;
-              allHolders.set(owner, existing + amount);
-            }
-          }
-        }
-      }
-
     } catch (err) {
       console.error("Error fetching Token-2022 holders:", err);
-      throw new Error("Failed to fetch Token-2022 holders. The token may have too many holders or use unsupported extensions.");
+      throw new Error("Failed to fetch Token-2022 holders.");
     }
 
     return processHolders(allHolders);

@@ -4,7 +4,8 @@ import { Connection, PublicKey } from "@solana/web3.js";
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-const HELIUS_RPC = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT!;
+const HELIUS_RPC = process.env.HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT!;
+const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
 interface Token2022Extension {
   name: string;
@@ -957,53 +958,86 @@ export async function POST(req: Request) {
       console.log("=== NO DEX FEES FOUND ===");
     }
 
-    // 3. Get top holders using Helius
+    // 3. Get top holders - use different method for Token-2022
     let topHolders: { wallet: string; percentage: number; }[] = [];
     let holderCount = 0;
     let top10Concentration = 0;
 
     try {
-      const holdersRes = await fetch(HELIUS_RPC, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "holders",
-          method: "getTokenAccounts",
-          params: {
-            mint: mint,
-            limit: 1000,
-          },
-        }),
-      });
-
-      if (holdersRes.ok) {
-        const holdersData = await holdersRes.json();
-        const accounts = holdersData.result?.token_accounts || [];
+      const holderMap = new Map<string, number>();
+      
+      if (isToken2022) {
+        // Token-2022: Use getParsedProgramAccounts
+        console.log("Fetching Token-2022 holders...");
         
-        const holderMap = new Map<string, number>();
-        for (const acc of accounts) {
-          const owner = acc.owner;
-          const amount = Number(acc.amount) / Math.pow(10, decimals);
-          if (amount > 0) {
-            holderMap.set(owner, (holderMap.get(owner) || 0) + amount);
+        const accounts = await connection.getParsedProgramAccounts(
+          TOKEN_2022_PROGRAM_ID,
+          {
+            filters: [
+              {
+                memcmp: {
+                  offset: 0,
+                  bytes: mint,
+                },
+              },
+            ],
+          }
+        );
+
+        for (const account of accounts) {
+          const parsedInfo = (account.account.data as any).parsed?.info;
+          if (parsedInfo && parsedInfo.mint === mint) {
+            const owner = parsedInfo.owner;
+            const amount = Number(parsedInfo.tokenAmount?.amount || 0) / Math.pow(10, decimals);
+            if (amount > 0) {
+              holderMap.set(owner, (holderMap.get(owner) || 0) + amount);
+            }
           }
         }
+        console.log(`Found ${holderMap.size} Token-2022 holders`);
+      } else {
+        // Regular SPL: Use Helius getTokenAccounts
+        const holdersRes = await fetch(HELIUS_RPC, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: "holders",
+            method: "getTokenAccounts",
+            params: {
+              mint: mint,
+              limit: 1000,
+            },
+          }),
+        });
 
-        const sortedHolders = Array.from(holderMap.entries())
-          .map(([wallet, balance]) => ({ wallet, balance }))
-          .sort((a, b) => b.balance - a.balance);
-
-        holderCount = sortedHolders.length;
-        const totalHeld = sortedHolders.reduce((sum, h) => sum + h.balance, 0);
-
-        topHolders = sortedHolders.slice(0, 10).map(h => ({
-          wallet: h.wallet,
-          percentage: totalHeld > 0 ? (h.balance / totalHeld) * 100 : 0,
-        }));
-
-        top10Concentration = topHolders.reduce((sum, h) => sum + h.percentage, 0);
+        if (holdersRes.ok) {
+          const holdersData = await holdersRes.json();
+          const accounts = holdersData.result?.token_accounts || [];
+          
+          for (const acc of accounts) {
+            const owner = acc.owner;
+            const amount = Number(acc.amount) / Math.pow(10, decimals);
+            if (amount > 0) {
+              holderMap.set(owner, (holderMap.get(owner) || 0) + amount);
+            }
+          }
+        }
       }
+
+      const sortedHolders = Array.from(holderMap.entries())
+        .map(([wallet, balance]) => ({ wallet, balance }))
+        .sort((a, b) => b.balance - a.balance);
+
+      holderCount = sortedHolders.length;
+      const totalHeld = sortedHolders.reduce((sum, h) => sum + h.balance, 0);
+
+      topHolders = sortedHolders.slice(0, 10).map(h => ({
+        wallet: h.wallet,
+        percentage: totalHeld > 0 ? (h.balance / totalHeld) * 100 : 0,
+      }));
+
+      top10Concentration = topHolders.reduce((sum, h) => sum + h.percentage, 0);
     } catch (err) {
       console.error("Error fetching holders:", err);
     }
