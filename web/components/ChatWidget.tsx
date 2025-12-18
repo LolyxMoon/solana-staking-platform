@@ -73,7 +73,7 @@ function setVisitorCookie(uuid: string): void {
 
 export default function ChatWidget({
   position = 'bottom-right',
-  primaryColor = '#6366f1',
+  primaryColor = '#fb57ff',
   logoUrl = '/favicon.jpg',
   welcomeMessage = 'Hi! 👋 How can we help you today?',
   placeholderText = 'Type your message...'
@@ -263,6 +263,10 @@ export default function ChatWidget({
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
         }
+        @keyframes sp-bubble-pulse {
+          0%, 100% { box-shadow: 0 4px 20px rgba(251, 87, 255, 0.3); }
+          50% { box-shadow: 0 4px 30px rgba(251, 87, 255, 0.5); }
+        }
         .sp-chat-widget * {
           box-sizing: border-box;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -286,39 +290,44 @@ export default function ChatWidget({
           <div
             style={{
               position: 'absolute',
-              bottom: '70px',
+              bottom: '80px',
               [position === 'bottom-right' ? 'right' : 'left']: '0',
               width: '380px',
+              maxWidth: 'calc(100vw - 40px)',
               height: '520px',
-              background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
-              borderRadius: '16px',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+              maxHeight: 'calc(100vh - 120px)',
+              background: '#0a0a0f',
+              borderRadius: '20px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)',
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
               animation: 'sp-chat-fade-in 0.3s ease-out',
-              border: '1px solid rgba(255,255,255,0.1)'
+              border: '1px solid rgba(255,255,255,0.05)'
             }}
           >
             {/* Header */}
             <div
               style={{
-                background: `linear-gradient(135deg, ${primaryColor} 0%, ${primaryColor}dd 100%)`,
+                background: 'linear-gradient(135deg, #060609 0%, #0a0a0f 100%)',
                 padding: '16px 20px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '12px'
+                gap: '12px',
+                borderBottom: '1px solid rgba(255,255,255,0.05)'
               }}
             >
               <div style={{
                 width: '44px', height: '44px', borderRadius: '12px',
-                background: 'rgba(255,255,255,0.2)', overflow: 'hidden'
+                background: 'linear-gradient(45deg, black, #fb57ff)', 
+                padding: '2px',
+                overflow: 'hidden'
               }}>
-                <img src={logoUrl} alt="StakePoint" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img src={logoUrl} alt="StakePoint" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '10px' }} />
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ color: 'white', fontWeight: 600, fontSize: '15px' }}>StakePoint Support</div>
-                <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{
                     width: '8px', height: '8px', borderRadius: '50%',
                     background: isConnected ? '#22c55e' : '#eab308'
@@ -329,8 +338,20 @@ export default function ChatWidget({
               <button
                 onClick={() => setIsOpen(false)}
                 style={{
-                  background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '8px',
-                  width: '32px', height: '32px', cursor: 'pointer', color: 'white', fontSize: '18px'
+                  background: 'rgba(255,255,255,0.05)', 
+                  border: '1px solid rgba(255,255,255,0.05)', 
+                  borderRadius: '10px',
+                  width: '36px', height: '36px', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', fontSize: '20px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.2s'
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                  e.currentTarget.style.color = 'white';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                  e.currentTarget.style.color = 'rgba(255,255,255,0.6)';
                 }}
               >×</button>
             </div>
@@ -338,18 +359,23 @@ export default function ChatWidget({
             {/* Messages */}
             <div className="sp-chat-scrollbar" style={{
               flex: 1, overflowY: 'auto', padding: '16px',
-              display: 'flex', flexDirection: 'column', gap: '12px'
+              display: 'flex', flexDirection: 'column', gap: '12px',
+              background: '#060609'
             }}>
               {messages.length === 0 && (
                 <div style={{ display: 'flex', gap: '10px', animation: 'sp-chat-slide-up 0.3s ease-out' }}>
                   <div style={{
-                    width: '32px', height: '32px', borderRadius: '50%',
-                    background: primaryColor, overflow: 'hidden'
+                    width: '32px', height: '32px', borderRadius: '10px',
+                    background: 'linear-gradient(45deg, black, #fb57ff)', 
+                    padding: '2px',
+                    flexShrink: 0
                   }}>
-                    <img src={logoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <img src={logoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }} />
                   </div>
                   <div style={{
-                    background: 'rgba(255,255,255,0.1)', borderRadius: '12px 12px 12px 4px',
+                    background: 'rgba(255,255,255,0.02)', 
+                    border: '1px solid rgba(255,255,255,0.05)',
+                    borderRadius: '16px 16px 16px 4px',
                     padding: '12px 16px', color: 'rgba(255,255,255,0.9)', fontSize: '14px', maxWidth: '85%'
                   }}>
                     {welcomeMessage}
@@ -369,23 +395,28 @@ export default function ChatWidget({
                 >
                   {msg.sender_type === 'admin' && (
                     <div style={{
-                      width: '32px', height: '32px', borderRadius: '50%',
-                      background: primaryColor, overflow: 'hidden'
+                      width: '32px', height: '32px', borderRadius: '10px',
+                      background: 'linear-gradient(45deg, black, #fb57ff)', 
+                      padding: '2px',
+                      flexShrink: 0
                     }}>
                       {msg.admin?.avatar_url ? (
-                        <img src={msg.admin.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={msg.admin.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }} />
                       ) : (
-                        <img src={logoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={logoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }} />
                       )}
                     </div>
                   )}
                   <div style={{
-                    background: msg.sender_type === 'visitor' ? primaryColor : 'rgba(255,255,255,0.1)',
-                    borderRadius: msg.sender_type === 'visitor' ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
+                    background: msg.sender_type === 'visitor' 
+                      ? 'linear-gradient(45deg, black, #fb57ff)' 
+                      : 'rgba(255,255,255,0.02)',
+                    border: msg.sender_type === 'visitor' ? 'none' : '1px solid rgba(255,255,255,0.05)',
+                    borderRadius: msg.sender_type === 'visitor' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
                     padding: '12px 16px', color: 'white', fontSize: '14px', maxWidth: '85%', wordBreak: 'break-word'
                   }}>
                     {msg.sender_type === 'admin' && msg.admin?.display_name && (
-                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginBottom: '4px' }}>
+                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px' }}>
                         {msg.admin.display_name}
                       </div>
                     )}
@@ -397,7 +428,11 @@ export default function ChatWidget({
             </div>
 
             {/* Input */}
-            <div style={{ padding: '16px', borderTop: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.2)' }}>
+            <div style={{ 
+              padding: '16px', 
+              borderTop: '1px solid rgba(255,255,255,0.05)', 
+              background: '#0a0a0f' 
+            }}>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <input
                   ref={inputRef}
@@ -408,18 +443,28 @@ export default function ChatWidget({
                   placeholder={placeholderText}
                   disabled={isSending}
                   style={{
-                    flex: 1, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '10px', padding: '12px 16px', color: 'white', fontSize: '14px', outline: 'none'
+                    flex: 1, 
+                    background: 'rgba(255,255,255,0.02)', 
+                    border: '1px solid rgba(255,255,255,0.05)',
+                    borderRadius: '12px', padding: '14px 18px', color: 'white', fontSize: '14px', outline: 'none',
+                    transition: 'border-color 0.2s'
                   }}
+                  onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(251, 87, 255, 0.3)'}
+                  onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'}
                 />
                 <button
                   onClick={sendMessage}
                   disabled={!inputValue.trim() || isSending}
                   style={{
-                    background: inputValue.trim() && !isSending ? primaryColor : 'rgba(255,255,255,0.1)',
-                    border: 'none', borderRadius: '10px', width: '44px', height: '44px',
+                    background: inputValue.trim() && !isSending 
+                      ? 'linear-gradient(45deg, black, #fb57ff)' 
+                      : 'rgba(255,255,255,0.02)',
+                    border: '1px solid rgba(255,255,255,0.05)',
+                    borderRadius: '12px', width: '48px', height: '48px',
                     cursor: inputValue.trim() && !isSending ? 'pointer' : 'default',
-                    opacity: inputValue.trim() && !isSending ? 1 : 0.5
+                    opacity: inputValue.trim() && !isSending ? 1 : 0.5,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 0.2s'
                   }}
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
@@ -427,43 +472,98 @@ export default function ChatWidget({
                   </svg>
                 </button>
               </div>
-              <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
-                🔒 Messages are encrypted
+              <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
+                🔒 End-to-end encrypted
               </div>
             </div>
           </div>
         )}
 
-        {/* Toggle Button */}
+        {/* Speech Bubble Toggle Button */}
         <button
           onClick={() => setIsOpen(!isOpen)}
           style={{
-            width: '60px', height: '60px', borderRadius: '50%',
-            background: `linear-gradient(135deg, ${primaryColor} 0%, ${primaryColor}dd 100%)`,
-            border: 'none', cursor: 'pointer',
-            boxShadow: '0 8px 25px -5px rgba(99, 102, 241, 0.5)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: 'transform 0.3s', position: 'relative'
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: isOpen ? '12px' : '10px 18px 10px 12px',
+            borderRadius: isOpen ? '50%' : '50px',
+            background: 'linear-gradient(45deg, #0a0a0f, #1a1a2e)',
+            border: '1px solid rgba(251, 87, 255, 0.3)',
+            cursor: 'pointer',
+            boxShadow: '0 4px 20px rgba(251, 87, 255, 0.3)',
+            transition: 'all 0.3s ease',
+            animation: isOpen ? 'none' : 'sp-bubble-pulse 2s ease-in-out infinite',
+            position: 'relative',
+            overflow: 'hidden'
           }}
-          onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
-          onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
+          onMouseOver={(e) => {
+            e.currentTarget.style.transform = 'scale(1.05)';
+            e.currentTarget.style.boxShadow = '0 6px 25px rgba(251, 87, 255, 0.5)';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
+            e.currentTarget.style.boxShadow = '0 4px 20px rgba(251, 87, 255, 0.3)';
+          }}
         >
-          <img
-            src={logoUrl}
-            alt="Chat"
-            style={{
-              width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover',
-              transition: 'opacity 0.3s',
-              opacity: isOpen ? 0 : 1,
-              position: 'absolute'
-            }}
-          />
-          <svg
-            width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"
-            style={{ transition: 'opacity 0.3s', opacity: isOpen ? 1 : 0, position: 'absolute' }}
-          >
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
+          {/* Logo */}
+          <div style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '10px',
+            background: 'linear-gradient(45deg, black, #fb57ff)',
+            padding: '2px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'transform 0.3s',
+            transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)'
+          }}>
+            {isOpen ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            ) : (
+              <img
+                src={logoUrl}
+                alt="Support"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  borderRadius: '8px',
+                  objectFit: 'cover'
+                }}
+              />
+            )}
+          </div>
+          
+          {/* Support Text */}
+          {!isOpen && (
+            <span style={{
+              color: 'white',
+              fontWeight: 600,
+              fontSize: '14px',
+              letterSpacing: '0.3px',
+              whiteSpace: 'nowrap'
+            }}>
+              Support
+            </span>
+          )}
+          
+          {/* Speech bubble tail */}
+          {!isOpen && (
+            <div style={{
+              position: 'absolute',
+              bottom: '-6px',
+              right: '20px',
+              width: '12px',
+              height: '12px',
+              background: 'linear-gradient(135deg, #1a1a2e, #0a0a0f)',
+              transform: 'rotate(45deg)',
+              borderRight: '1px solid rgba(251, 87, 255, 0.3)',
+              borderBottom: '1px solid rgba(251, 87, 255, 0.3)'
+            }} />
+          )}
         </button>
       </div>
     </>

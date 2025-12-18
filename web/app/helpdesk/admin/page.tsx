@@ -32,7 +32,6 @@ export default function AdminLoginPage() {
         return;
       }
 
-      // Store session
       localStorage.setItem('helpdesk_session', data.sessionToken);
       localStorage.setItem('helpdesk_refresh', data.refreshToken);
       localStorage.setItem('helpdesk_admin', JSON.stringify({
@@ -50,147 +49,94 @@ export default function AdminLoginPage() {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '20px'
-    }}>
-      <div style={{
-        width: '100%',
-        maxWidth: '400px',
-        background: 'rgba(255,255,255,0.05)',
-        borderRadius: '16px',
-        padding: '40px',
-        border: '1px solid rgba(255,255,255,0.1)'
-      }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+    <div className="min-h-screen bg-[#060609] flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        {/* Logo & Header */}
+        <div className="text-center mb-8">
           <img 
             src="/favicon.jpg" 
             alt="StakePoint" 
-            style={{ width: '64px', height: '64px', borderRadius: '12px', marginBottom: '16px' }}
+            className="w-16 h-16 rounded-2xl mx-auto mb-4"
           />
-          <h1 style={{ color: 'white', fontSize: '24px', fontWeight: 'bold', margin: 0 }}>
-            Helpdesk Admin
-          </h1>
-          <p style={{ color: 'rgba(255,255,255,0.6)', marginTop: '8px' }}>
-            Sign in to manage support
-          </p>
-        </div>
-
-        <form onSubmit={handleLogin}>
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', color: 'rgba(255,255,255,0.7)', marginBottom: '8px', fontSize: '14px' }}>
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                background: 'rgba(255,255,255,0.1)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '8px',
-                color: 'white',
-                fontSize: '16px',
-                outline: 'none',
-                boxSizing: 'border-box'
-              }}
-              placeholder="admin@example.com"
-            />
-          </div>
-
-          <div style={{ marginBottom: '24px' }}>
-            <label style={{ display: 'block', color: 'rgba(255,255,255,0.7)', marginBottom: '8px', fontSize: '14px' }}>
-              Password
-            </label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                style={{
-                  width: '100%',
-                  padding: '12px 48px 12px 16px',
-                  background: 'rgba(255,255,255,0.1)',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: '8px',
-                  color: 'white',
-                  fontSize: '16px',
-                  outline: 'none',
-                  boxSizing: 'border-box'
-                }}
-                placeholder="••••••••"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                style={{
-                  position: 'absolute',
-                  right: '12px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'rgba(255,255,255,0.5)'
-                }}
-              >
-                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <div style={{
-              background: 'rgba(239,68,68,0.1)',
-              border: '1px solid rgba(239,68,68,0.3)',
-              borderRadius: '8px',
-              padding: '12px',
-              marginBottom: '20px',
-              color: '#f87171',
-              fontSize: '14px'
-            }}>
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={isLoading}
+          <h1 
+            className="text-2xl font-bold mb-2"
             style={{
-              width: '100%',
-              padding: '14px',
-              background: '#6366f1',
-              border: 'none',
-              borderRadius: '8px',
-              color: 'white',
-              fontSize: '16px',
-              fontWeight: '600',
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              opacity: isLoading ? 0.7 : 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px'
+              background: 'linear-gradient(45deg, white, #fb57ff)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent'
             }}
           >
-            {isLoading ? (
-              <>
-                <Loader2 size={20} className="animate-spin" />
-                Signing in...
-              </>
-            ) : (
-              'Sign In'
+            Helpdesk Admin
+          </h1>
+          <p className="text-gray-500">Sign in to manage support</p>
+        </div>
+
+        {/* Login Form */}
+        <div className="bg-white/[0.02] border border-white/[0.05] rounded-2xl p-6">
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <label className="text-gray-400 text-sm mb-2 block">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="w-full px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.05] text-white placeholder-gray-600 text-sm focus:outline-none focus:border-[#fb57ff]/50 transition-colors"
+                placeholder="admin@example.com"
+              />
+            </div>
+
+            <div>
+              <label className="text-gray-400 text-sm mb-2 block">Password</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="w-full px-4 py-3 pr-12 rounded-xl bg-white/[0.02] border border-white/[0.05] text-white placeholder-gray-600 text-sm focus:outline-none focus:border-[#fb57ff]/50 transition-colors"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-400 transition-colors"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-red-400 text-sm">
+                {error}
+              </div>
             )}
-          </button>
-        </form>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-3.5 rounded-xl text-white font-semibold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
+              style={{
+                background: 'linear-gradient(45deg, black, #fb57ff)'
+              }}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                'Sign In'
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Footer */}
+        <p className="text-center text-gray-600 text-xs mt-6">
+          StakePoint Support Dashboard
+        </p>
       </div>
     </div>
   );
