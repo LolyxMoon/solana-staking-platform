@@ -1,0 +1,22 @@
+{
+  "name": "StakePoint Support",
+  "short_name": "SP Support",
+  "description": "StakePoint Helpdesk Admin",
+  "start_url": "/helpdesk/admin/dashboard",
+  "scope": "/helpdesk/",
+  "display": "standalone",
+  "background_color": "#060609",
+  "theme_color": "#fb57ff",
+  "icons": [
+    {
+      "src": "/favicon.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "/favicon.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}
