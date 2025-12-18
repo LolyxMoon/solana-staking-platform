@@ -15,12 +15,15 @@ const ALLOWED_METHODS = [
   'getMultipleAccountsInfo',
   'getParsedAccountInfo',
   'getBalance',
+  'getProgramAccounts',
+  'getParsedProgramAccounts',
   
   // Token queries
   'getTokenAccountBalance',
   'getTokenAccountsByOwner',
   'getParsedTokenAccountsByOwner',
   'getTokenSupply',
+  'getTokenAccounts',
   
   // Transaction queries
   'getSignaturesForAddress',
