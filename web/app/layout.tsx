@@ -102,7 +102,6 @@ export default function RootLayout({
         {/* ✅ Preconnect to external image hosts (saves 300ms+) */}
         <link rel="preconnect" href="https://image2url.com" />
         <link rel="preconnect" href="https://cdn.dexscreener.com" />
-        <link rel="preconnect" href="https://ipfs.io" />
         <link rel="preconnect" href="https://api.dexscreener.com" />
         <StructuredData />
       </head>

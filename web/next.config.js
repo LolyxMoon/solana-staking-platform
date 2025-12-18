@@ -49,7 +49,7 @@ const nextConfig = {
           // HTTP preconnects (faster than HTML)
           { 
             key: 'Link', 
-            value: '<https://ipfs.io>; rel=preconnect, <https://cdn.dexscreener.com>; rel=preconnect, <https://image2url.com>; rel=preconnect, <https://api.dexscreener.com>; rel=preconnect' 
+            value: '<https://cdn.dexscreener.com>; rel=preconnect, <https://image2url.com>; rel=preconnect, <https://api.dexscreener.com>; rel=preconnect'
           },
         ],
       },
