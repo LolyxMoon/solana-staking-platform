@@ -86,6 +86,7 @@ export default function ChatWidget({
   const [visitorUUID, setVisitorUUID] = useState<string>('');
   const [isConnected, setIsConnected] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [adminOnline, setAdminOnline] = useState(true);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -131,6 +132,15 @@ export default function ChatWidget({
         }
 
         setIsConnected(true);
+
+        // Check if any admin is online
+        try {
+          const statusRes = await fetch('/api/helpdesk/admin/status');
+          if (statusRes.ok) {
+            const { anyOnline } = await statusRes.json();
+            setAdminOnline(anyOnline);
+          }
+        } catch (e) {}
 
         // Poll for new messages every 3 seconds
         pollIntervalRef.current = setInterval(() => {
@@ -330,9 +340,9 @@ export default function ChatWidget({
                 <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{
                     width: '8px', height: '8px', borderRadius: '50%',
-                    background: isConnected ? '#22c55e' : '#eab308'
+                    background: !isConnected ? '#eab308' : adminOnline ? '#22c55e' : '#6b7280'
                   }} />
-                  {isConnected ? 'Online' : 'Connecting...'}
+                  {!isConnected ? 'Connecting...' : adminOnline ? 'Online' : 'Away'}
                 </div>
               </div>
               <button

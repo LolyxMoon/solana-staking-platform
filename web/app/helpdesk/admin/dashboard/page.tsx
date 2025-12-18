@@ -74,6 +74,23 @@ export default function AdminDashboard() {
     error: pushError
   } = usePushNotifications(admin?.id || null);
 
+  // Online status
+  const [isOnline, setIsOnline] = useState(true);
+
+  const toggleStatus = async () => {
+    const newStatus = !isOnline;
+    setIsOnline(newStatus);
+    try {
+      await fetch('/api/helpdesk/admin/status', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ isOnline: newStatus })
+      });
+    } catch (err) {
+      console.error('Status update error:', err);
+    }
+  };
+
   useEffect(() => {
     const session = localStorage.getItem('helpdesk_session');
     const adminData = localStorage.getItem('helpdesk_admin');
@@ -318,7 +335,17 @@ export default function AdminDashboard() {
               <div className="text-gray-500 text-xs capitalize">{admin?.role}</div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+         <div className="flex items-center gap-2">
+            <button
+              onClick={toggleStatus}
+              className={`px-2 py-1 rounded-lg text-xs font-medium transition-all ${
+                isOnline 
+                  ? 'bg-green-500/20 text-green-400' 
+                  : 'bg-yellow-500/20 text-yellow-400'
+              }`}
+            >
+              {isOnline ? 'Online' : 'Away'}
+            </button>
             <button
               onClick={() => setShowSettings(true)}
               className="p-2 rounded-lg hover:bg-white/[0.04] transition-colors"
