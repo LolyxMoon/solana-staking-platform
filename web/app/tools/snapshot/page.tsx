@@ -33,6 +33,7 @@ interface TokenInfo {
   decimals: number;
   totalSupply: number;
   logoURI: string | null;
+  isToken2022: boolean;
 }
 
 type SortField = "rank" | "balance" | "percentage";
@@ -40,6 +41,10 @@ type SortOrder = "asc" | "desc";
 
 // Helius RPC endpoint
 const HELIUS_RPC = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=2bd046b7-358b-43fe-afe9-1dd227347aee";
+
+// Token program IDs
+const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
 export default function SnapshotPage() {
   const [tokenMint, setTokenMint] = useState("");
@@ -68,6 +73,17 @@ export default function SnapshotPage() {
     try {
       const connection = new Connection(HELIUS_RPC, "confirmed");
       const mintPubkey = new PublicKey(mint);
+      const mintAccountInfo = await connection.getAccountInfo(mintPubkey);
+
+      if (!mintAccountInfo) {
+        return null;
+      }
+
+      // Check if Token-2022 or regular Token
+      const programOwner = mintAccountInfo.owner.toBase58();
+      const isToken2022 = programOwner === TOKEN_2022_PROGRAM_ID;
+
+      // Get parsed mint info
       const mintInfo = await connection.getParsedAccountInfo(mintPubkey);
 
       if (!mintInfo.value?.data || typeof mintInfo.value.data !== "object") {
@@ -103,13 +119,14 @@ export default function SnapshotPage() {
         // Silent fail
       }
 
-      return { mint, symbol, name, decimals, totalSupply, logoURI };
+      return { mint, symbol, name, decimals, totalSupply, logoURI, isToken2022 };
     } catch (err) {
       console.error("Error fetching token info:", err);
       return null;
     }
   };
 
+  // Fetch holders for regular SPL tokens using Helius DAS API
   const fetchHoldersWithHelius = async (mint: string, decimals: number): Promise<Holder[]> => {
     const allHolders: Map<string, number> = new Map();
     let cursor: string | undefined = undefined;
@@ -180,15 +197,102 @@ export default function SnapshotPage() {
       }
     }
 
-    // Convert to array and sort by balance
-    const holdersArray = Array.from(allHolders.entries())
+    return processHolders(allHolders);
+  };
+
+  // Fetch holders for Token-2022 using getProgramAccounts
+  const fetchToken2022Holders = async (mint: string, decimals: number): Promise<Holder[]> => {
+    const allHolders: Map<string, number> = new Map();
+    
+    setStatusMessage("Fetching Token-2022 holders...");
+
+    try {
+      const connection = new Connection(HELIUS_RPC, "confirmed");
+      const mintPubkey = new PublicKey(mint);
+
+      // Fetch all token accounts for this mint using getProgramAccounts
+      setStatusMessage("Scanning Token-2022 accounts (this may take a moment)...");
+      
+      const accounts = await connection.getParsedProgramAccounts(
+        new PublicKey(TOKEN_2022_PROGRAM_ID),
+        {
+          filters: [
+            {
+              dataSize: 182, // Token-2022 account size (can vary with extensions)
+            },
+            {
+              memcmp: {
+                offset: 0,
+                bytes: mint,
+              },
+            },
+          ],
+        }
+      );
+
+      setStatusMessage(`Processing ${accounts.length} token accounts...`);
+
+      for (const account of accounts) {
+        const parsedData = (account.account.data as any).parsed?.info;
+        if (parsedData && parsedData.mint === mint) {
+          const owner = parsedData.owner;
+          const amount = Number(parsedData.tokenAmount?.amount || 0) / Math.pow(10, decimals);
+
+          if (amount > 0) {
+            const existing = allHolders.get(owner) || 0;
+            allHolders.set(owner, existing + amount);
+          }
+        }
+      }
+
+      // If no results with dataSize filter, try without it (for tokens with extensions)
+      if (allHolders.size === 0) {
+        setStatusMessage("Trying alternative scan for extended Token-2022...");
+        
+        const accountsAlt = await connection.getParsedProgramAccounts(
+          new PublicKey(TOKEN_2022_PROGRAM_ID),
+          {
+            filters: [
+              {
+                memcmp: {
+                  offset: 0,
+                  bytes: mint,
+                },
+              },
+            ],
+          }
+        );
+
+        for (const account of accountsAlt) {
+          const parsedData = (account.account.data as any).parsed?.info;
+          if (parsedData && parsedData.mint === mint) {
+            const owner = parsedData.owner;
+            const amount = Number(parsedData.tokenAmount?.amount || 0) / Math.pow(10, decimals);
+
+            if (amount > 0) {
+              const existing = allHolders.get(owner) || 0;
+              allHolders.set(owner, existing + amount);
+            }
+          }
+        }
+      }
+
+    } catch (err) {
+      console.error("Error fetching Token-2022 holders:", err);
+      throw new Error("Failed to fetch Token-2022 holders. The token may have too many holders or use unsupported extensions.");
+    }
+
+    return processHolders(allHolders);
+  };
+
+  // Process holder map into sorted array with percentages
+  const processHolders = (holdersMap: Map<string, number>): Holder[] => {
+    const holdersArray = Array.from(holdersMap.entries())
       .map(([wallet, balance]) => ({ wallet, balance }))
       .sort((a, b) => b.balance - a.balance);
 
-    // Calculate total for percentages
     const totalHeld = holdersArray.reduce((sum, h) => sum + h.balance, 0);
 
-    // Add rank and percentage
     return holdersArray.map((h, index) => ({
       wallet: h.wallet,
       balance: h.balance,
@@ -218,15 +322,22 @@ export default function SnapshotPage() {
     setStatusMessage("Fetching token info...");
 
     try {
-      // Fetch token info
+      // Fetch token info (includes Token-2022 detection)
       const info = await fetchTokenInfo(tokenMint);
       if (!info) {
         throw new Error("Failed to fetch token info. Make sure this is a valid SPL token.");
       }
       setTokenInfo(info);
 
-      // Fetch holders using Helius DAS API
-      const holderList = await fetchHoldersWithHelius(tokenMint, info.decimals);
+      // Fetch holders using appropriate method
+      let holderList: Holder[];
+      
+      if (info.isToken2022) {
+        setStatusMessage("Detected Token-2022 token...");
+        holderList = await fetchToken2022Holders(tokenMint, info.decimals);
+      } else {
+        holderList = await fetchHoldersWithHelius(tokenMint, info.decimals);
+      }
 
       if (holderList.length === 0) {
         throw new Error("No holders found for this token");
@@ -386,7 +497,7 @@ export default function SnapshotPage() {
           <div>
             <h1 className="text-2xl font-bold text-white">Holder Snapshot</h1>
             <p className="text-gray-400 text-sm">
-              Get a complete snapshot of all token holders. Powered by Helius.
+              Get a complete snapshot of all token holders. Supports SPL &amp; Token-2022.
             </p>
           </div>
         </div>
@@ -400,7 +511,7 @@ export default function SnapshotPage() {
             type="text"
             value={tokenMint}
             onChange={(e) => setTokenMint(e.target.value)}
-            placeholder="Enter SPL token mint address..."
+            placeholder="Enter SPL or Token-2022 mint address..."
             className="flex-1 p-4 rounded-xl bg-white/[0.02] border border-white/[0.05] focus:border-[#fb57ff]/50 outline-none text-white placeholder-gray-500"
           />
           <button
@@ -462,7 +573,14 @@ export default function SnapshotPage() {
               </div>
             )}
             <div className="flex-1">
-              <p className="font-bold text-white text-lg">{tokenInfo.symbol}</p>
+              <div className="flex items-center gap-2">
+                <p className="font-bold text-white text-lg">{tokenInfo.symbol}</p>
+                {tokenInfo.isToken2022 && (
+                  <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 text-xs font-medium">
+                    Token-2022
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-gray-500">{tokenInfo.name}</p>
             </div>
             <div className="text-right">
