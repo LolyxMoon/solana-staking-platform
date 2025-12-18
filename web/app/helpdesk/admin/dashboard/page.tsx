@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { 
   MessageSquare, Users, Settings, LogOut, Send, 
   Menu, X, Loader2, Eye, EyeOff, Save, Bell
@@ -62,6 +63,16 @@ export default function AdminDashboard() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  // Push notifications
+  const {
+    isSupported,
+    isSubscribed,
+    isLoading: isPushLoading,
+    subscribe,
+    unsubscribe,
+    error: pushError
+  } = usePushNotifications(admin?.id || null);
 
   useEffect(() => {
     const session = localStorage.getItem('helpdesk_session');
@@ -575,7 +586,7 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              <button
+               <button
                 onClick={changePassword}
                 disabled={isChangingPassword}
                 className="w-full py-3 rounded-xl bg-gradient-to-r from-black to-[#fb57ff] text-white font-medium text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50"
@@ -587,6 +598,41 @@ export default function AdminDashboard() {
                 )}
                 Save Password
               </button>
+
+              {/* Push Notifications */}
+              <div className="mt-6 pt-6 border-t border-white/[0.05]">
+                <h3 className="text-white font-medium mb-4">Push Notifications</h3>
+                
+                {!isSupported ? (
+                  <p className="text-gray-500 text-sm">Push notifications not supported in this browser.</p>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-white text-sm">
+                        {isSubscribed ? 'Notifications enabled' : 'Get notified of new messages'}
+                      </p>
+                      <p className="text-gray-500 text-xs mt-1">
+                        {isSubscribed ? 'You will receive alerts on this device' : 'Even when the app is closed'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={isSubscribed ? unsubscribe : subscribe}
+                      disabled={isPushLoading}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                        isSubscribed
+                          ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                          : 'bg-[#fb57ff]/20 text-[#fb57ff] hover:bg-[#fb57ff]/30'
+                      }`}
+                    >
+                      {isPushLoading ? 'Loading...' : isSubscribed ? 'Disable' : 'Enable'}
+                    </button>
+                  </div>
+                )}
+                
+                {pushError && (
+                  <p className="text-red-400 text-xs mt-2">{pushError}</p>
+                )}
+              </div>
             </div>
           </div>
         </div>
