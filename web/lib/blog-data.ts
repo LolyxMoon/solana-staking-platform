@@ -12,6 +12,130 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "coinbase-solana-dex-trading-2025",
+    title: "Coinbase Opens Trading for ALL Solana Tokens - What This Means for You",
+    description: "Coinbase just enabled 100+ million users to trade any Solana token instantly through their app. No listing required. Here's what this game-changing update means for Solana traders and stakers.",
+    date: "2025-12-18",
+    readTime: "5 min read",
+    category: "News",
+    featured: true,
+    keywords: [
+      "Coinbase Solana",
+      "Coinbase DEX",
+      "Coinbase Solana trading",
+      "Coinbase DEX trading",
+      "trade Solana tokens Coinbase",
+      "Coinbase all Solana tokens",
+      "Coinbase Solana Breakpoint 2025",
+      "SPL tokens Coinbase",
+      "Solana DEX",
+      "buy Solana tokens",
+      "Coinbase crypto update",
+      "Solana ecosystem 2025"
+    ],
+    content: `
+At Solana Breakpoint 2025 in Abu Dhabi, Coinbase dropped one of the biggest announcements of the year: their 100+ million users can now trade **any Solana token** directly through the Coinbase app, without waiting for a traditional listing.
+
+This is massive news for the Solana ecosystem and everyone holding SPL tokens.
+
+## What Exactly Did Coinbase Announce?
+
+Coinbase has integrated a DEX (decentralized exchange) directly into their main app. This means:
+
+- **No listing required** - If a token has on-chain liquidity, it's tradable on Coinbase instantly
+- **100+ million users** now have access to the entire Solana token ecosystem
+- **Multiple payment options** - Buy with USDC, bank transfers, debit cards, or cash
+- **Familiar interface** - Same Coinbase app you know, but with on-chain execution
+- **Native Solana support** - SOL assets will appear alongside BTC and ETH as core holdings
+
+Andrew Allen, Coinbase's Solana product lead, explained it simply: "Millions of assets are launching on-chain every day. This allows you to trade any token on Solana the moment they become available on-chain."
+
+## Why This Changes Everything
+
+### For Token Projects
+
+Previously, getting listed on Coinbase was a lengthy process that most projects never achieved. Now, if your token has liquidity on Solana DEXs, it's automatically accessible to Coinbase's massive user base.
+
+This removes one of the biggest barriers for new projects: visibility and distribution.
+
+### For Traders
+
+You no longer need to:
+- Leave the Coinbase app to access new tokens
+- Set up separate wallets for DeFi trading
+- Navigate complex DEX interfaces
+- Wait for listings to buy early
+
+The integration handles routing, slippage, and transaction construction behind the scenes.
+
+### For the Solana Ecosystem
+
+This effectively makes Coinbase a gateway to all of Solana DeFi. With Jupiter integrated for liquidity routing, trades pull from the deepest liquidity pools across the ecosystem.
+
+Solana's DEX volume has already been impressive, peaking at $313 billion in January 2025. This integration could push adoption even higher.
+
+## How It Works
+
+The feature uses a hybrid model:
+
+1. **Frontend**: Standard Coinbase interface (familiar and trusted)
+2. **Backend**: Orders route directly to on-chain liquidity pools
+3. **Execution**: Trades happen on Solana's blockchain, not Coinbase's order books
+4. **Custody**: Tokens go to your native Solana wallet
+
+Coinbase still runs KYC on users, but the tokens themselves never touch centralized custody for these DEX trades.
+
+## What About Risks?
+
+Coinbase is being transparent about this. Since any Solana token can appear:
+
+- **Warning labels** flag volatile or illiquid tokens
+- **Risk filters** highlight potential scams
+- **Extra confirmations** required for riskier trades
+
+Smart contract risk and rug-pull exposure remain your responsibility. Coinbase is positioning itself as a gateway, not a curator of every asset.
+
+## The Bigger Picture
+
+This move follows Coinbase's acquisition of Vector.fun, a Solana-native trading platform, and their Base network DEX integration in October 2025. The company is clearly betting big on on-chain trading.
+
+For Solana specifically, this validates the ecosystem's growth. Major institutions don't integrate this deeply with chains they don't believe in.
+
+## What This Means for Staking
+
+With easier access to Solana tokens comes increased interest in maximizing returns. This is where staking platforms like StakePoint become even more valuable:
+
+- **Stake your SPL tokens** for additional yield beyond just holding
+- **Earn reflection rewards** on supported tokens
+- **Flexible lock periods** to match your strategy
+- **Compound your gains** as Solana adoption grows
+
+The easier it is to buy Solana tokens, the more people will look for ways to make those tokens work harder.
+
+## Key Takeaways
+
+| What Changed | Impact |
+|--------------|--------|
+| No listing required | Any liquid Solana token is tradable |
+| 100M+ user access | Massive distribution for SPL tokens |
+| DEX integration | On-chain execution, familiar interface |
+| Jupiter liquidity | Deep pools, better prices |
+| Multiple payment methods | Lower barrier to entry |
+
+## Looking Ahead
+
+Coinbase has signaled this is just the beginning. Native Solana support will deepen, making SOL assets feel like first-class citizens alongside Bitcoin and Ethereum.
+
+For anyone building or investing in the Solana ecosystem, this is validation that the mainstream is paying attention.
+
+The question isn't whether Solana will grow from here. It's whether you're positioned to benefit from that growth.
+
+---
+
+*Ready to put your Solana tokens to work? [Explore StakePoint's staking pools](/pools) and start earning rewards today.*
+    `
+  },
+  {
     slug: "what-is-solana-staking",
     title: "What is Solana Staking? A Complete Beginner's Guide",
     description: "Learn everything about Solana staking - how it works, why it matters, and how to start earning passive income with your SOL tokens in 2025.",
