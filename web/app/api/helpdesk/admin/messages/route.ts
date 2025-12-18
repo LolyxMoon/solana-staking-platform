@@ -2,14 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  );
+}
 
-const ENCRYPTION_KEY = process.env.HELPDESK_ENCRYPTION_KEY!;
+function getEncryptionKey() {
+  return process.env.HELPDESK_ENCRYPTION_KEY!;
+}
 
 async function validateSession(request: NextRequest) {
+  const supabase = getSupabase();
   const authHeader = request.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) return null;
 
@@ -18,16 +23,23 @@ async function validateSession(request: NextRequest) {
 
   const { data: session } = await supabase
     .from('helpdesk_admin_sessions')
-    .select('admin_id, expires_at, admin:helpdesk_admins(id, display_name, role)')
+    .select('admin_id, expires_at')
     .eq('token_hash', tokenHash)
     .single();
 
   if (!session || new Date(session.expires_at) < new Date()) return null;
-  return session.admin;
+
+  const { data: admin } = await supabase
+    .from('helpdesk_admins')
+    .select('id, display_name, role')
+    .eq('id', session.admin_id)
+    .single();
+
+  return admin;
 }
 
 function encryptMessage(plaintext: string): { encrypted: string; iv: string; authTag: string } {
-  const key = Buffer.from(ENCRYPTION_KEY, 'hex');
+  const key = Buffer.from(getEncryptionKey(), 'hex');
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   
@@ -43,7 +55,7 @@ function encryptMessage(plaintext: string): { encrypted: string; iv: string; aut
 
 function decryptMessage(encrypted: string, iv: string, authTag: string): string {
   try {
-    const key = Buffer.from(ENCRYPTION_KEY, 'hex');
+    const key = Buffer.from(getEncryptionKey(), 'hex');
     const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64'));
     decipher.setAuthTag(Buffer.from(authTag, 'base64'));
     
@@ -62,6 +74,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const supabase = getSupabase();
     const { searchParams } = new URL(request.url);
     const conversationId = searchParams.get('conversationId');
 
@@ -82,7 +95,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 });
     }
 
-    // Decrypt messages
     const decryptedMessages = (messages || []).map(msg => ({
       id: msg.id,
       sender_type: msg.sender_type,
@@ -105,6 +117,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const supabase = getSupabase();
     const { conversationId, content } = await request.json();
 
     if (!conversationId || !content) {
@@ -132,7 +145,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to send' }, { status: 500 });
     }
 
-    // Update conversation
     await supabase
       .from('helpdesk_conversations')
       .update({

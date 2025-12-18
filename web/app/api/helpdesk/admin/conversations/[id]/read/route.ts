@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  );
+}
 
 async function validateSession(request: NextRequest) {
+  const supabase = getSupabase();
   const authHeader = request.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) return null;
 
@@ -34,15 +37,14 @@ export async function POST(
   }
 
   try {
+    const supabase = getSupabase();
     const conversationId = params.id;
 
-    // Reset unread count
     await supabase
       .from('helpdesk_conversations')
       .update({ unread_count: 0 })
       .eq('id', conversationId);
 
-    // Mark messages as read
     await supabase
       .from('helpdesk_messages')
       .update({ is_read: true })

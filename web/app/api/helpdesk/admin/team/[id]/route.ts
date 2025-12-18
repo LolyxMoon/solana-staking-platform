@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  );
+}
 
 async function validateSession(request: NextRequest) {
+  const supabase = getSupabase();
   const authHeader = request.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) return null;
 
@@ -16,12 +19,19 @@ async function validateSession(request: NextRequest) {
 
   const { data: session } = await supabase
     .from('helpdesk_admin_sessions')
-    .select('admin_id, expires_at, admin:helpdesk_admins(id, display_name, role)')
+    .select('admin_id, expires_at')
     .eq('token_hash', tokenHash)
     .single();
 
   if (!session || new Date(session.expires_at) < new Date()) return null;
-  return session.admin;
+
+  const { data: admin } = await supabase
+    .from('helpdesk_admins')
+    .select('id, display_name, role')
+    .eq('id', session.admin_id)
+    .single();
+
+  return admin;
 }
 
 export async function PATCH(
@@ -34,6 +44,7 @@ export async function PATCH(
   }
 
   try {
+    const supabase = getSupabase();
     const { email, password, display_name, avatar_url, role } = await request.json();
     const targetId = params.id;
 
@@ -43,7 +54,6 @@ export async function PATCH(
     if (avatar_url !== undefined) updates.avatar_url = avatar_url;
     if (role) updates.role = role;
 
-    // If password provided, hash it
     if (password) {
       const { data: hash } = await supabase.rpc('hash_password', { password });
       updates.password_hash = hash;
@@ -73,14 +83,13 @@ export async function DELETE(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const supabase = getSupabase();
   const targetId = params.id;
 
-  // Can't delete yourself
   if (targetId === admin.id) {
     return NextResponse.json({ error: "Can't delete yourself" }, { status: 400 });
   }
 
-  // Check if target is owner
   const { data: target } = await supabase
     .from('helpdesk_admins')
     .select('role')

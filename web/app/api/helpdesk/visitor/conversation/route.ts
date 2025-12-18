@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  );
+}
 
 export async function GET(request: NextRequest) {
+  const supabase = getSupabase();
   const visitorUUID = request.headers.get('x-visitor-uuid');
   
   if (!visitorUUID) {
@@ -14,7 +17,6 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Get visitor
     const { data: visitor } = await supabase
       .from('helpdesk_visitors')
       .select('id')
@@ -25,7 +27,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ conversation: null });
     }
 
-    // Get most recent open conversation
     const { data: conversation } = await supabase
       .from('helpdesk_conversations')
       .select('id, status, subject, created_at')

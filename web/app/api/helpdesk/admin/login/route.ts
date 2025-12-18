@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
-
 export async function POST(request: NextRequest) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  );
+
   try {
     const { email, password } = await request.json();
 
@@ -15,7 +15,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email and password required' }, { status: 400 });
     }
 
-    // Authenticate admin
     const { data, error } = await supabase.rpc('authenticate_admin', {
       p_email: email,
       p_password: password
@@ -27,16 +26,14 @@ export async function POST(request: NextRequest) {
 
     const admin = data[0];
 
-    // Generate session token
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const refreshToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(sessionToken).digest('hex');
     const refreshHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
 
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-    const refreshExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const refreshExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    // Save session
     await supabase.from('helpdesk_admin_sessions').insert({
       admin_id: admin.admin_id,
       token_hash: tokenHash,
