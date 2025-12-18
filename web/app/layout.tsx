@@ -99,6 +99,18 @@ export default function RootLayout({
   return (
     <html lang="en" className={`dark ${dmSans.variable}`} suppressHydrationWarning>
       <head>
+        {/* Google Analytics */}
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-GY3EL774BV"></script>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', 'G-GY3EL774BV');
+            `,
+          }}
+        />
         {/* ✅ Preconnect to external image hosts (saves 300ms+) */}
         <link rel="preconnect" href="https://image2url.com" />
         <link rel="preconnect" href="https://cdn.dexscreener.com" />
