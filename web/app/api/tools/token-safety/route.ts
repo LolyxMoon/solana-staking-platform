@@ -869,18 +869,45 @@ async function analyzeHoneypot(
   };
 }
 
-// Check if an address is a PDA/contract (not a regular wallet)
+// Known LP/AMM program IDs
+const LP_PROGRAMS = [
+  "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8", // Raydium AMM
+  "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK", // Raydium CLMM
+  "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc", // Orca Whirlpool
+  "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo", // Meteora DLMM
+  "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB", // Meteora Pools
+  "SSwapUtytfBdBn1b9NUGG6foMVPtcWgpRU32HToDUZr",  // Saros AMM
+];
+
+// Check if an address is a contract/LP pool (not a regular wallet)
 async function checkIfContract(connection: Connection, address: string): Promise<boolean> {
   try {
     const pubkey = new PublicKey(address);
     const accountInfo = await connection.getAccountInfo(pubkey);
     
-    if (!accountInfo) return false;
+    if (!accountInfo) {
+      // No account = could be closed/burnt, check if it's a PDA
+      if (!PublicKey.isOnCurve(pubkey.toBytes())) {
+        return true; // Off-curve = PDA = not a regular wallet
+      }
+      return false;
+    }
+    
+    const owner = accountInfo.owner.toString();
     
     // System Program owns regular wallets
-    // If owned by something else, it's a PDA/contract
     const SYSTEM_PROGRAM = "11111111111111111111111111111111";
-    return accountInfo.owner.toString() !== SYSTEM_PROGRAM;
+    if (owner === SYSTEM_PROGRAM) {
+      return false; // Regular wallet
+    }
+    
+    // Check if owned by known LP program
+    if (LP_PROGRAMS.includes(owner)) {
+      return true; // LP pool
+    }
+    
+    // Any other program-owned account is a contract
+    return true;
   } catch {
     return false;
   }
