@@ -143,10 +143,18 @@ async function executeSwap(
       slippageBps: slippageBps.toString(),
     });
 
-    const orderRes = await fetch(`https://lite-api.jup.ag/ultra/v1/order?${orderParams}`, {
+    // Try lite API first, fall back to pro API
+    let orderRes = await fetch(`https://lite-api.jup.ag/ultra/v1/order?${orderParams}`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
     });
+
+    if (!orderRes.ok) {
+      orderRes = await fetch(`https://api.jup.ag/ultra/v1/order?${orderParams}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
+    }
 
     if (!orderRes.ok) {
       const errorText = await orderRes.text();
@@ -171,7 +179,15 @@ async function executeSwap(
       maxRetries: 2,
     });
 
-    await connection.confirmTransaction(signature, 'confirmed');
+    // Use shorter timeout and handle gracefully
+    try {
+      await connection.confirmTransaction(signature, 'confirmed');
+    } catch (confirmError: any) {
+      // Transaction was sent - it may have succeeded even if confirmation timed out
+      console.log(`⚠️ Confirmation timeout for ${signature}, but tx was sent`);
+      return { success: true, signature, error: 'Confirmation timeout - check explorer' };
+    }
+
     return { success: true, signature };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -208,7 +224,7 @@ export async function GET(request: NextRequest) {
     const currentWallet = Keypair.fromSecretKey(parsePrivateKey(currentWalletData.private_key_encrypted));
     const walletBalance = await connection.getBalance(currentWallet.publicKey);
 
-    console.log(`📊 Mode: ${botMode}, Wallet: ${currentIndex}, Phase: ${cyclePhase}`);
+    console.log(`📊 Mode: ${botMode}, Wallet: ${currentIndex}, Phase: ${cyclePhase}, WalletBal: ${walletBalance / LAMPORTS_PER_SOL}`);
 
     // ========== SPLIT BUYS MODE ==========
     if (botMode === 'split_buys') {
@@ -216,13 +232,42 @@ export async function GET(request: NextRequest) {
 
       // Phase 1: Fund wallet
       if (cyclePhase === 'idle') {
+        // CHECK: If wallet already has SOL, skip funding (handles timeout recovery)
+        if (walletBalance > 0.01 * LAMPORTS_PER_SOL) {
+          console.log(`⏩ Wallet ${currentIndex} already has ${walletBalance / LAMPORTS_PER_SOL} SOL, skipping fund`);
+          await supabaseUpdate('volume_bot_config', 'bot_id=eq.main', {
+            cycle_phase: 'buying',
+            buy_count: 0,
+            updated_at: new Date().toISOString(),
+          });
+          await sendTelegram(`⏩ Wallet ${currentIndex + 1} already funded (${(walletBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL), starting buys`);
+          return NextResponse.json({ action: 'already_funded', balance: walletBalance / LAMPORTS_PER_SOL });
+        }
+
         if (masterBalance < 0.05 * LAMPORTS_PER_SOL) {
           await sendTelegram(`⚠️ Master low: ${(masterBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
           return NextResponse.json({ status: 'insufficient_funds' });
         }
 
         const fundAmount = Math.floor((masterBalance - MIN_SOL_RESERVE * LAMPORTS_PER_SOL) * 0.99);
-        await fundWallet(connection, masterWallet, currentWallet.publicKey, fundAmount);
+        
+        try {
+          await fundWallet(connection, masterWallet, currentWallet.publicKey, fundAmount);
+        } catch (fundError: any) {
+          // Check if wallet actually received funds despite timeout
+          const newBalance = await connection.getBalance(currentWallet.publicKey);
+          if (newBalance > 0.01 * LAMPORTS_PER_SOL) {
+            console.log(`⏩ Fund timeout but wallet received ${newBalance / LAMPORTS_PER_SOL} SOL`);
+            await supabaseUpdate('volume_bot_config', 'bot_id=eq.main', {
+              cycle_phase: 'buying',
+              buy_count: 0,
+              updated_at: new Date().toISOString(),
+            });
+            await sendTelegram(`⚠️ Fund timeout but wallet received SOL. Continuing...`);
+            return NextResponse.json({ action: 'funded_after_timeout' });
+          }
+          throw fundError;
+        }
 
         await supabaseUpdate('volume_bot_config', 'bot_id=eq.main', {
           cycle_phase: 'buying',
@@ -302,6 +347,17 @@ export async function GET(request: NextRequest) {
 
       // Phase 1: Fund wallet
       if (cyclePhase === 'idle') {
+        // CHECK: If wallet already has SOL, skip funding (handles timeout recovery)
+        if (walletBalance > 0.01 * LAMPORTS_PER_SOL) {
+          console.log(`⏩ Wallet ${currentIndex} already has ${walletBalance / LAMPORTS_PER_SOL} SOL, skipping fund`);
+          await supabaseUpdate('volume_bot_config', 'bot_id=eq.main', {
+            cycle_phase: 'buying',
+            updated_at: new Date().toISOString(),
+          });
+          await sendTelegram(`⏩ Wallet ${currentIndex + 1} already funded (${(walletBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL), starting buy`);
+          return NextResponse.json({ action: 'already_funded', mode: 'custom', balance: walletBalance / LAMPORTS_PER_SOL });
+        }
+
         // Fund with custom buy amount + buffer for fees
         const fundAmountSol = customBuyAmount + 0.03;
         const fundAmountLamports = Math.floor(fundAmountSol * LAMPORTS_PER_SOL);
@@ -311,7 +367,22 @@ export async function GET(request: NextRequest) {
           return NextResponse.json({ status: 'insufficient_funds' });
         }
 
-        await fundWallet(connection, masterWallet, currentWallet.publicKey, fundAmountLamports);
+        try {
+          await fundWallet(connection, masterWallet, currentWallet.publicKey, fundAmountLamports);
+        } catch (fundError: any) {
+          // Check if wallet actually received funds despite timeout
+          const newBalance = await connection.getBalance(currentWallet.publicKey);
+          if (newBalance > 0.01 * LAMPORTS_PER_SOL) {
+            console.log(`⏩ Fund timeout but wallet received ${newBalance / LAMPORTS_PER_SOL} SOL`);
+            await supabaseUpdate('volume_bot_config', 'bot_id=eq.main', {
+              cycle_phase: 'buying',
+              updated_at: new Date().toISOString(),
+            });
+            await sendTelegram(`⚠️ Fund timeout but wallet received SOL. Continuing...`);
+            return NextResponse.json({ action: 'funded_after_timeout', mode: 'custom' });
+          }
+          throw fundError;
+        }
 
         await supabaseUpdate('volume_bot_config', 'bot_id=eq.main', {
           cycle_phase: 'buying',
@@ -324,6 +395,19 @@ export async function GET(request: NextRequest) {
 
       // Phase 2: Execute single buy
       if (cyclePhase === 'buying') {
+        // CHECK: If wallet already has tokens, skip to waiting (handles timeout recovery)
+        const existingTokens = await getTokenBalance(connection, currentWallet.publicKey, config.token_mint);
+        if (existingTokens > 1000) {
+          console.log(`⏩ Wallet ${currentIndex} already has ${existingTokens} tokens, skipping buy`);
+          await supabaseUpdate('volume_bot_config', 'bot_id=eq.main', {
+            cycle_phase: 'waiting',
+            custom_buy_time: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+          await sendTelegram(`⏩ Wallet ${currentIndex + 1} already has tokens, starting wait timer`);
+          return NextResponse.json({ action: 'already_bought', mode: 'custom' });
+        }
+
         const buyAmountLamports = Math.floor(customBuyAmount * LAMPORTS_PER_SOL);
 
         const buyResult = await executeSwap(connection, currentWallet, SOL_MINT, config.token_mint, buyAmountLamports, config.slippage_bps || 1000);
