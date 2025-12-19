@@ -17,6 +17,8 @@ type FeaturedPool = {
   apy?: number | null;
   logo?: string | null;
   featured: boolean;
+  hidden?: boolean; 
+  featuredOrder?: number;
 };
 
 type Activity = {
@@ -56,7 +58,10 @@ export default function Dashboard() {
         const response = await fetch('/api/pools');
         if (!response.ok) throw new Error('Failed to fetch pools');
         const pools = await response.json();
-        const featured = pools.filter((pool: FeaturedPool) => pool.featured).slice(0, 5);
+        const featured = pools
+          .filter((pool: FeaturedPool) => pool.featured && !pool.hidden)
+          .sort((a: FeaturedPool, b: FeaturedPool) => (a.featuredOrder || 99) - (b.featuredOrder || 99))
+          .slice(0, 5);
         setFeaturedPools(featured);
         
         // Load blockchain data for dynamic APR calculation
