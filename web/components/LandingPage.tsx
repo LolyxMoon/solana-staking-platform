@@ -69,6 +69,7 @@ export default function LandingPage() {
   const [platformStats, setPlatformStats] = useState({
     totalValueLocked: "TBA",
     activeStakers: "TBA",
+    totalStakes: "TBA",
     poolsAvailable: "TBA",
     averageReturn: "TBA",
     loading: true,
@@ -202,6 +203,9 @@ export default function LandingPage() {
         activeStakers: data.totalStakers > 0 
           ? formatWholeNumber(data.totalStakers) 
           : "TBA",
+        totalStakes: data.totalStakes > 0
+          ? formatWholeNumber(data.totalStakes)
+          : "TBA",
         poolsAvailable: visiblePools.length > 0 
           ? visiblePools.length.toString() 
           : "TBA",
@@ -329,6 +333,7 @@ export default function LandingPage() {
   const stats = [
     { label: "Total Value Locked", value: platformStats.totalValueLocked, icon: Lock },
     { label: "Active Stakers", value: platformStats.activeStakers, icon: Users },
+    { label: "Unique Stakes", value: platformStats.totalStakes, icon: Coins },
     { label: "Pools Available", value: platformStats.poolsAvailable, icon: BarChart3 },
     { label: "Average APR", value: platformStats.averageReturn, icon: Award },
   ];
@@ -378,7 +383,7 @@ export default function LandingPage() {
               </div>
 
               <div className="flex flex-wrap gap-8 justify-center lg:justify-start pt-4">
-                {stats.slice(0, 2).map((stat, idx) => (
+                {stats.slice(0, 3).map((stat, idx) => (
                   <div key={idx} className="text-center lg:text-left">
                     <div className="flex items-center gap-2 text-3xl font-bold text-white mb-1">
                       <stat.icon className="w-6 h-6" style={{ color: '#fb57ff' }} />
