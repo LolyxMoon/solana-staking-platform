@@ -429,9 +429,18 @@ export default function PoolCard(props: PoolCardProps) {
           break;
 
         case "unstake":
-          const unstakeAmount = toTokenAmount(amount, tokenDecimals);
-          txSignature = await blockchainUnstake(effectiveMintAddress!, poolId, unstakeAmount);
+          // Leave 0.1 token dust if user is unstaking 100% to preserve reward claim ability
+          const dustAmount = 0.1;
+          const isFullUnstake = amount >= userStakedAmount * 0.9999;
+          const hasEnoughForDust = userStakedAmount > dustAmount * 2;
           
+          const finalUnstakeAmount = (isFullUnstake && hasEnoughForDust) 
+            ? amount - dustAmount 
+            : amount;
+          
+          const unstakeAmount = toTokenAmount(finalUnstakeAmount, tokenDecimals);
+          txSignature = await blockchainUnstake(effectiveMintAddress!, poolId, unstakeAmount);
+                  
           playSound('success'); // ✅ ADD THIS LINE
           showSuccess(`✅ Unstaked ${amount.toFixed(4)} ${symbol}! TX: ${txSignature.slice(0, 8)}...`);
           break;
@@ -1275,6 +1284,11 @@ export default function PoolCard(props: PoolCardProps) {
                     <span>Cannot unstake more than staked amount</span>
                   </div>
                 )}
+                {openModal === "unstake" && realtimeRewards > 0 && !lockupInfo.isLocked && (
+                  <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-blue-400 text-xs sm:text-sm">
+                    💡 You have unclaimed rewards! After unstaking, click "Claim Rewards" to collect them.
+                  </div>
+                )}
               </>
             )}
 
@@ -1290,6 +1304,13 @@ export default function PoolCard(props: PoolCardProps) {
                   <p className="text-gray-400 text-xs sm:text-sm mt-1">
                     ≈ ${(realtimeRewards * price).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </p>
+                )}
+                {openModal === "claimRewards" && type === "locked" && (
+                  <div className="mt-3 p-2 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                    <p className="text-blue-400 text-xs">
+                      💡 Claiming will restart your lock period. To exit fully, wait for unlock, unstake 100%, then claim.
+                    </p>
+                  </div>
                 )}
                 {(openModal === "claimSelf" || openModal === "claimExternal") && stakeData?.withdrawalWallet && openModal === "claimExternal" && (
                   <div className="mt-3 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
