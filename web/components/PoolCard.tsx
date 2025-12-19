@@ -1306,9 +1306,13 @@ export default function PoolCard(props: PoolCardProps) {
                   </p>
                 )}
                 {openModal === "claimRewards" && type === "locked" && (
-                  <div className="mt-3 p-2 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                    <p className="text-blue-400 text-xs">
-                      💡 Claiming will restart your lock period. To exit fully, wait for unlock, unstake 100%, then claim.
+                  <div className="mt-3 p-2 bg-blue-500/10 border border-blue-500/30 rounded-lg space-y-1">
+                    <p className="text-blue-400 text-xs font-medium">💡 Before you claim:</p>
+                    <p className="text-blue-300 text-xs">
+                      <strong>Want to keep earning?</strong> Claim now and restake your rewards — your lock timer restarts.
+                    </p>
+                    <p className="text-blue-300 text-xs">
+                      <strong>Want to leave the pool?</strong> Unstake your tokens first, then claim your rewards.
                     </p>
                   </div>
                 )}
