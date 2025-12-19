@@ -72,6 +72,7 @@ export default function LandingPage() {
     totalStakes: "TBA",
     poolsAvailable: "TBA",
     averageReturn: "TBA",
+    tokensSupported: "TBA",
     loading: true,
   });
 
@@ -196,31 +197,39 @@ export default function LandingPage() {
       const returnType = apyPools.length >= poolsWithRate.length / 2 ? "APY" : "APR";
       const averageReturn = averageRate;
 
-      setPlatformStats({
-        totalValueLocked: data.totalValueLocked > 0 
-          ? `$${formatNumber(data.totalValueLocked)}` 
-          : "TBA",
-        activeStakers: data.totalStakers > 0 
-          ? formatWholeNumber(data.totalStakers) 
-          : "TBA",
-        totalStakes: data.totalStakes > 0
-          ? formatWholeNumber(data.totalStakes)
-          : "TBA",
-        poolsAvailable: visiblePools.length > 0 
-          ? visiblePools.length.toString() 
-          : "TBA",
-        averageReturn: averageReturn > 0 
-          ? `${Math.round(averageReturn)}% ${returnType}` 
-          : "TBA",
-        loading: false,
-      });
+      // Count unique tokens
+    const uniqueTokens = new Set(visiblePools.map((p: any) => p.tokenMint)).size;
+
+    setPlatformStats({
+      totalValueLocked: data.totalValueLocked > 0 
+        ? `$${formatNumber(data.totalValueLocked)}` 
+        : "TBA",
+      activeStakers: data.totalStakers > 0 
+        ? formatWholeNumber(data.totalStakers) 
+        : "TBA",
+      totalStakes: data.totalStakes > 0
+        ? formatWholeNumber(data.totalStakes)
+        : "TBA",
+      poolsAvailable: visiblePools.length > 0 
+        ? visiblePools.length.toString() 
+        : "TBA",
+      averageReturn: averageReturn > 0 
+        ? `${Math.round(averageReturn)}% ${returnType}` 
+        : "TBA",
+      tokensSupported: uniqueTokens > 0
+        ? uniqueTokens.toString()
+        : "TBA",
+      loading: false,
+    });
     } catch (error) {
       console.error("Failed to fetch platform stats:", error);
       setPlatformStats({
         totalValueLocked: "TBA",
         activeStakers: "TBA",
+        totalStakes: "TBA",
         poolsAvailable: "TBA",
         averageReturn: "TBA",
+        tokensSupported: "TBA",
         loading: false,
       });
     }
@@ -486,20 +495,40 @@ export default function LandingPage() {
 
       <section className="relative border-y border-white/[0.05] bg-[#060609]">
         <div className="max-w-7xl mx-auto px-6 py-12">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
-            {stats.map((stat, idx) => (
-              <div key={idx} className="text-center">
-                <div className="flex items-center justify-center gap-2 mb-2">
-                  <stat.icon className="w-6 h-6" style={{ color: '#fb57ff' }} />
-                  {platformStats.loading ? (
-                    <LoadingValue />
-                  ) : (
-                    <p className="text-3xl font-bold text-white">{stat.value}</p>
-                  )}
-                </div>
-                <p className="text-sm text-gray-400">{stat.label}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <BarChart3 className="w-6 h-6" style={{ color: '#fb57ff' }} />
+                {platformStats.loading ? (
+                  <LoadingValue />
+                ) : (
+                  <p className="text-3xl font-bold text-white">{platformStats.poolsAvailable}</p>
+                )}
               </div>
-            ))}
+              <p className="text-sm text-gray-400">Pools Available</p>
+            </div>
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <Award className="w-6 h-6" style={{ color: '#fb57ff' }} />
+                {platformStats.loading ? (
+                  <LoadingValue />
+                ) : (
+                  <p className="text-3xl font-bold text-white">{platformStats.averageReturn}</p>
+                )}
+              </div>
+              <p className="text-sm text-gray-400">Average APR</p>
+            </div>
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <Coins className="w-6 h-6" style={{ color: '#fb57ff' }} />
+                {platformStats.loading ? (
+                  <LoadingValue />
+                ) : (
+                  <p className="text-3xl font-bold text-white">{platformStats.tokensSupported}</p>
+                )}
+              </div>
+              <p className="text-sm text-gray-400">Tokens Supported</p>
+            </div>
           </div>
         </div>
       </section>
