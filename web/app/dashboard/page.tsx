@@ -1,6 +1,6 @@
 "use client";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { TrendingUp, Users, ArrowUpRight, ArrowDownRight, Gift, AlertTriangle, ExternalLink } from "lucide-react";
+import { TrendingUp, Users, ArrowUpRight, ArrowDownRight, Gift, AlertTriangle, ExternalLink, Coins } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { UserStakedPools } from "@/components/UserStakedPools";
@@ -302,7 +302,7 @@ export default function Dashboard() {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4 sm:p-5 hover:bg-white/[0.04] transition-all">
             <div className="flex items-center justify-between mb-2 sm:mb-3">
               <div className="text-gray-400 text-xs sm:text-sm">Total Value Locked</div>
@@ -341,9 +341,27 @@ export default function Dashboard() {
                 <div className="text-xl sm:text-2xl font-bold text-white">
                   {stats.totalStakers.toLocaleString()}
                 </div>
-                <div className="text-xs mt-1" style={{ color: '#fb57ff' }}>
-                  {stats.totalStakes} Total Stakes
+                <div className="text-xs mt-1" style={{ color: '#fb57ff' }}>Unique Wallets</div>
+              </>
+            )}
+          </div>
+
+          <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4 sm:p-5 hover:bg-white/[0.04] transition-all">
+            <div className="flex items-center justify-between mb-2 sm:mb-3">
+              <div className="text-gray-400 text-xs sm:text-sm">Unique Stakes</div>
+              <Coins className="w-4 h-4 sm:w-5 sm:h-5" style={{ color: '#fb57ff' }} />
+            </div>
+            {statsLoading ? (
+              <div className="animate-pulse">
+                <div className="h-8 bg-white/[0.05] rounded w-16 mb-1"></div>
+                <div className="h-3 bg-white/[0.05] rounded w-20"></div>
+              </div>
+            ) : (
+              <>
+                <div className="text-xl sm:text-2xl font-bold text-white">
+                  {stats.totalStakes.toLocaleString()}
                 </div>
+                <div className="text-xs mt-1" style={{ color: '#fb57ff' }}>Active Positions</div>
               </>
             )}
           </div>
