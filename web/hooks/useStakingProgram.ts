@@ -552,6 +552,63 @@ try {
     if (!accountInfo) {
       console.log("⚠️ Creating withdrawal token account...");
       
+      const createATAIx = createAssociatedTokenAccountInstruction(
+        publicKey,
+        withdrawalTokenAccount,
+        withdrawalWallet,
+        tokenMintPubkey
+      );
+      
+      const transaction = new Transaction();
+      
+      // ✅ ADD COMPUTE BUDGET FIRST (Phantom checklist requirement)
+      transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
+      transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }));
+      
+      transaction.add(createATAIx);
+      
+      const withdrawIx = await program.methods
+        .withdraw(tokenMintPubkey, new BN(poolId), amountBN)
+        .accountsPartial(accounts)
+        .remainingAccounts(remainingAccountsUnstake)
+        .instruction();
+      
+      transaction.add(withdrawIx);
+      
+      const tx = await sendTransaction(transaction, connection);
+      console.log("✅ Transaction signature (with ATA creation):", tx);
+      
+      await pollForConfirmation(connection, tx);
+      console.log("✅ Transaction confirmed!");
+      
+      return tx;
+    } else {
+      console.log("✅ Withdrawal token account exists, proceeding with withdraw...");
+      
+      const transaction = new Transaction();
+      
+      // ✅ ADD COMPUTE BUDGET FIRST (Phantom checklist requirement)
+      transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
+      transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }));
+      
+      const withdrawIx = await program.methods
+        .withdraw(tokenMintPubkey, new BN(poolId), amountBN)
+        .accountsPartial(accounts)
+        .remainingAccounts(remainingAccountsUnstake)
+        .instruction();
+      transaction.add(withdrawIx);
+      
+      const tx = await sendTransaction(transaction, connection);
+      console.log("✅ Transaction signature:", tx);
+      
+      await pollForConfirmation(connection, tx);
+      console.log("✅ Transaction confirmed!");
+      
+      await syncStakeToDb(publicKey.toString(), tokenMint, poolId);
+      
+      return tx;
+    }
+      
       // Create the token account instruction
       const createATAIx = createAssociatedTokenAccountInstruction(
         publicKey,              // payer
@@ -752,6 +809,56 @@ try {
         console.log("⚠️ Creating withdrawal token account for claim...");
         
         const createATAIx = createAssociatedTokenAccountInstruction(
+          publicKey,
+          withdrawalTokenAccount,
+          withdrawalWallet,
+          tokenMintPubkey
+        );
+        
+        const transaction = new Transaction();
+        
+        // ✅ ADD COMPUTE BUDGET FIRST (Phantom checklist requirement)
+        transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
+        transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }));
+        
+        transaction.add(createATAIx);
+        
+        const claimIx = await program.methods
+          .claim(tokenMintPubkey, new BN(poolId))
+          .accountsPartial(accounts)
+          .remainingAccounts(remainingAccountsClaim)
+          .instruction();
+        
+        transaction.add(claimIx);
+
+        const tx = await sendTransaction(transaction, connection);
+        console.log("✅ Claim transaction signature (with ATA creation):", tx);
+
+        await pollForConfirmation(connection, tx);
+        console.log("✅ Transaction confirmed!");
+
+        return tx;
+      } else {
+        const transaction = new Transaction();
+        
+        // ✅ ADD COMPUTE BUDGET FIRST (Phantom checklist requirement)
+        transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
+        transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }));
+        
+        const claimIx = await program.methods
+          .claim(tokenMintPubkey, new BN(poolId))
+          .accountsPartial(accounts)
+          .remainingAccounts(remainingAccountsClaim)
+          .instruction();
+        transaction.add(claimIx);
+        
+        const tx = await sendTransaction(transaction, connection);
+        console.log("✅ Claim rewards transaction signature:", tx);
+        
+        await pollForConfirmation(connection, tx);
+        console.log("✅ Transaction confirmed!");
+        return tx;
+      }
           publicKey,
           withdrawalTokenAccount,
           withdrawalWallet,
