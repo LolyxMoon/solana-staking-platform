@@ -496,49 +496,6 @@ try {
 }
 
 // Check if fee collector token account exists
-try {
-  const feeAccountInfo = await connection.getAccountInfo(feeCollectorTokenAccount);
-  if (!feeAccountInfo) {
-    console.log("⚠️ FEE COLLECTOR TOKEN ACCOUNT DOES NOT EXIST");
-  } else {
-    console.log("✅ Fee collector token account exists");
-  }
-} catch (e) {
-  console.log("⚠️ Error checking fee collector account:", e);
-}
-
-  // Build the accounts object
-  const accounts = {
-    platform: platformConfigPDA,
-    project: projectPDA,
-    stake: userStakePDA,
-    stakingVault: stakingVaultPDA,
-    withdrawalWallet: withdrawalWallet,
-    withdrawalTokenAccount: withdrawalTokenAccount,
-    feeCollectorTokenAccount: feeCollectorTokenAccount,
-    feeCollector: feeCollector,
-    reflectionVault: reflectionVault || stakingVaultPDA,
-    tokenMintAccount: tokenMintPubkey,
-    user: publicKey,
-    tokenProgram: tokenProgramId,
-    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-    systemProgram: SystemProgram.programId,
-  };
-
-  // ✅ Build remainingAccounts for referrer
-  const remainingAccountsUnstake = [];
-  if (projectReferrer && !projectReferrer.equals(PublicKey.default)) {
-    remainingAccountsUnstake.push({
-      pubkey: projectReferrer,
-      isWritable: true,
-      isSigner: false
-    });
-  }
-
-  console.log("🔵 Accounts prepared for withdraw:", {
-    platform: accounts.platform.toString(),
-    project: accounts.project.toString(),
-    stake: accounts.stake.toString(),
     stakingVault: accounts.stakingVault.toString(),
     withdrawalWallet: accounts.withdrawalWallet.toString(),
     withdrawalTokenAccount: accounts.withdrawalTokenAccount.toString(),
@@ -634,48 +591,6 @@ try {
       const tx = await sendTransaction(transaction, connection);
       console.log("✅ Transaction signature (with ATA creation):", tx);
       
-      await pollForConfirmation(connection, tx);
-      console.log("✅ Transaction confirmed!");
-      
-      return tx;
-    } else {
-      console.log("✅ Withdrawal token account exists, proceeding with withdraw...");
-      
-      // Normal withdraw without ATA creation
-      const transaction = new Transaction();
-      const withdrawIx = await program.methods
-        .withdraw(tokenMintPubkey, new BN(poolId), amountBN)
-        .accountsPartial(accounts)
-        .remainingAccounts(remainingAccountsUnstake)
-        .instruction();
-      transaction.add(withdrawIx);
-      
-      const tx = await sendTransaction(transaction, connection);
-      console.log("✅ Transaction signature:", tx);
-      
-      await pollForConfirmation(connection, tx);
-      console.log("✅ Transaction confirmed!");
-      
-      // Sync to database
-      await syncStakeToDb(publicKey.toString(), tokenMint, poolId);
-      
-      return tx;
-    }
-  } catch (error: any) {
-    console.error("❌ Unstake transaction error:", error);
-    
-    if (error.message?.includes("already been processed") || 
-        error.message?.includes("AlreadyProcessed")) {
-      console.log("⚠️ Transaction was already processed - likely succeeded");
-      const signature = error.signature || error.txSignature;
-      if (signature) {
-        console.log("✅ Found signature:", signature);
-        
-         // Try to sync to database even on "already processed" error
-        await syncStakeToDb(publicKey.toString(), tokenMint, poolId);
-        
-        return signature;
-      }
       throw new Error("Transaction may have succeeded. Please refresh to check your balance.");
     }
     
