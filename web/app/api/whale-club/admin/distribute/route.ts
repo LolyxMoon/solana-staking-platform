@@ -5,7 +5,7 @@ import bs58 from 'bs58';
 
 export const dynamic = 'force-dynamic';
 
-const ADMIN_WALLET = 'ecfvkqWdJiYJRyUtWvuYpPWP5faf9GBcA1K6TaDW7wS';
+const ADMIN_WALLET = process.env.ADMIN_WALLET;
 const SPT_MINT = new PublicKey('6uUU2z5GBasaxnkcqiQVHa2SXL68mAXDsq1zYN5Qxrm7');
 const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 const MIN_HOLDING = 10_000_000;

@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const { wallet, transaction, message } = body;
 
     console.log('🔍 Auth request received:');
-    console.log('  Wallet:', wallet);
+    // Removed for security
     console.log('  Message:', message);
 
     // 1️⃣ Validate request body

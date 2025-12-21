@@ -19,7 +19,10 @@ function parsePrivateKey(key: string): Uint8Array {
 }
 
 const RPC_URL = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || process.env.NEXT_PUBLIC_RPC_URL || process.env.NEXT_PUBLIC_RPC_ENDPOINT!;
-const CRON_SECRET = process.env.VOLUME_BOT_CRON_SECRET || 'your-secret-key';
+const CRON_SECRET = process.env.VOLUME_BOT_CRON_SECRET;
+if (!CRON_SECRET) {
+  return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+}
 const BOT_TOKEN = process.env.VOLUME_BOT_TOKEN;
 const ADMIN_CHAT_ID = process.env.VOLUME_BOT_ADMIN_CHAT_ID;
 const MASTER_KEY = process.env.VOLUME_BOT_MASTER_KEY!;

@@ -34,9 +34,6 @@ export async function GET(request: NextRequest) {
 
     console.log('=== TWITTER DEBUG ===');
     console.log('Client ID:', clientId);
-    console.log('Client Secret length:', clientSecret?.length);
-    console.log('Client Secret first 10:', clientSecret?.slice(0, 10));
-    console.log('Client Secret last 5:', clientSecret?.slice(-5));
     console.log('Redirect URI:', redirectUri);
     console.log('Code length:', code.length);
     console.log('Code verifier:', codeVerifier);
@@ -63,8 +60,6 @@ export async function GET(request: NextRequest) {
     });
 
     const responseText = await tokenResponse.text();
-    console.log('Token response status:', tokenResponse.status);
-    console.log('Token response:', responseText);
 
     if (!tokenResponse.ok) {
       return NextResponse.redirect(`${APP_URL}/whale-club?error=token_exchange_failed`);

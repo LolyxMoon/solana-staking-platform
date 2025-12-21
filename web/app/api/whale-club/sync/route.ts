@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   try {
     const { wallet } = await request.json();
     console.log('=== SYNC DEBUG ===');
-    console.log('Wallet:', wallet);
+    // Removed for security
 
     if (!wallet) {
       return NextResponse.json({ error: 'Wallet required' }, { status: 400 });
