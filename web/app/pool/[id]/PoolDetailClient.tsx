@@ -29,6 +29,15 @@ import { useToast } from "@/components/ToastContainer";
 import { useRealtimeRewards } from "@/utils/calculatePendingRewards";
 import IntegrateModal from "@/components/IntegrateModal";
 
+// Helper function to safely convert decimal amounts to token units
+function toTokenAmount(amount: number, decimals: number): string {
+  const amountStr = amount.toString();
+  const [whole, fraction = ''] = amountStr.split('.');
+  const paddedFraction = fraction.padEnd(decimals, '0').slice(0, decimals);
+  const combined = whole + paddedFraction;
+  return combined.replace(/^0+/, '') || '0';
+}
+
 interface Pool {
   id: string;
   name: string;
@@ -327,9 +336,9 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
 
       switch (openModal) {
         case "stake":
-          const stakeAmount = Math.floor(amount * decimalsMultiplier);
-          txSignature = await blockchainStake(effectiveMintAddress, stakeAmount, poolId);
-          
+          const stakeAmount = toTokenAmount(amount, tokenDecimals);
+          txSignature = await blockchainStake(effectiveMintAddress!, stakeAmount, poolId);
+                  
           try {
             await fetch("/api/user-stakes", {
               method: "POST",
@@ -347,9 +356,9 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
           break;
 
         case "unstake":
-          const unstakeAmount = Math.floor(amount * decimalsMultiplier);
-          txSignature = await blockchainUnstake(effectiveMintAddress, poolId, unstakeAmount);
-          
+          const unstakeAmount = toTokenAmount(amount, tokenDecimals);
+          txSignature = await blockchainUnstake(effectiveMintAddress!, poolId, unstakeAmount);
+                  
           try {
             await fetch("/api/user-stakes", {
               method: "DELETE",
@@ -371,11 +380,8 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
           break;
 
         case "claimReflections":
-          if (pool.reflectionMint) {
-            txSignature = await blockchainClaimReflections(effectiveMintAddress, poolId, pool.reflectionMint);
-          }
+          txSignature = await blockchainClaimReflections(effectiveMintAddress!, poolId);
           break;
-      }
 
       if (txSignature) {
         showToast(

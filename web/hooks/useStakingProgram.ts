@@ -557,7 +557,9 @@ try {
         publicKey,              // payer
         withdrawalTokenAccount, // ata
         withdrawalWallet,       // owner
-        tokenMintPubkey        // mint
+        tokenMintPubkey,        // mint
+        tokenProgramId,         // ✅ Token program (SPL or Token-2022)
+        ASSOCIATED_TOKEN_PROGRAM_ID
       );
       
       // Build transaction with ATA creation + withdraw
@@ -761,7 +763,9 @@ try {
           publicKey,
           withdrawalTokenAccount,
           withdrawalWallet,
-          tokenMintPubkey
+          tokenMintPubkey,
+          tokenProgramId,         // ✅ Token program (SPL or Token-2022)
+          ASSOCIATED_TOKEN_PROGRAM_ID
         );
         
         const transaction = new Transaction();
