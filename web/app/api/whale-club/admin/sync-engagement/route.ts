@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-const ADMIN_WALLET = 'ecfvkqWdJiYJRyUtWvuYpPWP5faf9GBcA1K6TaDW7wS';
+const ADMIN_WALLET = process.env.ADMIN_WALLET || 'ecfvkqWdJiYJRyUtWvuYpPWP5faf9GBcA1K6TaDW7wS';
 
 async function supabaseGet(table: string, query: string) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
