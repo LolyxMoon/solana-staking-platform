@@ -33,8 +33,8 @@ export default function TokenSelectModal({
   const [allTokens, setAllTokens] = useState<Token[]>([]);
   const [recentTokens, setRecentTokens] = useState<Token[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [birdeyeToken, setBirdeyeToken] = useState<Token | null>(null);
-  const [isFetchingBirdeye, setIsFetchingBirdeye] = useState(false);
+  const [dexToken, setDexToken] = useState<Token | null>(null);
+  const [isFetchingDex, setIsFetchingDex] = useState(false);
 
   // Load recent tokens from localStorage
   useEffect(() => {
@@ -93,13 +93,13 @@ export default function TokenSelectModal({
     }
   }, [isOpen, allTokens.length]);
 
-  // Fetch token from Birdeye if it looks like a Solana address
+  // Fetch token from DexScreener if it looks like a Solana address
   useEffect(() => {
-    const fetchBirdeyeToken = async () => {
+    const fetchTokenByAddress = async () => {
       const isSolanaAddress = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(searchQuery.trim());
       
       if (!isSolanaAddress) {
-        setBirdeyeToken(null);
+        setDexToken(null);
         return;
       }
 
@@ -108,33 +108,40 @@ export default function TokenSelectModal({
       );
 
       if (existingToken) {
-        setBirdeyeToken(null);
+        setDexToken(null);
         return;
       }
 
-      setIsFetchingBirdeye(true);
+      setIsFetchingDex(true);
       try {
-        const response = await fetch(`/api/birdeye/token-info?address=${searchQuery.trim()}`);
+        const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${searchQuery.trim()}`);
         const data = await response.json();
         
-        if (response.ok && data.address) {
-          setBirdeyeToken(data);
+        const pair = data.pairs?.[0];
+        if (pair) {
+          setDexToken({
+            address: searchQuery.trim(),
+            symbol: pair.baseToken.symbol,
+            name: pair.baseToken.name,
+            decimals: pair.baseToken.decimals || 9,
+            logoURI: pair.info?.imageUrl || undefined,
+          });
         } else {
-          setBirdeyeToken(null);
+          setDexToken(null);
         }
       } catch (error) {
-        console.error("Failed to fetch token from Birdeye:", error);
-        setBirdeyeToken(null);
+        console.error("Failed to fetch token:", error);
+        setDexToken(null);
       } finally {
-        setIsFetchingBirdeye(false);
+        setIsFetchingDex(false);
       }
     };
 
     const debounce = setTimeout(() => {
       if (searchQuery.trim()) {
-        fetchBirdeyeToken();
+        fetchTokenByAddress();
       } else {
-        setBirdeyeToken(null);
+        setDexToken(null);
       }
     }, 500);
 
@@ -149,9 +156,9 @@ export default function TokenSelectModal({
       token.address.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Combine filtered tokens with Birdeye token if available
-  const displayTokens = birdeyeToken 
-    ? [birdeyeToken, ...filteredTokens] 
+  // Combine filtered tokens with DexScreener token if available
+  const displayTokens = dexToken 
+    ? [dexToken, ...filteredTokens] 
     : filteredTokens;
 
   // Handle token selection
@@ -164,7 +171,7 @@ export default function TokenSelectModal({
   // Clear search
   const clearSearch = () => {
     setSearchQuery("");
-    setBirdeyeToken(null);
+    setDexToken(null);
   };
 
   if (!isOpen) return null;
@@ -302,7 +309,7 @@ export default function TokenSelectModal({
             </div>
           ) : displayTokens.length === 0 ? (
             <div className="text-center py-12 sm:py-16 px-4">
-              {isFetchingBirdeye ? (
+              {isFetchingDex ? (
                 <div 
                   className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-t-transparent rounded-full animate-spin mx-auto" 
                   style={{ borderColor: '#fb57ff', borderTopColor: 'transparent' }}
