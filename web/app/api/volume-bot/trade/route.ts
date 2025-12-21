@@ -279,12 +279,17 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ action: 'funded' });
       }
 
-      // Phase 2: Execute buys
+      typescript// Phase 2: Execute buys
       if (cyclePhase === 'buying' && buyCount < BUYS_PER_WALLET) {
         const remainingBuys = BUYS_PER_WALLET - buyCount;
         const currentBal = await connection.getBalance(currentWallet.publicKey);
         const reserveForFees = 0.003 * LAMPORTS_PER_SOL * remainingBuys;
-        const buyAmount = Math.floor((currentBal - reserveForFees) / remainingBuys);
+        let buyAmount = Math.floor((currentBal - reserveForFees) / remainingBuys);
+
+        // 10th buy: only use 90% to ensure enough for fees
+        if (remainingBuys === 1) {
+          buyAmount = Math.floor((currentBal - reserveForFees) * 0.90);
+        }
 
         if (buyAmount < 0.001 * LAMPORTS_PER_SOL) {
           await supabaseUpdate('volume_bot_config', 'bot_id=eq.main', { buy_count: BUYS_PER_WALLET });

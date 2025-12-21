@@ -1295,58 +1295,6 @@ pub mod staking_program {
         Ok(())
     }
 
-    pub fn claim_unclaimed_tokens(
-        ctx: Context<ClaimUnclaimedTokens>,
-        token_mint: Pubkey,
-        pool_id: u64,
-        amount: u64
-    ) -> Result<()> {
-        let project = &ctx.accounts.project;
-
-        // ✅ For AccountInfo, we need to manually check the balance
-        let is_native = is_native_sol(&ctx.accounts.token_mint_account.key());
-
-        if !is_native {
-            // For SPL tokens, read the amount field from TokenAccount data
-            let vault_data = ctx.accounts.vault.try_borrow_data()?;
-            if vault_data.len() >= 72 {
-                let vault_amount = u64::from_le_bytes(vault_data[64..72].try_into().unwrap());
-                require!(
-                    vault_amount >= amount,
-                    ErrorCode::InsufficientVaultBalance
-                );
-            }
-        } else {
-            // For Native SOL, check lamports
-            require!(
-                ctx.accounts.vault.lamports() >= amount,
-                ErrorCode::InsufficientVaultBalance
-            );
-        }
-        
-        let seeds = &[
-            b"project",
-            project.token_mint.as_ref(),
-            &project.pool_id.to_le_bytes(),
-            &[project.bump],
-        ];
-        let signer = &[&seeds[..]];
-        
-        // ✅ Transfer tokens to admin (supports SPL, Token-2022, Native SOL)
-        transfer_tokens(
-            ctx.accounts.vault.to_account_info(),
-            ctx.accounts.admin_token_account.to_account_info(),
-            ctx.accounts.project.to_account_info(),
-            &ctx.accounts.token_mint_account,
-            ctx.accounts.token_program.to_account_info(),
-            ctx.accounts.system_program.to_account_info(),
-            amount,
-            Some(signer),
-        )?;
-        
-        Ok(())
-    }
-
     pub fn update_fee_collector(
         ctx: Context<UpdateFeeCollector>,
         new_fee_collector: Pubkey,
@@ -1723,8 +1671,11 @@ pub struct Deposit<'info> {
     #[account(mut)]
     pub fee_collector_token_account: AccountInfo<'info>,
         
-    /// CHECK: Fee collector wallet
-    #[account(mut)]
+    /// CHECK: Fee collector wallet - validated against platform
+    #[account(
+        mut,
+        constraint = fee_collector.key() == platform.fee_collector @ ErrorCode::InvalidFeeCollector
+    )]
     pub fee_collector: AccountInfo<'info>,
         
     /// CHECK: Optional reflection vault
@@ -1781,8 +1732,11 @@ pub struct Withdraw<'info> {
     #[account(mut)]
     pub fee_collector_token_account: AccountInfo<'info>,
         
-    /// CHECK: Fee collector wallet
-    #[account(mut)]
+    /// CHECK: Fee collector wallet - validated against platform
+    #[account(
+        mut,
+        constraint = fee_collector.key() == platform.fee_collector @ ErrorCode::InvalidFeeCollector
+    )]
     pub fee_collector: AccountInfo<'info>,
     
     /// CHECK: Optional reflection vault - can be staking_vault for Native SOL or ATA for SPL tokens
@@ -1830,8 +1784,11 @@ pub struct Claim<'info> {
     #[account(mut)]
     pub user_token_account: AccountInfo<'info>,
     
-    /// CHECK: Fee collector wallet
-    #[account(mut)]
+    /// CHECK: Fee collector wallet - validated against platform
+    #[account(
+        mut,
+        constraint = fee_collector.key() == platform.fee_collector @ ErrorCode::InvalidFeeCollector
+    )]
     pub fee_collector: AccountInfo<'info>,
     
     /// CHECK: Optional reflection vault
@@ -1992,33 +1949,6 @@ pub struct EmergencyUnlockAccounts<'info> {
     
     #[account(mut)]
     pub admin: Signer<'info>,
-}
-
-#[derive(Accounts)]
-#[instruction(token_mint: Pubkey, pool_id: u64)]
-pub struct ClaimUnclaimedTokens<'info> {
-    #[account(
-        seeds = [b"project", token_mint.as_ref(), &pool_id.to_le_bytes()],
-        bump = project.bump,
-        constraint = project.admin == admin.key() @ ErrorCode::Unauthorized
-    )]
-    pub project: Account<'info, Project>,
-    
-    /// CHECK: Can be TokenAccount (SPL) or wallet (Native SOL)
-    #[account(mut)]
-    pub vault: AccountInfo<'info>,
-    
-    /// CHECK: Can be TokenAccount (SPL) or wallet (Native SOL)
-    #[account(mut)]
-    pub admin_token_account: AccountInfo<'info>,
-    
-    pub token_mint_account: InterfaceAccount<'info, Mint>,
-    
-    #[account(mut)]
-    pub admin: Signer<'info>,
-    
-    pub token_program: Interface<'info, TokenInterface>,
-    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
