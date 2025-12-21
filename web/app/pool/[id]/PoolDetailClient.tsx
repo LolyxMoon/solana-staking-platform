@@ -17,7 +17,9 @@ import {
   Loader2,
   X,
   Code,
-  Copy
+  Copy,
+  AlertCircle,
+  CheckCircle2
 } from "lucide-react";
 import Link from "next/link";
 import { useStakingProgram } from "@/hooks/useStakingProgram";
@@ -28,6 +30,7 @@ import { usePoolData } from "@/hooks/usePoolData";
 import { useToast } from "@/components/ToastContainer";
 import { useRealtimeRewards } from "@/utils/calculatePendingRewards";
 import IntegrateModal from "@/components/IntegrateModal";
+import { useSound } from '@/hooks/useSound';
 
 // Helper function to safely convert decimal amounts to token units
 function toTokenAmount(amount: number, decimals: number): string {
@@ -74,6 +77,7 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
   const { connected, publicKey } = useWallet();
   const { connection } = useConnection();
   const { showToast } = useToast();
+  const { playSound } = useSound();
   const [copied, setCopied] = useState(false);
   const [showIntegrateModal, setShowIntegrateModal] = useState(false);
   const [showLiquidityModal, setShowLiquidityModal] = useState(false);
@@ -85,7 +89,16 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
   const { balance: tokenBalance, loading: balanceLoading } = useSolanaBalance(effectiveMintAddress);
   
   const { loadAllPoolData, getPoolProject, isPoolDataLoading } = usePoolData();
+
+  // Fee constants (same as PoolCard)
+  const platformFeePercent = 2;
+  const flatSolFee = 0.005;
   
+  // Use database value as source of truth for initialization status
+  const isInitialized = pool.isInitialized;
+  const isPaused = pool.isPaused || false;
+  const poolId = pool.poolId ?? 0;
+
   // Load pool data from blockchain on mount
   useEffect(() => {
     if (effectiveMintAddress && poolId !== undefined) {
@@ -101,7 +114,6 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
         const mintInfo = await connection.getParsedAccountInfo(new PublicKey(effectiveMintAddress));
         const decimals = (mintInfo.value?.data as any)?.parsed?.info?.decimals || 9;
         setTokenDecimals(decimals);
-        console.log(`✅ Token decimals for ${pool.symbol}:`, decimals);
       } catch (error) {
         console.error("Error fetching decimals:", error);
         setTokenDecimals(9);
@@ -140,14 +152,17 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
   const [onChainTotalStaked, setOnChainTotalStaked] = useState<number>(0);
   const [isLoadingAPY, setIsLoadingAPY] = useState(true);
 
-  // Use database value as source of truth for initialization status
-  const isInitialized = pool.isInitialized;
-  const isPaused = pool.isPaused || false;
-  const poolId = pool.poolId ?? 0;
-
   // Get blockchain project data
   const blockchainProject = getPoolProject(effectiveMintAddress, poolId);
   
+  // Fee calculation (same as PoolCard)
+  const feeCalculation = useMemo(() => {
+    if (!amount || amount <= 0) return { tokenFee: 0, solFee: flatSolFee, amountAfterFee: 0 };
+    const tokenFee = (amount * platformFeePercent) / 100;
+    const amountAfterFee = amount - tokenFee;
+    return { tokenFee, solFee: flatSolFee, amountAfterFee };
+  }, [amount, platformFeePercent, flatSolFee]);
+
   // Calculate display values from blockchain (same as PoolCard)
   const displayAPY = useMemo(() => {
     if (!blockchainProject) return dynamicRate ?? pool.apy ?? 0;
@@ -235,6 +250,22 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
     return () => clearInterval(interval);
   }, [publicKey, connected, effectiveMintAddress, poolId, isInitialized]);
 
+  // Fetch SOL balance
+  useEffect(() => {
+    if (!publicKey || !connected || !connection) return;
+    
+    const fetchSolBalance = async () => {
+      try {
+        const balance = await connection.getBalance(publicKey);
+        setSolBalance(balance / 1e9);
+      } catch (error) {
+        console.error("Error fetching SOL balance:", error);
+      }
+    };
+    
+    fetchSolBalance();
+  }, [publicKey, connected, connection]);
+
   // Fetch project data and pool rate (for real-time data, not for initialization check)
   useEffect(() => {
     if (!effectiveMintAddress || !isInitialized) {
@@ -251,7 +282,6 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
           // Get total staked from on-chain
           if (project.totalStaked) {
             const totalStaked = Number(project.totalStaked) / decimalsMultiplier;
-            console.log(`🔢 Total Staked calculation: ${project.totalStaked} / ${decimalsMultiplier} = ${totalStaked}`);
             setOnChainTotalStaked(totalStaked);
           }
         }
@@ -265,7 +295,6 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
       } catch (error) {
         console.error("⚠️ Error fetching project data (non-critical):", error);
         setIsLoadingAPY(false);
-        // Don't throw - this is just for real-time data
       }
     };
 
@@ -306,7 +335,6 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
           url: shareUrl,
         });
       } catch (error) {
-        // User cancelled or share failed, fallback to copy
         copyToClipboard();
       }
     } else {
@@ -327,8 +355,66 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
     return `${days} days`;
   };
 
+  const lockupInfo = useMemo(() => {
+    if (!pool.lockPeriodDays || !userStakeTimestamp) {
+      return { isLocked: false, remainingTime: 0, lockEndDate: null };
+    }
+
+    const lockPeriodMs = pool.lockPeriodDays * 24 * 60 * 60 * 1000;
+    const stakeDate = new Date(userStakeTimestamp * 1000);
+    const lockEndDate = new Date(stakeDate.getTime() + lockPeriodMs);
+    const now = Date.now();
+    const isLocked = now < lockEndDate.getTime();
+    const remainingTime = Math.max(0, lockEndDate.getTime() - now);
+
+    return { isLocked, remainingTime, lockEndDate };
+  }, [pool.lockPeriodDays, userStakeTimestamp]);
+
+  // Validation function (same as PoolCard)
+  const validateTransaction = (): { valid: boolean; error?: string } => {
+    if (!effectiveMintAddress) return { valid: false, error: "Pool not properly configured" };
+    if (!isInitialized) return { valid: false, error: "Pool not initialized yet" };
+    if (isPaused) return { valid: false, error: "Pool is paused" };
+
+    if (openModal === "stake") {
+      if (amount <= 0) return { valid: false, error: "Enter an amount" };
+      if (amount > tokenBalance) return { valid: false, error: "Insufficient token balance" };
+      const requiredSol = flatSolFee + 0.00089088;
+      if (solBalance < requiredSol) return { valid: false, error: `Need ${requiredSol.toFixed(5)} SOL for fees` };
+    }
+
+    if (openModal === "unstake") {
+      if (amount <= 0) return { valid: false, error: "Enter an amount" };
+      if (amount > userStakedAmount) return { valid: false, error: "Cannot unstake more than staked" };
+      if (lockupInfo.isLocked) return { valid: false, error: "Tokens are still locked" };
+    }
+
+    if (openModal === "claimRewards") {
+      if (realtimeRewards <= 0) return { valid: false, error: "No rewards to claim" };
+    }
+
+    if (openModal === "claimReflections") {
+      if (reflectionBalance <= 0) return { valid: false, error: "No reflections to claim" };
+    }
+
+    return { valid: true };
+  };
+
+  const handleQuickSelect = (percent: number) => {
+    if (openModal === "stake") {
+      setAmount((tokenBalance * percent) / 100);
+    } else if (openModal === "unstake") {
+      setAmount((userStakedAmount * percent) / 100);
+    }
+  };
+
   const handleModalSubmit = async () => {
-    if (!effectiveMintAddress || !openModal) return;
+    const validation = validateTransaction();
+    if (!validation.valid) {
+      playSound('error');
+      showToast(`❌ ${validation.error}`, "error");
+      return;
+    }
 
     setIsProcessing(true);
     try {
@@ -338,6 +424,9 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
         case "stake":
           const stakeAmount = toTokenAmount(amount, tokenDecimals);
           txSignature = await blockchainStake(effectiveMintAddress!, stakeAmount, poolId);
+          
+          playSound('success');
+          showToast(`✅ Staked ${amount.toFixed(4)} ${pool.symbol}! TX: ${txSignature.slice(0, 8)}...`, "success");
                   
           try {
             await fetch("/api/user-stakes", {
@@ -356,8 +445,20 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
           break;
 
         case "unstake":
-          const unstakeAmount = toTokenAmount(amount, tokenDecimals);
+          // Leave 0.1 token dust if user is unstaking 100% to preserve reward claim ability
+          const dustAmount = 0.1;
+          const isFullUnstake = amount >= userStakedAmount * 0.9999;
+          const hasEnoughForDust = userStakedAmount > dustAmount * 2;
+          
+          const finalUnstakeAmount = (isFullUnstake && hasEnoughForDust) 
+            ? amount - dustAmount 
+            : amount;
+          
+          const unstakeAmount = toTokenAmount(finalUnstakeAmount, tokenDecimals);
           txSignature = await blockchainUnstake(effectiveMintAddress!, poolId, unstakeAmount);
+          
+          playSound('success');
+          showToast(`✅ Unstaked ${amount.toFixed(4)} ${pool.symbol}! TX: ${txSignature.slice(0, 8)}...`, "success");
                   
           try {
             await fetch("/api/user-stakes", {
@@ -376,56 +477,67 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
           break;
 
         case "claimRewards":
-          txSignature = await blockchainClaimRewards(effectiveMintAddress, poolId);
+          txSignature = await blockchainClaimRewards(effectiveMintAddress!, poolId);
+          playSound('success');
+          showToast(`✅ Claimed rewards! TX: ${txSignature.slice(0, 8)}...`, "success");
           break;
 
         case "claimReflections":
           txSignature = await blockchainClaimReflections(effectiveMintAddress!, poolId);
+          playSound('success');
+          showToast(`✅ Claimed reflections! TX: ${txSignature.slice(0, 8)}...`, "success");
           break;
-        }
-
-      if (txSignature) {
-        showToast(
-          `${openModal.charAt(0).toUpperCase() + openModal.slice(1)} successful!`,
-          "success"
-        );
       }
 
       setOpenModal(null);
       setAmount(0);
       
-      // Refresh data
-      const userStake = await getUserStake(effectiveMintAddress, poolId);
-      if (userStake) {
-        setUserStakedAmount(userStake.amount / decimalsMultiplier);
-        setUserStakeTimestamp(userStake.stakeTimestamp);
-        setStakeData(userStake);
-      }
+      // Refresh data after action
+      setTimeout(async () => {
+        try {
+          const userStake = await getUserStake(effectiveMintAddress!, poolId);
+          if (userStake) {
+            setUserStakedAmount(userStake.amount / decimalsMultiplier);
+            setUserStakeTimestamp(userStake.stakeTimestamp);
+            setStakeData(userStake);
+          }
+          const project = await getProjectInfo(effectiveMintAddress!, poolId);
+          setProjectData(project);
+        } catch (error) {
+          console.error("Error refreshing data:", error);
+        }
+      }, 2000);
+
     } catch (error: any) {
-      console.error(`${openModal} error:`, error);
-      showToast(
-        error.message || `Failed to ${openModal}`,
-        "error"
-      );
+      // Handle "already processed" as success
+      if (error.message?.includes("may have succeeded") || 
+          error.message?.includes("already been processed") ||
+          error.message?.includes("already processed")) {
+        playSound('success');
+        showToast(`✅ Transaction succeeded! Refreshing...`, "success");
+        setTimeout(() => window.location.reload(), 1500);
+        return;
+      }
+      
+      playSound('error');
+      let errorMessage = "Transaction failed";
+      if (error.message.includes("User rejected")) {
+        errorMessage = "Transaction cancelled";
+      } else if (error.message.includes("insufficient")) {
+        errorMessage = "Insufficient balance";
+      } else if (error.message.includes("LockupNotExpired")) {
+        errorMessage = "Tokens still locked";
+      } else if (error.message.includes("ProjectPaused")) {
+        errorMessage = "Pool is paused";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      showToast(`❌ ${errorMessage}`, "error");
     } finally {
       setIsProcessing(false);
     }
   };
-
-  const lockupInfo = (() => {
-    if (!pool.lockPeriodDays || !userStakeTimestamp) {
-      return { isLocked: false, remainingTime: 0, lockEndDate: null };
-    }
-
-    const lockPeriodMs = pool.lockPeriodDays * 24 * 60 * 60 * 1000;
-    const stakeDate = new Date(userStakeTimestamp * 1000);
-    const lockEndDate = new Date(stakeDate.getTime() + lockPeriodMs);
-    const now = Date.now();
-    const isLocked = now < lockEndDate.getTime();
-    const remainingTime = Math.max(0, lockEndDate.getTime() - now);
-
-    return { isLocked, remainingTime, lockEndDate };
-  })();
 
   const isStakeDisabled = !connected || !effectiveMintAddress || !isInitialized || isPaused;
   const isUnstakeDisabled = !connected || !effectiveMintAddress || !isInitialized || isPaused || userStakedAmount <= 0 || lockupInfo.isLocked;
@@ -808,95 +920,222 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
         </div>
       </div>
 
-      {/* Modal */}
+      {/* MODAL - Same style as PoolCard */}
       {openModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-black/90 rounded-2xl max-w-md w-full border border-white/[0.05] p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-2xl font-bold capitalize">{openModal.replace(/([A-Z])/g, ' $1').trim()}</h3>
+        <div className="fixed inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm z-50 p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white/[0.02] border border-white/[0.05] p-4 sm:p-6 rounded-2xl shadow-2xl w-full max-w-[calc(100vw-24px)] sm:max-w-md max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <h2 className="text-lg sm:text-2xl font-bold text-white flex items-center gap-2">
+                {openModal === "stake" && "💰"}
+                {openModal === "unstake" && "📤"}
+                {(openModal === "claimRewards" || openModal === "claimReflections") && "🎁"}
+                <span className="truncate capitalize">{openModal.replace(/([A-Z])/g, ' $1').trim()}</span>
+              </h2>
               <button
-                onClick={() => {
-                  setOpenModal(null);
-                  setAmount(0);
-                }}
-                className="text-gray-400 hover:text-white transition-colors"
+                onClick={() => { setOpenModal(null); setAmount(0); }}
+                disabled={isProcessing}
+                className="text-gray-400 hover:text-white transition-colors text-2xl leading-none min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2"
               >
-                <X className="w-6 h-6" />
+                ✕
               </button>
             </div>
 
-            {(openModal === "stake" || openModal === "unstake") && (
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm text-gray-400 mb-2 block">
-                    Amount ({pool.symbol})
-                  </label>
-                  <input
-                    type="number"
-                    value={amount || ''}
-                    onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
-                    placeholder="0.00"
-                    className="w-full px-4 py-3 bg-white/[0.05] border border-white/[0.1] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-[#fb57ff]/50"
-                  />
-                  <div className="flex items-center justify-between mt-2 text-sm">
-                    <span className="text-gray-400">
-                      Available: {openModal === "stake" ? tokenBalance.toFixed(4) : userStakedAmount.toFixed(4)} {pool.symbol}
-                    </span>
-                    <button
-                      onClick={() => setAmount(openModal === "stake" ? tokenBalance : userStakedAmount)}
-                      className="text-[#fb57ff] hover:underline"
-                    >
-                      Max
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleModalSubmit}
-                  disabled={isProcessing || amount <= 0}
-                  className="w-full px-6 py-3 rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    `${openModal.charAt(0).toUpperCase() + openModal.slice(1)}`
-                  )}
-                </button>
+            {/* Token Info */}
+            <div className="bg-white/[0.02] border border-white/[0.05] p-2.5 sm:p-3 rounded-lg mb-3 sm:mb-4 flex items-center gap-2 sm:gap-3">
+              {pool.logo && <img src={pool.logo} alt={pool.name} className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex-shrink-0" />}
+              <div className="min-w-0 flex-1">
+                <p className="text-white font-semibold text-sm sm:text-base truncate">{pool.name}</p>
+                <p className="text-gray-400 text-xs sm:text-sm">{pool.symbol}</p>
               </div>
-            )}
+            </div>
 
-            {(openModal === "claimRewards" || openModal === "claimReflections") && (
-              <div className="space-y-4">
-                <div className="p-4 bg-[#fb57ff]/10 border border-[#fb57ff]/30 rounded-lg">
-                  <p className="text-sm text-gray-300 text-center">
-                    {openModal === "claimRewards" 
-                      ? `You will claim ${realtimeRewards.toFixed(4)} ${pool.symbol}`
-                      : `You will claim ${reflectionBalance.toFixed(4)} reflection tokens`
+            {(openModal === "stake" || openModal === "unstake") && (
+              <>
+                {/* Balance Display */}
+                <div className="mb-3 sm:mb-4 p-3 sm:p-4 bg-white/[0.02] border border-white/[0.05] rounded-lg">
+                  <div className="flex items-center justify-between mb-1.5 sm:mb-2">
+                    <p className="text-gray-400 text-xs sm:text-sm font-semibold">
+                      {openModal === "stake" ? "Available Balance" : "Staked Amount"}
+                    </p>
+                    {balanceLoading && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+                  </div>
+                  <p className="text-white font-bold text-xl sm:text-2xl break-all">
+                    {openModal === "stake" 
+                      ? `${tokenBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${pool.symbol}`
+                      : `${userStakedAmount.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${pool.symbol}`
                     }
                   </p>
                 </div>
 
-                <button
-                  onClick={handleModalSubmit}
-                  disabled={isProcessing}
-                  className="w-full px-6 py-3 rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Claiming...
-                    </>
-                  ) : (
-                    'Confirm Claim'
-                  )}
-                </button>
+                {/* Amount Input */}
+                <div className="mb-3 sm:mb-4">
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-300 mb-1.5 sm:mb-2">
+                    Amount to {openModal}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={amount || ''}
+                      onChange={(e) => setAmount(Number(e.target.value))}
+                      className="w-full p-2.5 sm:p-3 pr-12 sm:pr-16 rounded-lg bg-white/[0.02] text-white border border-white/[0.05] focus:border-[#fb57ff] focus:outline-none text-base sm:text-lg font-semibold"
+                      placeholder="0.00"
+                      disabled={isProcessing}
+                      max={openModal === "stake" ? tokenBalance : userStakedAmount}
+                    />
+                    <span className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 text-gray-400 font-semibold text-xs sm:text-sm">
+                      {pool.symbol}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Fee Breakdown for Stake */}
+                {openModal === "stake" && amount > 0 && (
+                  <div className="mb-3 sm:mb-4 p-3 bg-white/[0.02] border border-white/[0.05] rounded-lg space-y-2 text-xs sm:text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Stake Amount:</span>
+                      <span className="text-white font-semibold">{amount.toFixed(4)} {pool.symbol}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Token Fee ({platformFeePercent}%):</span>
+                      <span className="text-yellow-400">-{feeCalculation.tokenFee.toFixed(4)} {pool.symbol}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">SOL Fee:</span>
+                      <span className="text-yellow-400">-{flatSolFee} SOL</span>
+                    </div>
+                    <div className="border-t border-white/[0.05] pt-2 flex justify-between">
+                      <span className="font-semibold" style={{ color: '#fb57ff' }}>You'll Stake:</span>
+                      <span className="font-bold" style={{ color: '#fb57ff' }}>{feeCalculation.amountAfterFee.toFixed(4)} {pool.symbol}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Quick Select Buttons */}
+                <div className="grid grid-cols-3 gap-2 mb-3 sm:mb-4">
+                  {[25, 50, 100].map((percent) => (
+                    <button
+                      key={percent}
+                      onClick={() => handleQuickSelect(percent)}
+                      disabled={isProcessing}
+                      className="px-2 py-2.5 sm:py-2 bg-white/[0.05] hover:bg-white/[0.08] active:bg-white/[0.1] border border-white/[0.05] rounded-lg text-xs sm:text-sm font-semibold transition-all active:scale-95 disabled:opacity-50 min-h-[44px]"
+                    >
+                      {percent}%
+                    </button>
+                  ))}
+                </div>
+
+                {/* Range Slider */}
+                <div className="mb-4 sm:mb-6">
+                  <input
+                    type="range"
+                    min="0"
+                    max={openModal === "stake" ? tokenBalance : userStakedAmount}
+                    step={(openModal === "stake" ? tokenBalance : userStakedAmount) / 100}
+                    value={amount}
+                    onChange={(e) => setAmount(Number(e.target.value))}
+                    disabled={isProcessing}
+                    className="w-full h-2 bg-white/[0.05] rounded-lg appearance-none cursor-pointer"
+                    style={{ accentColor: '#fb57ff' }}
+                  />
+                  <div className="flex justify-between text-[10px] sm:text-xs text-gray-400 mt-1">
+                    <span>0</span>
+                    <span>{(openModal === "stake" ? tokenBalance : userStakedAmount).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                {/* Warnings */}
+                {openModal === "stake" && amount > 0 && solBalance < (flatSolFee + 0.00089088) && (
+                  <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2 text-red-400 text-xs sm:text-sm">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>Need {(flatSolFee + 0.00089088).toFixed(5)} SOL for fees (you have {solBalance.toFixed(5)})</span>
+                  </div>
+                )}
+
+                {openModal === "stake" && amount > tokenBalance && (
+                  <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2 text-red-400 text-xs sm:text-sm">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>Insufficient balance</span>
+                  </div>
+                )}
+
+                {openModal === "unstake" && lockupInfo.isLocked && (
+                  <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-2 text-yellow-400 text-xs sm:text-sm">
+                    <Clock className="w-4 h-4 flex-shrink-0" />
+                    <span>Unlocks in {Math.ceil(lockupInfo.remainingTime / (1000 * 60 * 60 * 24))} days</span>
+                  </div>
+                )}
+
+                {openModal === "unstake" && amount > userStakedAmount && (
+                  <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2 text-red-400 text-xs sm:text-sm">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>Cannot unstake more than staked amount</span>
+                  </div>
+                )}
+
+                {openModal === "unstake" && realtimeRewards > 0 && !lockupInfo.isLocked && (
+                  <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-blue-400 text-xs sm:text-sm">
+                    💡 You have unclaimed rewards! After unstaking, click "Claim Rewards" to collect them.
+                  </div>
+                )}
+              </>
+            )}
+
+            {(openModal === "claimRewards" || openModal === "claimReflections") && (
+              <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+                <p className="text-green-400 text-xs sm:text-sm mb-1.5 sm:mb-2">
+                  {openModal === "claimRewards" ? "Available to claim:" : "Available reflections:"}
+                </p>
+                <p className="text-white font-bold text-lg sm:text-xl break-all">
+                  {openModal === "claimRewards" 
+                    ? `${realtimeRewards.toFixed(4)} ${pool.symbol}`
+                    : `${reflectionBalance.toFixed(4)} tokens`
+                  }
+                </p>
+                {openModal === "claimRewards" && pool.lockPeriodDays && (
+                  <div className="mt-3 p-2 bg-blue-500/10 border border-blue-500/30 rounded-lg space-y-1">
+                    <p className="text-blue-400 text-xs font-medium">💡 Before you claim:</p>
+                    <p className="text-blue-300 text-xs">
+                      <strong>Want to keep earning?</strong> Claim now and restake your rewards — your lock timer restarts.
+                    </p>
+                    <p className="text-blue-300 text-xs">
+                      <strong>Want to leave the pool?</strong> Unstake your tokens first, then claim your rewards.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-2 sm:gap-3">
+              <button
+                onClick={() => { setOpenModal(null); setAmount(0); }}
+                disabled={isProcessing}
+                className="flex-1 px-3 sm:px-4 py-3 bg-white/[0.05] hover:bg-white/[0.08] active:bg-white/[0.1] border border-white/[0.05] rounded-lg text-sm sm:text-base font-semibold transition-all disabled:opacity-50 min-h-[48px]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleModalSubmit}
+                disabled={isProcessing || !validateTransaction().valid}
+                className="flex-1 px-3 sm:px-4 py-3 rounded-lg text-sm sm:text-base font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-h-[48px] text-white"
+                style={{ background: (isProcessing || !validateTransaction().valid) ? 'rgba(255,255,255,0.05)' : 'linear-gradient(45deg, black, #fb57ff)' }}
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="hidden sm:inline">Processing...</span>
+                    <span className="sm:hidden">Wait...</span>
+                  </>
+                ) : (
+                  <>
+                    Confirm
+                    {(openModal === "stake" || openModal === "unstake") && amount > 0 && (
+                      <span className="hidden sm:inline"> {amount.toFixed(2)} {pool.symbol}</span>
+                    )}
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
