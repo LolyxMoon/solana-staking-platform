@@ -484,6 +484,39 @@ export default function AdminPage() {
     }
   }, [userIsAdmin, isAuthenticated, publicKey]);
 
+  // ✅ Load pools when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      refreshPoolsData();
+    }
+  }, [isAuthenticated]);
+
+  // Define refreshPools function before it's used
+  const refreshPoolsData = async () => {
+    try {
+      const res = await authFetch("/api/admin/pools");
+      const data = await res.json();
+
+      // If there are expanded pools, collapse them first
+      const currentExpanded = Array.from(expandedPools);
+      if (currentExpanded.length > 0) {
+        setExpandedPools(new Set());
+      }
+
+      // Update pools data
+      setPools(data);
+
+      // Re-expand after state has settled
+      if (currentExpanded.length > 0) {
+        setTimeout(() => {
+          setExpandedPools(new Set(currentExpanded));
+        }, 150);
+      }
+    } catch (error) {
+      console.error("Failed to fetch pools:", error);
+    }
+  };
+
   // Initialize Platform
   const handleInitializePlatform = async () => {
     if (!wallet || !publicKey || !initForm.feeCollector) {
@@ -737,41 +770,10 @@ export default function AdminPage() {
   }
 
   // ============================================================
-  // ✅ AUTHENTICATED ADMIN - Load pools and show admin panel
+  // ✅ AUTHENTICATED ADMIN - Show admin panel
   // ============================================================
 
-  // This effect needs to be after all the security gates
-  // Moving the refreshPools call into a useEffect that depends on isAuthenticated
-  useEffect(() => {
-    if (isAuthenticated) {
-      refreshPools();
-    }
-  }, [isAuthenticated]);
-
-  const refreshPools = async () => {
-    try {
-      const res = await authFetch("/api/admin/pools");
-      const data = await res.json();
-
-      // If there are expanded pools, collapse them first
-      const currentExpanded = Array.from(expandedPools);
-      if (currentExpanded.length > 0) {
-        setExpandedPools(new Set());
-      }
-
-      // Update pools data
-      setPools(data);
-
-      // Re-expand after state has settled
-      if (currentExpanded.length > 0) {
-        setTimeout(() => {
-          setExpandedPools(new Set(currentExpanded));
-        }, 150);
-      }
-    } catch (error) {
-      showError("❌ Failed to fetch pools");
-    }
-  };
+  const refreshPools = refreshPoolsData;
 
   const stats = useMemo(() => {
     const total = pools.length;
