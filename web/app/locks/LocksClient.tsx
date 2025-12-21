@@ -7,7 +7,7 @@ import LockCard from "@/components/LockCard";
 import CreateLockModal from "@/components/CreateLockModal";
 import LocksStructuredData from "@/components/LocksStructuredData";
 
-interface Lock {
+interface LockData {
   id: string;
   lockId: number;
   tokenMint: string;
@@ -24,12 +24,12 @@ interface Lock {
 }
 
 interface LocksClientProps {
-  locks: Lock[];
+  locks: LockData[];
 }
 
 export default function LocksClient({ locks: initialLocks }: LocksClientProps) {
   const { publicKey } = useWallet();
-  const [locks, setLocks] = useState<Lock[]>(initialLocks);
+  const [locks, setLocks] = useState<LockData[]>(initialLocks);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<"all" | "my-locks" | "active" | "unlockable">("all");
