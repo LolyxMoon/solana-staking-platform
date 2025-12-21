@@ -517,6 +517,30 @@ export default function AdminPage() {
     }
   };
 
+  // ✅ useMemo hooks must be before any returns
+  const stats = useMemo(() => {
+    const total = pools.length;
+    const active = pools.filter(p => !p.isPaused && !p.hidden).length;
+    const paused = pools.filter(p => p.isPaused).length;
+    const hidden = pools.filter(p => p.hidden).length;
+    const featured = pools.filter(p => p.featured).length;
+    const initialized = pools.filter(p => p.isInitialized).length;
+    const totalViews = pools.reduce((sum, p) => sum + (p.views || 0), 0);
+
+    return { total, active, paused, hidden, featured, initialized, totalViews };
+  }, [pools]);
+
+  const filteredPools = useMemo(() => {
+    if (!poolSearchQuery) return pools;
+
+    const query = poolSearchQuery.toLowerCase();
+    return pools.filter(pool =>
+      pool.name.toLowerCase().includes(query) ||
+      pool.symbol.toLowerCase().includes(query) ||
+      pool.id.toLowerCase().includes(query)
+    );
+  }, [pools, poolSearchQuery]);
+
   // Initialize Platform
   const handleInitializePlatform = async () => {
     if (!wallet || !publicKey || !initForm.feeCollector) {
@@ -774,29 +798,6 @@ export default function AdminPage() {
   // ============================================================
 
   const refreshPools = refreshPoolsData;
-
-  const stats = useMemo(() => {
-    const total = pools.length;
-    const active = pools.filter(p => !p.isPaused && !p.hidden).length;
-    const paused = pools.filter(p => p.isPaused).length;
-    const hidden = pools.filter(p => p.hidden).length;
-    const featured = pools.filter(p => p.featured).length;
-    const initialized = pools.filter(p => p.isInitialized).length;
-    const totalViews = pools.reduce((sum, p) => sum + (p.views || 0), 0);
-
-    return { total, active, paused, hidden, featured, initialized, totalViews };
-  }, [pools]);
-
-  const filteredPools = useMemo(() => {
-    if (!poolSearchQuery) return pools;
-
-    const query = poolSearchQuery.toLowerCase();
-    return pools.filter(pool =>
-      pool.name.toLowerCase().includes(query) ||
-      pool.symbol.toLowerCase().includes(query) ||
-      pool.id.toLowerCase().includes(query)
-    );
-  }, [pools, poolSearchQuery]);
 
   const toggleExpand = (poolId: string) => {
     setExpandedPools(prev => {
