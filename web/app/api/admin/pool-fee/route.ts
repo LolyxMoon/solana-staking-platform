@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { verifyAdminToken } from "@/lib/adminMiddleware";
 
-// GET: Fetch current pool creation fee
+// GET: Fetch current pool creation fee (public - needed for pool creation UI)
 export async function GET(req: NextRequest) {
   try {
     const config = await prisma.platformConfig.findUnique({
@@ -23,12 +24,16 @@ export async function GET(req: NextRequest) {
 
 // POST: Update pool creation fee (admin only)
 export async function POST(req: NextRequest) {
+  // 🛡️ SECURITY CHECK: Verify JWT token and admin status
+  const authResult = await verifyAdminToken(req);
+  if (!authResult.isValid) {
+    return NextResponse.json(
+      { error: authResult.error || "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
   try {
-    // Get admin wallet from environment or your config
-    const ADMIN_WALLET = process.env.NEXT_PUBLIC_ADMIN_WALLET || "ecfvkqWdJiYJRyUtWvuYpPWP5faf9GBcA1K6TaDW7wS";
-    
-    // Simple auth check - you can enhance this based on your existing auth system
-    // For now, we'll trust that the admin page already verified the user
     const { feeInLamports } = await req.json();
 
     if (typeof feeInLamports !== "number" || feeInLamports < 0) {
@@ -46,6 +51,9 @@ export async function POST(req: NextRequest) {
         value: feeInLamports.toString(),
       },
     });
+
+    // 📝 Log admin action for audit trail
+    console.log(`[ADMIN] Pool creation fee updated to ${feeInLamports} lamports by wallet: ${authResult.wallet}`);
 
     return NextResponse.json({ success: true, feeInLamports });
   } catch (error: any) {

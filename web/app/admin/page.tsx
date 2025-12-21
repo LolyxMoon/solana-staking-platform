@@ -11,6 +11,7 @@ import AdvancedPoolControls from "@/components/AdvancedPoolControls";
 import { useToast } from "@/components/ToastContainer";
 import { getProgram, getPDAs } from "@/lib/anchor-program";
 import { useAdminProgram } from "@/hooks/useAdminProgram";
+import { useAdminAuth } from "@/hooks/useAdminAuth"; // ✅ ADD THIS
 import SEOManager from "@/components/SEOManager";
 import { authFetch } from "@/lib/authFetch";
 import PopUpAdManager from "@/components/admin/PopUpAdManager";
@@ -41,9 +42,10 @@ import {
   Wallet,
   RefreshCw,
   Sparkles,
-  X
+  X,
+  KeyRound,
+  Loader2
 } from "lucide-react";
-// Image component removed - using img tag instead
 
 interface FeaturedToken {
   address: string;
@@ -61,6 +63,15 @@ export default function AdminPage() {
   const wallet = useAnchorWallet();
   const { showSuccess, showError } = useToast();
   const { updateFeeCollector } = useAdminProgram();
+
+  // ✅ ADD: Use the admin auth hook for signature verification
+  const { 
+    isAuthenticated, 
+    isLoading: authLoading, 
+    error: authError, 
+    login, 
+    logout 
+  } = useAdminAuth();
 
   const userIsAdmin = connected && publicKey ? isAdmin(publicKey.toString()) : false;
 
@@ -149,6 +160,32 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<"dashboard" | "pools" | "create" | "seo" | "swap" | "popups" | "telegram">("dashboard");
 
   const [selectedPools, setSelectedPools] = useState<Set<string>>(new Set());
+
+  // ✅ Login state for button
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  // ✅ Handle admin login with signature
+  const handleAdminLogin = async () => {
+    setIsLoggingIn(true);
+    try {
+      const success = await login();
+      if (success) {
+        showSuccess("✅ Admin authentication successful!");
+      } else {
+        showError("❌ Authentication failed. Please try again.");
+      }
+    } catch (error: any) {
+      showError(`❌ ${error.message || "Authentication failed"}`);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  // ✅ Handle logout
+  const handleLogout = () => {
+    logout();
+    showSuccess("🔓 Logged out successfully");
+  };
 
   // ✅ Load Swap Configuration
   const loadSwapConfig = async () => {
@@ -385,18 +422,18 @@ export default function AdminPage() {
 
   // ✅ Load swap data on mount
   useEffect(() => {
-    if (userIsAdmin && activeTab === "swap") {
+    if (userIsAdmin && isAuthenticated && activeTab === "swap") {
       loadSwapConfig();
       loadFeaturedTokens();
     }
-  }, [userIsAdmin, activeTab]);
+  }, [userIsAdmin, isAuthenticated, activeTab]);
 
   // Load pool creation fee on mount
   useEffect(() => {
-    if (userIsAdmin) {
+    if (userIsAdmin && isAuthenticated) {
       loadPoolCreationFee();
     }
-  }, [userIsAdmin]);
+  }, [userIsAdmin, isAuthenticated]);
 
   // ✅ FIXED: Check if platform is initialized - ONCE on mount only
   useEffect(() => {
@@ -432,20 +469,20 @@ export default function AdminPage() {
       }
     };
 
-    if (userIsAdmin && wallet && platformInitialized === null) {
+    if (userIsAdmin && isAuthenticated && wallet && platformInitialized === null) {
       checkPlatformInit();
     }
 
     return () => {
       isMounted = false;
     };
-  }, [userIsAdmin, wallet]);
+  }, [userIsAdmin, isAuthenticated, wallet]);
 
   useEffect(() => {
-    if (userIsAdmin && publicKey) {
+    if (userIsAdmin && isAuthenticated && publicKey) {
       showSuccess(`Welcome, Admin! (${publicKey.toString().slice(0, 8)}...)`);
     }
-  }, [userIsAdmin, publicKey]);
+  }, [userIsAdmin, isAuthenticated, publicKey]);
 
   // Initialize Platform
   const handleInitializePlatform = async () => {
@@ -575,6 +612,9 @@ export default function AdminPage() {
     }
   };
 
+  // ============================================================
+  // 🛡️ SECURITY GATE 1: Wallet not connected
+  // ============================================================
   if (!connected || !publicKey) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800 p-6">
@@ -594,6 +634,9 @@ export default function AdminPage() {
     );
   }
 
+  // ============================================================
+  // 🛡️ SECURITY GATE 2: Wallet not in admin list
+  // ============================================================
   if (!userIsAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800 p-6">
@@ -631,9 +674,79 @@ export default function AdminPage() {
     );
   }
 
+  // ============================================================
+  // 🛡️ SECURITY GATE 3: Admin wallet but not authenticated (signature required)
+  // ============================================================
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800 p-6">
+        <div className="max-w-md w-full bg-gray-800/50 border-2 border-blue-500/50 rounded-2xl p-8 text-center">
+          <KeyRound className="w-16 h-16 text-blue-400 mx-auto mb-4" />
+          <h1 className="text-3xl font-bold text-white mb-2">Verify Ownership</h1>
+          <p className="text-gray-400 mb-6">
+            Sign a transaction to prove you own this admin wallet
+          </p>
+
+          <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-4 mb-6">
+            <p className="text-xs text-gray-500 mb-1">Admin Wallet:</p>
+            <p className="text-green-400 font-mono text-sm break-all">
+              {publicKey.toString()}
+            </p>
+          </div>
+
+          {authError && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-6">
+              <p className="text-red-400 text-sm">{authError}</p>
+            </div>
+          )}
+
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-6">
+            <p className="text-blue-300 text-sm">
+              🔐 This verification creates a signed transaction (not broadcast) to prove wallet ownership. 
+              Your wallet will prompt you to sign.
+            </p>
+          </div>
+
+          <button
+            onClick={handleAdminLogin}
+            disabled={isLoggingIn || authLoading}
+            className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isLoggingIn || authLoading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Verifying...
+              </>
+            ) : (
+              <>
+                <KeyRound className="w-5 h-5" />
+                Verify & Access Admin
+              </>
+            )}
+          </button>
+
+          <button
+            onClick={() => window.location.href = "/"}
+            className="mt-4 w-full px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-semibold transition-all"
+          >
+            Return to Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // ✅ AUTHENTICATED ADMIN - Load pools and show admin panel
+  // ============================================================
+
+  // This effect needs to be after all the security gates
+  // Moving the refreshPools call into a useEffect that depends on isAuthenticated
   useEffect(() => {
-    refreshPools();
-  }, []);
+    if (isAuthenticated) {
+      refreshPools();
+    }
+  }, [isAuthenticated]);
 
   const refreshPools = async () => {
     try {
@@ -952,6 +1065,7 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-[#060609] p-6">
       <div className="max-w-7xl mx-auto space-y-6">
+        {/* ✅ ADD: Header with logout button */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
@@ -959,13 +1073,23 @@ export default function AdminPage() {
             </h1>
             <p className="text-gray-400 mt-1">Manage your staking pools & platform</p>
           </div>
-          <button
-          onClick={() => setActiveTab("create")}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-black to-[#fb57ff] rounded-lg hover:from-[#fb57ff]/90 hover:to-[#fb57ff]/70 transition-all"
-        >
-          <Plus className="w-5 h-5" />
-          New Pool
-        </button>
+          <div className="flex items-center gap-3">
+            {/* ✅ Logout Button */}
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-all text-sm"
+            >
+              <Lock className="w-4 h-4" />
+              Logout
+            </button>
+            <button
+              onClick={() => setActiveTab("create")}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-black to-[#fb57ff] rounded-lg hover:from-[#fb57ff]/90 hover:to-[#fb57ff]/70 transition-all"
+            >
+              <Plus className="w-5 h-5" />
+              New Pool
+            </button>
+          </div>
         </div>
 
         <div className="flex gap-2 border-b border-white/[0.05] overflow-x-auto">
