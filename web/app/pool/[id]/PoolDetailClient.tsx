@@ -382,6 +382,7 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
         case "claimReflections":
           txSignature = await blockchainClaimReflections(effectiveMintAddress!, poolId);
           break;
+        }
 
       if (txSignature) {
         showToast(

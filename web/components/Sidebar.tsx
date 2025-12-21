@@ -8,7 +8,7 @@ import { Coins, X, Sparkles, ArrowDownUp, BookOpen, LifeBuoy, Send, Lock, Crown,
 const navItems = [
   { name: "Home", href: "/landing", icon: Sparkles },
   { name: "Staking", href: "/pools", icon: Coins },
-  { name: "Farming", href: "/lp-pools", icon: Coins },
+  // { name: "Farming", href: "/lp-pools", icon: Coins },
   { name: "Locks", href: "/locks", icon: Lock },
   { name: "Swap", href: "/swap", icon: ArrowDownUp },
   { name: "Tools", href: "/tools", icon: Wrench }, 
