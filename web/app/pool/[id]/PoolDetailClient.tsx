@@ -23,8 +23,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useStakingProgram } from "@/hooks/useStakingProgram";
-import ManageLiquidityModal from "@/components/ManageLiquidityModal";
-import { getDexInfo } from "@/lib/liquidity-router";
 import { useSolanaBalance } from "@/hooks/useSolanaBalance";
 import { usePoolData } from "@/hooks/usePoolData";
 import { useToast } from "@/components/ToastContainer";
@@ -63,9 +61,6 @@ interface Pool {
   isInitialized: boolean;
   createdAt: Date;
   creatorWallet: string | null;
-  raydiumPoolAddress?: string | null;
-  dexType?: string | null;
-  dexPoolAddress?: string | null;
 }
 
 interface PoolDetailClientProps {
@@ -80,7 +75,6 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
   const { playSound } = useSound();
   const [copied, setCopied] = useState(false);
   const [showIntegrateModal, setShowIntegrateModal] = useState(false);
-  const [showLiquidityModal, setShowLiquidityModal] = useState(false);
 
   const [tokenDecimals, setTokenDecimals] = useState<number>(9);
   const decimalsMultiplier = useMemo(() => Math.pow(10, tokenDecimals), [tokenDecimals]);
@@ -761,56 +755,6 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
                   {new Date(pool.createdAt).toLocaleDateString()}
                 </span>
               </div>
-              {pool.dexType && pool.dexPoolAddress && (
-                <>
-                  <div className="flex items-center justify-between pt-3 border-t border-white/[0.05]">
-                    <span className="text-gray-400">DEX</span>
-                    {(() => {
-                      const dexInfo = getDexInfo(pool.dexType as any);
-                      return (
-                        <div 
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
-                          style={{ 
-                            background: `${dexInfo.color}20`,
-                            border: `1px solid ${dexInfo.color}50`,
-                            color: dexInfo.color 
-                          }}
-                        >
-                          <span>{dexInfo.icon}</span>
-                          <span>{dexInfo.displayName}</span>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-400">Pool/Pair Address</span>
-                    <div className="flex items-center gap-2">
-                      <code className="text-xs bg-white/[0.05] px-2 py-1 rounded">
-                        {pool.dexPoolAddress.slice(0, 8)}...{pool.dexPoolAddress.slice(-8)}
-                      </code>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(pool.dexPoolAddress!);
-                          showToast('Copied DEX pool address!', 'success');
-                        }}
-                        className="text-[#fb57ff] hover:underline"
-                        title="Copy address"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </button>
-                      <a
-                        href={getDexInfo(pool.dexType as any).url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[#fb57ff] hover:underline"
-                        title={`View on ${getDexInfo(pool.dexType as any).displayName}`}
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </a>
-                    </div>
-                  </div>
-                </>
-              )}
             </div>
           </div>
         </div>
@@ -834,17 +778,6 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
               </div>
             ) : (
               <div className="space-y-3">
-                {/* Manage Liquidity Button - Show if either field exists */}
-                {(pool.dexPoolAddress || pool.raydiumPoolAddress) && pool.dexType && (
-                  <button
-                    onClick={() => setShowLiquidityModal(true)}
-                    className="w-full px-6 py-3 rounded-lg font-semibold transition-all"
-                    style={{ background: 'linear-gradient(45deg, #6366f1, #8b5cf6)' }}
-                  >
-                    💧 Manage Liquidity
-                  </button>
-                )}
-
                 <button
                   onClick={() => setOpenModal("stake")}
                   disabled={isStakeDisabled}
@@ -1146,20 +1079,6 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
         onClose={() => setShowIntegrateModal(false)}
         poolId={pool.id}
       />
-
-      {/* Manage Liquidity Modal */}
-      {showLiquidityModal && (pool.dexPoolAddress || pool.raydiumPoolAddress) && pool.dexType && (
-        <ManageLiquidityModal
-          isOpen={showLiquidityModal}
-          onClose={() => setShowLiquidityModal(false)}
-          poolId={pool.id}
-          poolName={pool.name}
-          lpTokenMint={pool.tokenMint}
-          dexType={pool.dexType as any}
-          dexPoolAddress={pool.dexPoolAddress || pool.raydiumPoolAddress || ''}
-          rewardTokenSymbol={pool.symbol}
-        />
-      )}
     </div>
   );
 }
