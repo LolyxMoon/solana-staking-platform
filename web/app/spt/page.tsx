@@ -348,31 +348,34 @@ export default function SPTTokenPage() {
               <div className="flex items-center justify-center lg:justify-start gap-4">
                 <div className="relative">
                   <div 
-                    className="w-20 h-20 rounded-2xl flex items-center justify-center"
-                    style={{ background: 'linear-gradient(135deg, #fb57ff 0%, #6366f1 100%)' }}
+                    className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center"
+                    style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}
                   >
-                    <Coins className="w-10 h-10 text-white" />
+                    <Coins className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
                   </div>
                   <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-green-500 rounded-full border-2 border-[#060609] flex items-center justify-center">
                     <Check className="w-3 h-3 text-white" />
                   </div>
                 </div>
                 <div>
-                  <h1 className="text-4xl lg:text-5xl font-bold text-white">
+                  <h1 
+                    className="text-3xl sm:text-4xl lg:text-5xl font-bold"
+                    style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}
+                  >
                     {SPT_NAME}
                   </h1>
-                  <p className="text-xl text-gray-400">${SPT_SYMBOL}</p>
+                  <p className="text-lg sm:text-xl text-gray-400">${SPT_SYMBOL}</p>
                 </div>
               </div>
 
               {/* Price Display */}
               {priceData && (
-                <div className="flex items-center justify-center lg:justify-start gap-4">
-                  <span className="text-3xl lg:text-4xl font-bold text-white">
+                <div className="flex items-center justify-center lg:justify-start gap-3 sm:gap-4">
+                  <span className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">
                     ${parseFloat(priceData.priceUsd).toFixed(6)}
                   </span>
                   <span 
-                    className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                    className={`px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-semibold ${
                       priceData.priceChange24h >= 0 
                         ? 'bg-green-500/20 text-green-400' 
                         : 'bg-red-500/20 text-red-400'
@@ -384,7 +387,7 @@ export default function SPTTokenPage() {
               )}
 
               {/* Description */}
-              <p className="text-gray-400 text-lg max-w-xl mx-auto lg:mx-0">
+              <p className="text-sm sm:text-base text-gray-400 max-w-xl mx-auto lg:mx-0">
                 The native utility token of the StakePoint ecosystem. Stake SPT to earn rewards, 
                 qualify for Whale Club membership, and participate in the most advanced staking 
                 platform on Solana.
@@ -410,33 +413,33 @@ export default function SPTTokenPage() {
 
               {/* Stats Grid */}
               {priceData && (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-4">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+                  <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-3 sm:p-4">
                     <p className="text-xs text-gray-500 uppercase">Market Cap</p>
-                    <p className="text-lg font-semibold text-white">{formatNumber(priceData.marketCap)}</p>
+                    <p className="text-sm sm:text-lg font-semibold text-white">{formatNumber(priceData.marketCap)}</p>
                   </div>
-                  <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-4">
+                  <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-3 sm:p-4">
                     <p className="text-xs text-gray-500 uppercase">24h Volume</p>
-                    <p className="text-lg font-semibold text-white">{formatNumber(priceData.volume24h)}</p>
+                    <p className="text-sm sm:text-lg font-semibold text-white">{formatNumber(priceData.volume24h)}</p>
                   </div>
-                  <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-4">
+                  <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-3 sm:p-4">
                     <p className="text-xs text-gray-500 uppercase">Liquidity</p>
-                    <p className="text-lg font-semibold text-white">{formatNumber(priceData.liquidity)}</p>
+                    <p className="text-sm sm:text-lg font-semibold text-white">{formatNumber(priceData.liquidity)}</p>
                   </div>
-                  <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-4">
+                  <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-3 sm:p-4">
                     <p className="text-xs text-gray-500 uppercase">Max Supply</p>
-                    <p className="text-lg font-semibold text-white">1.33B</p>
+                    <p className="text-sm sm:text-lg font-semibold text-white">1.33B</p>
                   </div>
                 </div>
               )}
 
               {/* Quick Links */}
-              <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3">
+              <div className="flex flex-wrap items-center justify-center lg:justify-start gap-2 sm:gap-3">
                 <a
                   href={`https://dexscreener.com/solana/${SPT_MINT}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 bg-white/[0.05] rounded-lg hover:bg-white/[0.08] transition-all text-sm"
+                  className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/[0.05] rounded-lg hover:bg-white/[0.08] transition-all text-xs sm:text-sm"
                 >
                   <TrendingUp className="w-4 h-4" style={{ color: '#fb57ff' }} />
                   DexScreener
@@ -446,7 +449,7 @@ export default function SPTTokenPage() {
                   href={`https://solscan.io/token/${SPT_MINT}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 bg-white/[0.05] rounded-lg hover:bg-white/[0.08] transition-all text-sm"
+                  className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/[0.05] rounded-lg hover:bg-white/[0.08] transition-all text-xs sm:text-sm"
                 >
                   <ExternalLink className="w-4 h-4" style={{ color: '#fb57ff' }} />
                   Solscan
@@ -455,7 +458,7 @@ export default function SPTTokenPage() {
                   href="https://app.meteora.ag/pools/A1d4sAmgi4Njnodmc289HP7TaPxw54n4Ey3LRDfrBvo5"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 bg-white/[0.05] rounded-lg hover:bg-white/[0.08] transition-all text-sm"
+                  className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/[0.05] rounded-lg hover:bg-white/[0.08] transition-all text-xs sm:text-sm"
                 >
                   <Coins className="w-4 h-4" style={{ color: '#fb57ff' }} />
                   Meteora
@@ -463,7 +466,7 @@ export default function SPTTokenPage() {
                 </a>
                 <Link
                   href="/pools"
-                  className="flex items-center gap-2 px-4 py-2 bg-white/[0.05] rounded-lg hover:bg-white/[0.08] transition-all text-sm"
+                  className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/[0.05] rounded-lg hover:bg-white/[0.08] transition-all text-xs sm:text-sm"
                 >
                   <Zap className="w-4 h-4" style={{ color: '#fb57ff' }} />
                   Stake SPT
@@ -472,11 +475,14 @@ export default function SPTTokenPage() {
             </div>
 
             {/* Right: Swap Widget */}
-            <div className="w-full lg:w-auto lg:min-w-[400px]">
-              <div className="bg-white/[0.02] backdrop-blur border border-white/[0.05] rounded-2xl p-6 space-y-4">
+            <div className="w-full lg:w-auto lg:min-w-[380px]">
+              <div className="bg-white/[0.02] backdrop-blur border border-white/[0.05] rounded-2xl p-4 sm:p-6 space-y-3 sm:space-y-4">
                 {/* Swap Header */}
                 <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-bold text-white">
+                  <h2 
+                    className="text-lg sm:text-xl font-bold"
+                    style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}
+                  >
                     {isBuying ? 'Buy' : 'Sell'} SPT
                   </h2>
                   <span className="text-xs text-gray-400 bg-white/[0.05] px-2 py-1 rounded">
@@ -487,7 +493,7 @@ export default function SPTTokenPage() {
                 {/* From Input */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-sm text-gray-400">You Pay</label>
+                    <label className="text-xs sm:text-sm text-gray-400">You Pay</label>
                     {publicKey && tokenBalance !== null && (
                       <button
                         onClick={handleMaxAmount}
@@ -498,22 +504,22 @@ export default function SPTTokenPage() {
                       </button>
                     )}
                   </div>
-                  <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-4">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="flex items-center gap-2 px-3 py-2 bg-white/[0.05] rounded-lg">
+                  <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-3 sm:p-4">
+                    <div className="flex items-center gap-2 sm:gap-3 mb-2">
+                      <div className="flex items-center gap-2 px-2 sm:px-3 py-2 bg-white/[0.05] rounded-lg">
                         <img 
                           src={fromToken.logoURI} 
                           alt={fromToken.symbol} 
-                          className="w-6 h-6 rounded-full" 
+                          className="w-5 h-5 sm:w-6 sm:h-6 rounded-full" 
                         />
-                        <span className="font-semibold">{fromToken.symbol}</span>
+                        <span className="font-semibold text-sm sm:text-base">{fromToken.symbol}</span>
                       </div>
                       <input
                         type="number"
                         value={fromAmount}
                         onChange={(e) => setFromAmount(e.target.value)}
                         placeholder="0.00"
-                        className="flex-1 bg-transparent text-right text-2xl font-bold focus:outline-none"
+                        className="flex-1 min-w-0 bg-transparent text-right text-xl sm:text-2xl font-bold focus:outline-none"
                       />
                     </div>
                     {publicKey && tokenBalance !== null && (
@@ -536,22 +542,22 @@ export default function SPTTokenPage() {
 
                 {/* To Input */}
                 <div className="space-y-2">
-                  <label className="text-sm text-gray-400">You Receive</label>
-                  <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2 px-3 py-2 bg-white/[0.05] rounded-lg">
+                  <label className="text-xs sm:text-sm text-gray-400">You Receive</label>
+                  <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-3 sm:p-4">
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <div className="flex items-center gap-2 px-2 sm:px-3 py-2 bg-white/[0.05] rounded-lg">
                         <img 
                           src={toToken.logoURI} 
                           alt={toToken.symbol} 
-                          className="w-6 h-6 rounded-full" 
+                          className="w-5 h-5 sm:w-6 sm:h-6 rounded-full" 
                         />
-                        <span className="font-semibold">{toToken.symbol}</span>
+                        <span className="font-semibold text-sm sm:text-base">{toToken.symbol}</span>
                       </div>
-                      <div className="flex-1 text-right text-2xl font-bold">
+                      <div className="flex-1 min-w-0 text-right text-xl sm:text-2xl font-bold">
                         {quoteLoading ? (
                           <span className="text-gray-400">...</span>
                         ) : (
-                          <span>{toAmount || "0.00"}</span>
+                          <span className="truncate block">{toAmount || "0.00"}</span>
                         )}
                       </div>
                     </div>
@@ -578,8 +584,8 @@ export default function SPTTokenPage() {
                 <button
                   onClick={handleSwap}
                   disabled={swapping || !publicKey || !fromAmount || parseFloat(fromAmount) <= 0}
-                  className="w-full py-4 rounded-xl font-bold text-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-white"
-                  style={{ background: 'linear-gradient(135deg, #fb57ff 0%, #6366f1 100%)' }}
+                  className="w-full py-3 sm:py-4 rounded-xl font-bold text-sm sm:text-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-white min-h-[48px]"
+                  style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}
                 >
                   {swapping ? (
                     <>
@@ -605,13 +611,18 @@ export default function SPTTokenPage() {
       </section>
 
       {/* Chart Section */}
-      <section className="py-8 lg:py-12">
+      <section className="py-6 sm:py-8 lg:py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <h2 className="text-2xl font-bold text-white mb-6">Live Chart</h2>
+          <h2 
+            className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6"
+            style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}
+          >
+            Live Chart
+          </h2>
           <div className="bg-white/[0.02] border border-white/[0.05] rounded-2xl overflow-hidden">
             <iframe
               src={`https://dexscreener.com/solana/${DEXSCREENER_PAIR}?embed=1&theme=dark&trades=0&info=0`}
-              className="w-full h-[500px] lg:h-[600px]"
+              className="w-full h-[400px] sm:h-[500px] lg:h-[600px]"
               title="SPT Chart"
             />
           </div>
@@ -619,13 +630,18 @@ export default function SPTTokenPage() {
       </section>
 
       {/* Token Info Section */}
-      <section className="py-8 lg:py-12">
+      <section className="py-6 sm:py-8 lg:py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             {/* About */}
-            <div className="lg:col-span-2 bg-white/[0.02] border border-white/[0.05] rounded-2xl p-6">
-              <h3 className="text-xl font-bold text-white mb-4">About StakePoint (SPT)</h3>
-              <div className="space-y-4 text-gray-400">
+            <div className="lg:col-span-2 bg-white/[0.02] border border-white/[0.05] rounded-2xl p-4 sm:p-6">
+              <h3 
+                className="text-lg sm:text-xl font-bold mb-3 sm:mb-4"
+                style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}
+              >
+                About StakePoint (SPT)
+              </h3>
+              <div className="space-y-3 sm:space-y-4 text-sm sm:text-base text-gray-400">
                 <p>
                   StakePoint (SPT) is the native utility token of the StakePoint platform, a decentralized 
                   staking infrastructure built on Solana using the Token-2022 standard.
@@ -643,32 +659,37 @@ export default function SPTTokenPage() {
             </div>
 
             {/* Token Details */}
-            <div className="bg-white/[0.02] border border-white/[0.05] rounded-2xl p-6">
-              <h3 className="text-xl font-bold text-white mb-4">Token Details</h3>
-              <div className="space-y-3">
+            <div className="bg-white/[0.02] border border-white/[0.05] rounded-2xl p-4 sm:p-6">
+              <h3 
+                className="text-lg sm:text-xl font-bold mb-3 sm:mb-4"
+                style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}
+              >
+                Token Details
+              </h3>
+              <div className="space-y-2 sm:space-y-3">
                 <div className="flex justify-between py-2 border-b border-white/[0.05]">
-                  <span className="text-gray-400">Symbol</span>
-                  <span className="text-white font-semibold">SPT</span>
+                  <span className="text-sm text-gray-400">Symbol</span>
+                  <span className="text-sm text-white font-semibold">SPT</span>
                 </div>
                 <div className="flex justify-between py-2 border-b border-white/[0.05]">
-                  <span className="text-gray-400">Decimals</span>
-                  <span className="text-white font-semibold">9</span>
+                  <span className="text-sm text-gray-400">Decimals</span>
+                  <span className="text-sm text-white font-semibold">9</span>
                 </div>
                 <div className="flex justify-between py-2 border-b border-white/[0.05]">
-                  <span className="text-gray-400">Standard</span>
-                  <span className="text-white font-semibold">Token-2022</span>
+                  <span className="text-sm text-gray-400">Standard</span>
+                  <span className="text-sm text-white font-semibold">Token-2022</span>
                 </div>
                 <div className="flex justify-between py-2 border-b border-white/[0.05]">
-                  <span className="text-gray-400">Launch Date</span>
-                  <span className="text-white font-semibold">Nov 5, 2025</span>
+                  <span className="text-sm text-gray-400">Launch Date</span>
+                  <span className="text-sm text-white font-semibold">Nov 5, 2025</span>
                 </div>
                 <div className="flex justify-between py-2 border-b border-white/[0.05]">
-                  <span className="text-gray-400">Max Supply</span>
-                  <span className="text-white font-semibold">1.33B</span>
+                  <span className="text-sm text-gray-400">Max Supply</span>
+                  <span className="text-sm text-white font-semibold">1.33B</span>
                 </div>
                 <div className="flex justify-between py-2">
-                  <span className="text-gray-400">Team Tokens</span>
-                  <span className="text-green-400 font-semibold">0%</span>
+                  <span className="text-sm text-gray-400">Team Tokens</span>
+                  <span className="text-sm text-green-400 font-semibold">0%</span>
                 </div>
               </div>
             </div>
@@ -680,27 +701,30 @@ export default function SPTTokenPage() {
       <section className="py-8 lg:py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div 
-            className="rounded-2xl p-8 lg:p-12 text-center"
-            style={{ background: 'linear-gradient(135deg, rgba(251, 87, 255, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%)', border: '1px solid rgba(251, 87, 255, 0.2)' }}
+            className="rounded-2xl p-6 sm:p-8 lg:p-12 text-center"
+            style={{ background: 'rgba(251, 87, 255, 0.05)', border: '1px solid rgba(251, 87, 255, 0.2)' }}
           >
-            <h2 className="text-2xl lg:text-3xl font-bold text-white mb-4">
+            <h2 
+              className="text-xl sm:text-2xl lg:text-3xl font-bold mb-3 sm:mb-4"
+              style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}
+            >
               Ready to Earn with SPT?
             </h2>
-            <p className="text-gray-400 mb-6 max-w-2xl mx-auto">
+            <p className="text-sm sm:text-base text-gray-400 mb-4 sm:mb-6 max-w-2xl mx-auto">
               Stake your SPT tokens and start earning rewards today. Join thousands of users 
               earning passive income on the most advanced staking platform on Solana.
             </p>
-            <div className="flex flex-wrap items-center justify-center gap-4">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
               <Link
                 href="/pools"
-                className="px-8 py-3 rounded-xl font-bold text-white transition-all hover:scale-105"
-                style={{ background: 'linear-gradient(135deg, #fb57ff 0%, #6366f1 100%)' }}
+                className="w-full sm:w-auto px-6 sm:px-8 py-3 rounded-xl font-bold text-white transition-all hover:scale-105 text-sm sm:text-base min-h-[48px] flex items-center justify-center"
+                style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}
               >
                 Stake SPT Now
               </Link>
               <Link
                 href="/whale-club"
-                className="px-8 py-3 rounded-xl font-bold text-white bg-white/[0.05] border border-white/[0.1] hover:bg-white/[0.08] transition-all"
+                className="w-full sm:w-auto px-6 sm:px-8 py-3 rounded-xl font-bold text-white bg-white/[0.05] border border-white/[0.1] hover:bg-white/[0.08] transition-all text-sm sm:text-base min-h-[48px] flex items-center justify-center"
               >
                 Join Whale Club
               </Link>
