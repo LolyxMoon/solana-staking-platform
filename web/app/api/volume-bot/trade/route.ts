@@ -279,7 +279,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ action: 'funded' });
       }
 
-      typescript// Phase 2: Execute buys
+      // Phase 2: Execute buys
       if (cyclePhase === 'buying' && buyCount < BUYS_PER_WALLET) {
         const remainingBuys = BUYS_PER_WALLET - buyCount;
         const currentBal = await connection.getBalance(currentWallet.publicKey);
