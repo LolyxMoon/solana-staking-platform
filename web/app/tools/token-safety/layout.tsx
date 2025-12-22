@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Solana Token Safety Checker | Rug Pull Detection & Scam Scanner",
+  title: "Token Safety Checker - Rug Pull Detection",
   description: "Free Solana token safety checker. Detect rug pulls, analyze mint authority, check freeze authority, and verify token legitimacy before buying.",
   keywords: [
     "Solana token safety",

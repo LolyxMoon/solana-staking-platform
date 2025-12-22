@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Staking Pools",
-  description: "Browse available staking pools",
+  description: "Browse and stake in high-APY Solana staking pools. Flexible lock periods, reflection rewards, and instant withdrawals. Find the perfect pool for your tokens.",
 };
 
 export const dynamic = 'force-dynamic';

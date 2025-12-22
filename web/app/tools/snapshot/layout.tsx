@@ -1,7 +1,7 @@
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Holder Snapshot | Get Complete Token Holder List | StakePoint",
+  title: "Holder Snapshot - Token Holder Lists",
   description:
     "Take accurate snapshots of all SPL token holders on Solana. Export holder lists for airdrops, analyze distribution, track whale concentration. Powered by Helius API.",
   keywords: [

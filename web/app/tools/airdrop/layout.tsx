@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Solana Airdrop Tool | Bulk Token Sender & Multi-Wallet Distribution",
+  title: "Airdrop Tool - Bulk Token Distribution",
   description: "Free Solana airdrop tool for batch token transfers. Send SPL tokens to multiple wallets via CSV upload. Multi-recipient distribution with automatic ATA creation.",
   keywords: [
     "Solana airdrop tool",

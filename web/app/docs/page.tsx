@@ -2,7 +2,7 @@ import { Metadata } from "next";
 import DocsClient from "./DocsClient";
 
 export const metadata: Metadata = {
-  title: "Solana Staking Guide - How to Stake SPL Tokens & Earn Rewards | StakePoint Docs",
+  title: "Solana Staking Guide - How to Stake & Earn Rewards",
   description: "Complete guide to staking Solana and SPL tokens. Learn how to stake tokens, create staking pools, earn high APY rewards, understand lock periods, and manage your crypto investments securely on Solana's best staking platform.",
   keywords: "solana staking, how to stake solana, spl token staking, create staking pool, solana staking guide, defi staking, crypto rewards, high apy staking, token-2022 staking",
   openGraph: {

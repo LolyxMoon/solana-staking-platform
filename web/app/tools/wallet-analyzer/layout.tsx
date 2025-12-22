@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Solana Wallet Analyzer | Portfolio Tracker & PnL Insights",
+  title: "Wallet Analyzer - Portfolio & PnL Tracker",
   description: "Free Solana wallet analyzer with real-time portfolio tracking, PnL calculations, and 24h change monitoring. Track your crypto performance instantly.",
   keywords: [
     "Solana wallet analyzer",

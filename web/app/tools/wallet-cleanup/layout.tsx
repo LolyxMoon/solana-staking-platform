@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Solana Wallet Cleanup Tool | Burn Dust Tokens & Reclaim SOL Rent",
+  title: "Wallet Cleanup - Burn Dust & Reclaim SOL",
   description: "Free Solana wallet cleanup tool. Burn dust tokens under $1, close empty token accounts, and reclaim ~0.002 SOL per account. Clean your wallet and recover locked SOL instantly.",
   keywords: [
     "Solana wallet cleanup",

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Solana Tools | Wallet Cleanup, Portfolio Analyzer & Airdrop Tool",
+  title: "Solana Tools - Wallet Utilities & Analytics",
   description: "Free Solana tools suite: Clean your wallet by burning dust tokens, analyze portfolio with PnL tracking, and airdrop tokens to multiple wallets. Essential utilities for Solana users.",
   keywords: [
     "Solana tools",

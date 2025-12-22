@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Solana Token Locker | Lock LP & SPL Tokens | Prevent Rug Pulls",
+  title: "Token & LP Locker - Secure Liquidity Locks",
   description: "Free Solana token locker to lock LP tokens and SPL tokens. Secure liquidity locking for Raydium, Meteora & more. Build investor trust, prevent rug pulls, and show locked liquidity on DexScreener.",
   keywords: [
     "Solana token locker",

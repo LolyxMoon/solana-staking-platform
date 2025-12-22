@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Solana Smart Contract Audit Tool | Security Analysis & Code Review",
+  title: "Smart Contract Audit - Security Analysis",
   description: "Free Solana smart contract audit tool. Analyze program security, detect vulnerabilities, and review code safety before interacting with DeFi protocols.",
   keywords: [
     "Solana smart contract audit",
