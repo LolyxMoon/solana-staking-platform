@@ -126,7 +126,7 @@ export default function RootLayout({
             </PoolDataProvider>
           </SolanaWalletProvider>
         </ThemeProvider>
-        <ChatWidgetLoader logoUrl="/favicon.jpg" primaryColor="#6366f1" />
+        <ChatWidgetLoader logoUrl="/chat-icon.jpg" primaryColor="#6366f1" />
       </body>
     </html>
   );

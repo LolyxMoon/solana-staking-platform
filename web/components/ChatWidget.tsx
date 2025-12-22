@@ -74,7 +74,7 @@ function setVisitorCookie(uuid: string): void {
 export default function ChatWidget({
   position = 'bottom-right',
   primaryColor = '#fb57ff',
-  logoUrl = '/favicon.jpg',
+  logoUrl = '/chat-icon.jpg',
   welcomeMessage = 'Hi! 👋 How can we help you today?',
   placeholderText = 'Type your message...'
 }: ChatWidgetProps) {
