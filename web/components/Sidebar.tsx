@@ -11,6 +11,7 @@ const navItems = [
   // { name: "Farming", href: "/lp-pools", icon: Coins },
   { name: "Locks", href: "/locks", icon: Lock },
   { name: "Swap", href: "/swap", icon: ArrowDownUp },
+  { name: "StakePoint Token \"$SPT\"", href: "/spt", icon: Coins },
   { name: "Tools", href: "/tools", icon: Wrench }, 
   { name: "Whale Club", href: "/whale-club", icon: Crown },
   { name: "Refer & Earn", href: "/refer", icon: Gift },
