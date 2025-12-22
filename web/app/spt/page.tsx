@@ -28,7 +28,6 @@ const SPT_MINT = "6uUU2z5GBasaxnkcqiQVHa2SXL68mAXDsq1zYN5Qxrm7";
 const SPT_DECIMALS = 9;
 const SPT_SYMBOL = "SPT";
 const SPT_NAME = "StakePoint";
-const SPT_LOGO = "https://cdn.dexscreener.com/cms/images/d5871db9c8d541b8c38ead1cd8d3f2e72ec9f6a1aec5e6b6a7d78e6c8a2c1234.png";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 const SOL_DECIMALS = 9;
@@ -45,14 +44,6 @@ interface TokenInfo {
   decimals: number;
   logoURI: string;
 }
-
-const SPT_TOKEN: TokenInfo = {
-  address: SPT_MINT,
-  symbol: SPT_SYMBOL,
-  name: SPT_NAME,
-  decimals: SPT_DECIMALS,
-  logoURI: SPT_LOGO,
-};
 
 const SOL_TOKEN: TokenInfo = {
   address: SOL_MINT,
@@ -71,9 +62,18 @@ export default function SPTTokenPage() {
   // Copy state
   const [copied, setCopied] = useState(false);
 
+  // SPT Token with dynamic logo from DexScreener
+  const [sptToken, setSptToken] = useState<TokenInfo>({
+    address: SPT_MINT,
+    symbol: SPT_SYMBOL,
+    name: SPT_NAME,
+    decimals: SPT_DECIMALS,
+    logoURI: "",
+  });
+
   // Swap state
   const [fromToken, setFromToken] = useState<TokenInfo>(SOL_TOKEN);
-  const [toToken, setToToken] = useState<TokenInfo>(SPT_TOKEN);
+  const [toToken, setToToken] = useState<TokenInfo | null>(null);
   const [fromAmount, setFromAmount] = useState("");
   const [toAmount, setToAmount] = useState("");
   const [quoteLoading, setQuoteLoading] = useState(false);
@@ -81,6 +81,7 @@ export default function SPTTokenPage() {
   const [slippage] = useState(1.0);
   const [tokenBalance, setTokenBalance] = useState<number | null>(null);
   const [currentQuote, setCurrentQuote] = useState<any>(null);
+  const [dataLoading, setDataLoading] = useState(true);
 
   // Live price data
   const [priceData, setPriceData] = useState<{
@@ -103,9 +104,66 @@ export default function SPTTokenPage() {
     }
   };
 
-  // Fetch live price data from DexScreener
+  // Batch fetch all SPT data from DexScreener on mount
   useEffect(() => {
-    const fetchPriceData = async () => {
+    const fetchSPTData = async () => {
+      setDataLoading(true);
+      try {
+        const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${SPT_MINT}`);
+        const data = await res.json();
+        const pair = data.pairs?.[0];
+        
+        if (pair) {
+          // Get logo from DexScreener - check multiple possible paths
+          const logoUrl = pair.info?.imageUrl 
+            || pair.baseToken?.logoURI 
+            || `https://dd.dexscreener.com/ds-data/tokens/solana/${SPT_MINT}.png`
+            || "";
+          
+          console.log("SPT Logo URL:", logoUrl);
+          
+          // Update SPT token with logo
+          const updatedSptToken: TokenInfo = {
+            address: SPT_MINT,
+            symbol: SPT_SYMBOL,
+            name: SPT_NAME,
+            decimals: SPT_DECIMALS,
+            logoURI: logoUrl,
+          };
+          
+          setSptToken(updatedSptToken);
+          setToToken(updatedSptToken);
+          
+          // Set price data
+          setPriceData({
+            priceUsd: pair.priceUsd || "0",
+            priceChange24h: pair.priceChange?.h24 || 0,
+            volume24h: pair.volume?.h24?.toString() || "0",
+            liquidity: pair.liquidity?.usd?.toString() || "0",
+            marketCap: pair.marketCap?.toString() || "0",
+          });
+        }
+      } catch (error) {
+        console.error("Failed to fetch SPT data:", error);
+        // Fallback - set toToken with direct DexScreener CDN URL
+        const fallbackToken: TokenInfo = {
+          address: SPT_MINT,
+          symbol: SPT_SYMBOL,
+          name: SPT_NAME,
+          decimals: SPT_DECIMALS,
+          logoURI: `https://dd.dexscreener.com/ds-data/tokens/solana/${SPT_MINT}.png`,
+        };
+        setSptToken(fallbackToken);
+        setToToken(fallbackToken);
+      } finally {
+        setDataLoading(false);
+      }
+    };
+
+    fetchSPTData();
+    
+    // Refresh price data every 30s
+    const interval = setInterval(async () => {
       try {
         const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${SPT_MINT}`);
         const data = await res.json();
@@ -115,18 +173,16 @@ export default function SPTTokenPage() {
           setPriceData({
             priceUsd: pair.priceUsd || "0",
             priceChange24h: pair.priceChange?.h24 || 0,
-            volume24h: pair.volume?.h24 || "0",
-            liquidity: pair.liquidity?.usd || "0",
-            marketCap: pair.marketCap || "0",
+            volume24h: pair.volume?.h24?.toString() || "0",
+            liquidity: pair.liquidity?.usd?.toString() || "0",
+            marketCap: pair.marketCap?.toString() || "0",
           });
         }
       } catch (error) {
-        console.error("Failed to fetch price data:", error);
+        console.error("Failed to refresh price data:", error);
       }
-    };
-
-    fetchPriceData();
-    const interval = setInterval(fetchPriceData, 30000); // Refresh every 30s
+    }, 30000);
+    
     return () => clearInterval(interval);
   }, []);
 
@@ -226,6 +282,7 @@ export default function SPTTokenPage() {
 
   // Switch tokens (buy/sell toggle)
   const switchTokens = () => {
+    if (!toToken) return;
     const temp = fromToken;
     setFromToken(toToken);
     setToToken(temp);
@@ -326,7 +383,7 @@ export default function SPTTokenPage() {
     return `$${n.toFixed(decimals)}`;
   };
 
-  const isBuying = toToken.address === SPT_MINT;
+  const isBuying = toToken?.address === SPT_MINT;
 
   return (
     <div className="min-h-screen">
@@ -507,11 +564,25 @@ export default function SPTTokenPage() {
                   <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-3 sm:p-4">
                     <div className="flex items-center gap-2 sm:gap-3 mb-2">
                       <div className="flex items-center gap-2 px-2 sm:px-3 py-2 bg-white/[0.05] rounded-lg">
-                        <img 
-                          src={fromToken.logoURI} 
-                          alt={fromToken.symbol} 
-                          className="w-5 h-5 sm:w-6 sm:h-6 rounded-full" 
-                        />
+                        {fromToken.logoURI ? (
+                          <img 
+                            src={fromToken.logoURI} 
+                            alt={fromToken.symbol} 
+                            className="w-5 h-5 sm:w-6 sm:h-6 rounded-full"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              if (fromToken.address === SPT_MINT && !target.src.includes('dd.dexscreener.com')) {
+                                target.src = `https://dd.dexscreener.com/ds-data/tokens/solana/${SPT_MINT}.png`;
+                              } else {
+                                target.style.display = 'none';
+                              }
+                            }}
+                          />
+                        ) : (
+                          <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}>
+                            <span className="text-[8px] font-bold text-white">{fromToken.symbol.slice(0,3)}</span>
+                          </div>
+                        )}
                         <span className="font-semibold text-sm sm:text-base">{fromToken.symbol}</span>
                       </div>
                       <input
@@ -546,12 +617,28 @@ export default function SPTTokenPage() {
                   <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-3 sm:p-4">
                     <div className="flex items-center gap-2 sm:gap-3">
                       <div className="flex items-center gap-2 px-2 sm:px-3 py-2 bg-white/[0.05] rounded-lg">
-                        <img 
-                          src={toToken.logoURI} 
-                          alt={toToken.symbol} 
-                          className="w-5 h-5 sm:w-6 sm:h-6 rounded-full" 
-                        />
-                        <span className="font-semibold text-sm sm:text-base">{toToken.symbol}</span>
+                        {toToken?.logoURI ? (
+                          <img 
+                            src={toToken.logoURI} 
+                            alt={toToken.symbol} 
+                            className="w-5 h-5 sm:w-6 sm:h-6 rounded-full"
+                            onError={(e) => {
+                              // Fallback to DexScreener CDN if image fails
+                              const target = e.target as HTMLImageElement;
+                              if (!target.src.includes('dd.dexscreener.com')) {
+                                target.src = `https://dd.dexscreener.com/ds-data/tokens/solana/${SPT_MINT}.png`;
+                              } else {
+                                // Hide broken image
+                                target.style.display = 'none';
+                              }
+                            }}
+                          />
+                        ) : (
+                          <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}>
+                            <span className="text-[8px] font-bold text-white">SPT</span>
+                          </div>
+                        )}
+                        <span className="font-semibold text-sm sm:text-base">{toToken?.symbol || "SPT"}</span>
                       </div>
                       <div className="flex-1 min-w-0 text-right text-xl sm:text-2xl font-bold">
                         {quoteLoading ? (
@@ -565,7 +652,7 @@ export default function SPTTokenPage() {
                 </div>
 
                 {/* Rate Info */}
-                {fromAmount && toAmount && (
+                {fromAmount && toAmount && toToken && (
                   <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-3 text-sm space-y-1">
                     <div className="flex justify-between">
                       <span className="text-gray-400">Rate</span>
@@ -583,7 +670,7 @@ export default function SPTTokenPage() {
                 {/* Swap Button */}
                 <button
                   onClick={handleSwap}
-                  disabled={swapping || !publicKey || !fromAmount || parseFloat(fromAmount) <= 0}
+                  disabled={swapping || !publicKey || !toToken || !fromAmount || parseFloat(fromAmount) <= 0}
                   className="w-full py-3 sm:py-4 rounded-xl font-bold text-sm sm:text-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-white min-h-[48px]"
                   style={{ background: 'linear-gradient(45deg, black, #fb57ff)' }}
                 >
