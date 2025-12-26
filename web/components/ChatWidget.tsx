@@ -79,6 +79,7 @@ export default function ChatWidget({
   placeholderText = 'Type your message...'
 }: ChatWidgetProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -92,12 +93,26 @@ export default function ChatWidget({
   const inputRef = useRef<HTMLInputElement>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize
+  // Initialize - check localStorage for minimized state
   useEffect(() => {
     const uuid = getOrCreateVisitorUUID();
     setVisitorUUID(uuid);
+    
+    // Restore minimized state from localStorage
+    const savedMinimized = localStorage.getItem('sp_chat_minimized');
+    if (savedMinimized === 'true') {
+      setIsMinimized(true);
+    }
+    
     setIsLoaded(true);
   }, []);
+
+  // Save minimized state to localStorage
+  useEffect(() => {
+    if (isLoaded) {
+      localStorage.setItem('sp_chat_minimized', isMinimized.toString());
+    }
+  }, [isMinimized, isLoaded]);
 
   // Load existing conversation when opened
   useEffect(() => {
@@ -260,7 +275,72 @@ export default function ChatWidget({
     }
   };
 
+  // Handle minimize toggle
+  const handleMinimize = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsMinimized(true);
+    setIsOpen(false);
+  };
+
   if (!isLoaded) return null;
+
+  // Minimized state - just a small tab on the edge
+  if (isMinimized) {
+    return (
+      <div
+        className="sp-chat-widget"
+        style={{
+          position: 'fixed',
+          [position === 'bottom-right' ? 'right' : 'left']: '0',
+          bottom: '100px',
+          zIndex: 9999
+        }}
+      >
+        <button
+          onClick={() => setIsMinimized(false)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '32px',
+            height: '48px',
+            background: 'linear-gradient(45deg, #0a0a0f, #1a1a2e)',
+            border: '1px solid rgba(251, 87, 255, 0.3)',
+            borderLeft: position === 'bottom-right' ? '1px solid rgba(251, 87, 255, 0.3)' : 'none',
+            borderRight: position === 'bottom-left' ? '1px solid rgba(251, 87, 255, 0.3)' : 'none',
+            [position === 'bottom-right' ? 'borderTopLeftRadius' : 'borderTopRightRadius']: '8px',
+            [position === 'bottom-right' ? 'borderBottomLeftRadius' : 'borderBottomRightRadius']: '8px',
+            cursor: 'pointer',
+            boxShadow: '0 2px 10px rgba(251, 87, 255, 0.2)',
+            transition: 'all 0.2s ease'
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.width = '40px';
+            e.currentTarget.style.boxShadow = '0 4px 15px rgba(251, 87, 255, 0.4)';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.width = '32px';
+            e.currentTarget.style.boxShadow = '0 2px 10px rgba(251, 87, 255, 0.2)';
+          }}
+          title="Open Support Chat"
+        >
+          <svg 
+            width="16" 
+            height="16" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="#fb57ff" 
+            strokeWidth="2"
+            style={{
+              transform: position === 'bottom-right' ? 'rotate(180deg)' : 'none'
+            }}
+          >
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -345,6 +425,32 @@ export default function ChatWidget({
                   {!isConnected ? 'Connecting...' : adminOnline ? 'Online' : 'Away'}
                 </div>
               </div>
+              {/* Minimize Button */}
+              <button
+                onClick={handleMinimize}
+                title="Minimize chat"
+                style={{
+                  background: 'rgba(255,255,255,0.05)', 
+                  border: '1px solid rgba(255,255,255,0.05)', 
+                  borderRadius: '10px',
+                  width: '36px', height: '36px', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', fontSize: '20px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.2s'
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                  e.currentTarget.style.color = 'white';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                  e.currentTarget.style.color = 'rgba(255,255,255,0.6)';
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M19 12H5" />
+                </svg>
+              </button>
+              {/* Close Button */}
               <button
                 onClick={() => setIsOpen(false)}
                 style={{
@@ -490,91 +596,127 @@ export default function ChatWidget({
         )}
 
         {/* Speech Bubble Toggle Button */}
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            padding: isOpen ? '12px' : '10px 18px 10px 12px',
-            borderRadius: isOpen ? '50%' : '50px',
-            background: 'linear-gradient(45deg, #0a0a0f, #1a1a2e)',
-            border: '1px solid rgba(251, 87, 255, 0.3)',
-            cursor: 'pointer',
-            boxShadow: '0 4px 20px rgba(251, 87, 255, 0.3)',
-            transition: 'all 0.3s ease',
-            animation: isOpen ? 'none' : 'sp-bubble-pulse 2s ease-in-out infinite',
-            position: 'relative',
-            overflow: 'hidden'
-          }}
-          onMouseOver={(e) => {
-            e.currentTarget.style.transform = 'scale(1.05)';
-            e.currentTarget.style.boxShadow = '0 6px 25px rgba(251, 87, 255, 0.5)';
-          }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.transform = 'scale(1)';
-            e.currentTarget.style.boxShadow = '0 4px 20px rgba(251, 87, 255, 0.3)';
-          }}
-        >
-          {/* Logo */}
-          <div style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '10px',
-            background: 'linear-gradient(45deg, black, #fb57ff)',
-            padding: '2px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'transform 0.3s',
-            transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)'
-          }}>
-            {isOpen ? (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Minimize/Hide Button - only shown when chat is closed */}
+          {!isOpen && (
+            <button
+              onClick={() => setIsMinimized(true)}
+              title="Hide support button"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '28px',
+                height: '28px',
+                background: 'rgba(0,0,0,0.6)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '50%',
+                cursor: 'pointer',
+                color: 'rgba(255,255,255,0.4)',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.color = 'rgba(255,255,255,0.8)';
+                e.currentTarget.style.borderColor = 'rgba(251, 87, 255, 0.3)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.color = 'rgba(255,255,255,0.4)';
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M18 6L6 18M6 6l12 12" />
               </svg>
-            ) : (
-              <img
-                src={logoUrl}
-                alt="Support"
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  borderRadius: '8px',
-                  objectFit: 'cover'
-                }}
-              />
-            )}
-          </div>
-          
-          {/* Support Text */}
-          {!isOpen && (
-            <span style={{
-              color: 'white',
-              fontWeight: 600,
-              fontSize: '14px',
-              letterSpacing: '0.3px',
-              whiteSpace: 'nowrap'
-            }}>
-              Support
-            </span>
+            </button>
           )}
           
-          {/* Speech bubble tail */}
-          {!isOpen && (
+          {/* Main Support Button */}
+          <button
+            onClick={() => setIsOpen(!isOpen)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: isOpen ? '12px' : '10px 18px 10px 12px',
+              borderRadius: isOpen ? '50%' : '50px',
+              background: 'linear-gradient(45deg, #0a0a0f, #1a1a2e)',
+              border: '1px solid rgba(251, 87, 255, 0.3)',
+              cursor: 'pointer',
+              boxShadow: '0 4px 20px rgba(251, 87, 255, 0.3)',
+              transition: 'all 0.3s ease',
+              animation: isOpen ? 'none' : 'sp-bubble-pulse 2s ease-in-out infinite',
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.transform = 'scale(1.05)';
+              e.currentTarget.style.boxShadow = '0 6px 25px rgba(251, 87, 255, 0.5)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.transform = 'scale(1)';
+              e.currentTarget.style.boxShadow = '0 4px 20px rgba(251, 87, 255, 0.3)';
+            }}
+          >
+            {/* Logo */}
             <div style={{
-              position: 'absolute',
-              bottom: '-6px',
-              right: '20px',
-              width: '12px',
-              height: '12px',
-              background: 'linear-gradient(135deg, #1a1a2e, #0a0a0f)',
-              transform: 'rotate(45deg)',
-              borderRight: '1px solid rgba(251, 87, 255, 0.3)',
-              borderBottom: '1px solid rgba(251, 87, 255, 0.3)'
-            }} />
-          )}
-        </button>
+              width: '36px',
+              height: '36px',
+              borderRadius: '10px',
+              background: 'linear-gradient(45deg, black, #fb57ff)',
+              padding: '2px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'transform 0.3s',
+              transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)'
+            }}>
+              {isOpen ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              ) : (
+                <img
+                  src={logoUrl}
+                  alt="Support"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    borderRadius: '8px',
+                    objectFit: 'cover'
+                  }}
+                />
+              )}
+            </div>
+            
+            {/* Support Text */}
+            {!isOpen && (
+              <span style={{
+                color: 'white',
+                fontWeight: 600,
+                fontSize: '14px',
+                letterSpacing: '0.3px',
+                whiteSpace: 'nowrap'
+              }}>
+                Support
+              </span>
+            )}
+            
+            {/* Speech bubble tail */}
+            {!isOpen && (
+              <div style={{
+                position: 'absolute',
+                bottom: '-6px',
+                right: '20px',
+                width: '12px',
+                height: '12px',
+                background: 'linear-gradient(135deg, #1a1a2e, #0a0a0f)',
+                transform: 'rotate(45deg)',
+                borderRight: '1px solid rgba(251, 87, 255, 0.3)',
+                borderBottom: '1px solid rgba(251, 87, 255, 0.3)'
+              }} />
+            )}
+          </button>
+        </div>
       </div>
     </>
   );
