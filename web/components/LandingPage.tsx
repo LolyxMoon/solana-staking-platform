@@ -185,7 +185,20 @@ export default function LandingPage() {
       };
 
       // Use passed pools data instead of fetching again
-      const visiblePools = poolsData ? poolsData.filter((p: any) => !p.hidden) : [];
+      // Filter out hidden and expired pools
+      const now = new Date();
+      const visiblePools = poolsData ? poolsData.filter((p: any) => {
+        if (p.hidden) return false;
+        
+        // Check if pool has expired (createdAt + duration < now)
+        if (p.createdAt && p.duration) {
+          const createdAt = new Date(p.createdAt);
+          const endDate = new Date(createdAt.getTime() + (p.duration * 24 * 60 * 60 * 1000));
+          if (endDate < now) return false;
+        }
+        
+        return true;
+      }) : [];
 
       const poolsWithRate = visiblePools.filter((p: any) => p.liveRate && p.liveRate > 0);
       const averageRate = poolsWithRate.length > 0 
