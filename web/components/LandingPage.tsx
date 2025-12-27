@@ -460,11 +460,11 @@ export default function LandingPage() {
                             <div
                               key={pool.id}
                               onClick={() => router.push(`/pool/${pool.id}`)}
-                              className="relative group p-4 bg-white/[0.03] hover:bg-white/[0.06] rounded-xl transition-all cursor-pointer border border-white/[0.08] hover:scale-[1.02]"
+                              className="relative group p-3 sm:p-4 bg-white/[0.03] hover:bg-white/[0.06] rounded-xl transition-all cursor-pointer border border-white/[0.08] hover:scale-[1.02]"
                               onMouseEnter={(e) => e.currentTarget.style.borderColor = 'rgba(251, 87, 255, 0.4)'}
                               onMouseLeave={(e) => e.currentTarget.style.borderColor = ''}
                             >
-                              <div className="flex items-center gap-4">
+                              <div className="flex items-center gap-2 sm:gap-4">
                                 <div 
                                   className="absolute -top-2 -left-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-lg"
                                   style={{ 
@@ -478,7 +478,7 @@ export default function LandingPage() {
                                   {index + 1}
                                 </div>
                                 
-                                <div className="relative">
+                                <div className="relative flex-shrink-0">
                                   <div 
                                     className="absolute inset-0 rounded-full blur-md opacity-60"
                                     style={{ background: glowColor, transform: 'scale(1.2)' }}
@@ -487,12 +487,12 @@ export default function LandingPage() {
                                     <img
                                       src={pool.logo}
                                       alt={pool.symbol}
-                                      className="relative w-14 h-14 rounded-full ring-2"
+                                      className="relative w-10 h-10 sm:w-14 sm:h-14 rounded-full ring-2"
                                       style={{ ringColor: glowColor, boxShadow: `0 0 20px ${glowColor}40` }}
                                     />
                                   ) : (
                                     <div 
-                                      className="relative w-14 h-14 rounded-full flex items-center justify-center font-bold text-base ring-2"
+                                      className="relative w-10 h-10 sm:w-14 sm:h-14 rounded-full flex items-center justify-center font-bold text-sm sm:text-base ring-2"
                                       style={{ 
                                         background: `linear-gradient(135deg, ${glowColor}30, ${glowColor}10)`, 
                                         color: glowColor,
@@ -506,15 +506,15 @@ export default function LandingPage() {
                                 </div>
                                 
                                 <div className="flex-1 min-w-0">
-                                  <p className="font-bold text-white text-base truncate">
+                                  <p className="font-bold text-white text-sm sm:text-base truncate max-w-[100px] sm:max-w-none">
                                     {pool.name}
                                   </p>
-                                  <p className="text-sm text-gray-400">{pool.symbol}</p>
+                                  <p className="text-xs sm:text-sm text-gray-400">{pool.symbol}</p>
                                 </div>
                                 
-                                <div className="text-right">
+                                <div className="text-right flex-shrink-0">
                                   <p 
-                                    className="text-lg font-bold"
+                                    className="text-base sm:text-lg font-bold"
                                     style={{ 
                                       color: pool.liveRate && pool.liveRate > 100 ? '#10b981' : 
                                              pool.liveRate && pool.liveRate > 50 ? '#00d4ff' : '#fb57ff',
