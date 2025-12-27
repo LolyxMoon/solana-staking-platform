@@ -2,7 +2,7 @@
 import { confirmTransactionPolling } from "@/lib/confirmTransaction";
 import { useState, useEffect } from "react";
 import { useWallet, useConnection, useAnchorWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, SystemProgram, Transaction, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
+import { PublicKey, SystemProgram, Transaction, SYSVAR_RENT_PUBKEY, ComputeBudgetProgram } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { Plus, X, Loader2, Check, AlertCircle, Code } from "lucide-react";
 import { getProgram, getPDAs } from "@/lib/anchor-program";
