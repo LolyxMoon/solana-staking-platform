@@ -127,7 +127,6 @@ export async function GET() {
     const pools = await prisma.pool.findMany({
       where: {
         hidden: false,
-        isPaused: false
       },
       orderBy: [
         { featured: 'desc' },
