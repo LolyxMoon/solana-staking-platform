@@ -38,8 +38,8 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
   const [sortBy, setSortBy] = useState<"az" | "za" | "rate" | "newest">("az");
   const [filterType, setFilterType] = useState<"all" | "locked" | "unlocked">("all");
   const [filterFeatured, setFilterFeatured] = useState(false);
-  const [apyMin, setApyMin] = useState<number>(0);
-  const [apyMax, setApyMax] = useState<number>(1000);
+  const [aprMin, setAprMin] = useState<number>(0);
+  const [aprMax, setAprMax] = useState<number>(1000);
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -141,8 +141,8 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
     if (filterType !== "all" && pool.type !== filterType) return false;
     if (filterFeatured && !pool.featured) return false;
 
-    const rate = dynamicRates.get(pool.id) ?? (pool.type === "locked" ? Number(pool.apy ?? 0) : Number(pool.apr ?? 0));
-    if (rate < apyMin || rate > apyMax) return false;
+    const rate = dynamicRates.get(pool.id) ?? Number(pool.apr ?? pool.apy ?? 0);
+    if (rate < aprMin || rate > aprMax) return false;
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -159,8 +159,8 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
     if (sortBy === "az") return a.name.localeCompare(b.name);
     if (sortBy === "za") return b.name.localeCompare(a.name);
     if (sortBy === "rate") {
-      const rateA = dynamicRates.get(a.id) ?? (a.type === "locked" ? Number(a.apy ?? 0) : Number(a.apr ?? 0));
-      const rateB = dynamicRates.get(b.id) ?? (b.type === "locked" ? Number(b.apy ?? 0) : Number(b.apr ?? 0));
+      const rateA = dynamicRates.get(a.id) ?? Number(a.apr ?? a.apy ?? 0);
+      const rateB = dynamicRates.get(b.id) ?? Number(b.apr ?? b.apy ?? 0);
       return rateB - rateA;
     }
     if (sortBy === "newest") {
@@ -175,17 +175,17 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
   const clearFilters = () => {
     setFilterType("all");
     setFilterFeatured(false);
-    setApyMin(0);
-    setApyMax(1000);
+    setAprMin(0);
+    setAprMax(1000);
     setSearchQuery("");
     showInfo("Filters cleared!");
   };
 
-  const hasActiveFilters = filterType !== "all" || filterFeatured || apyMin > 0 || apyMax < 1000 || searchQuery !== "";
+  const hasActiveFilters = filterType !== "all" || filterFeatured || aprMin > 0 || aprMax < 1000 || searchQuery !== "";
 
   // Helper to get rate (dynamic or fallback to database)
   const getPoolRate = (pool: Pool): number => {
-    return dynamicRates.get(pool.id) ?? (pool.type === "locked" ? Number(pool.apy ?? 0) : Number(pool.apr ?? 0));
+    return dynamicRates.get(pool.id) ?? Number(pool.apr ?? pool.apy ?? 0);
   };
 
   // Helper to get TVL (dynamic or fallback to database)
@@ -353,31 +353,30 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
               </select>
             </div>
 
-            {/* APY/APR Range - MOBILE RESPONSIVE */}
+            {/* APR Range - MOBILE RESPONSIVE */}
             <div className="sm:col-span-2 lg:col-span-1">
-              <label className="block text-xs sm:text-sm text-gray-400 mb-2 font-medium">Min Rate (%)</label>
+              <label className="block text-xs sm:text-sm text-gray-400 mb-2 font-medium">Min APR (%)</label>
               <input
                 type="number"
                 min="0"
-                max={apyMax}
-                value={apyMin}
-                onChange={(e) => setApyMin(Number(e.target.value))}
+                max={aprMax}
+                value={aprMin}
+                onChange={(e) => setAprMin(Number(e.target.value))}
                 className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-white/[0.02] border border-white/[0.05] rounded-lg text-white focus:outline-none transition-colors text-sm sm:text-base min-h-[48px]"
               />
             </div>
 
             <div className="sm:col-span-2 lg:col-span-1">
-              <label className="block text-xs sm:text-sm text-gray-400 mb-2 font-medium">Max Rate (%)</label>
+              <label className="block text-xs sm:text-sm text-gray-400 mb-2 font-medium">Max APR (%)</label>
               <input
                 type="number"
-                min={apyMin}
+                min={aprMin}
                 max="1000"
-                value={apyMax}
-                onChange={(e) => setApyMax(Number(e.target.value))}
+                value={aprMax}
+                onChange={(e) => setAprMax(Number(e.target.value))}
                 className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-white/[0.02] border border-white/[0.05] rounded-lg text-white focus:outline-none transition-colors text-sm sm:text-base min-h-[48px]"
               />
             </div>
-          </div>
 
           {/* Featured Toggle & Clear Button - MOBILE RESPONSIVE */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
@@ -447,7 +446,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
           <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2 text-xs text-gray-400 font-medium border-b border-white/[0.05]">
             <div className="col-span-2">Pool</div>
             <div className="col-span-1 text-center">Type</div>
-            <div className="col-span-2 text-center">APR/APY</div>
+            <div className="col-span-2 text-center">APR</div>
             <div className="col-span-2 text-center">Lock Period</div>
             <div className="col-span-2 text-center">Total Staked</div>
             <div className="col-span-3 text-center">Actions</div>
@@ -504,7 +503,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
                     <p className="font-bold text-sm" style={{ color: '#fb57ff' }}>
                       {getPoolRate(pool).toFixed(2)}%
                     </p>
-                    <p className="text-gray-400 text-xs">{pool.type === "locked" ? "APY" : "APR"}</p>
+                    <p className="text-gray-400 text-xs">APR</p>
                   </div>
 
                   {/* Lock Period */}
