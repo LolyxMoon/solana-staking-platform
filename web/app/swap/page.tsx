@@ -10,7 +10,8 @@ import TokenSelectModal from "./TokenSelectModal";
 import { useSearchParams } from "next/navigation";
 import { useSound } from '@/hooks/useSound';
 import { executeJupiterSwap, getJupiterQuote } from "@/lib/jupiter-swap";
-import { Suspense } from "react";
+import { Suspense, useCallback } from "react";
+import { usePoolData } from "@/hooks/usePoolData";
 
 interface SwapSuccessModalProps {
   isOpen: boolean;
@@ -137,6 +138,7 @@ function SwapPageContent() {
 
   const { playSound } = useSound();
   const searchParams = useSearchParams();
+  const { getUserTokenBalance, getSolBalance, loadUserData } = usePoolData();
 
   // State
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -360,56 +362,23 @@ function SwapPageContent() {
     return () => clearTimeout(timer);
   }, [fromToken, toToken, fromAmount, slippage]);
 
-  // Fetch token balance
-  useEffect(() => {
-    if (publicKey && fromToken) {
-      fetchTokenBalance();
+  // Fetch token balance from cache (NO RPC calls!)
+  const fetchTokenBalance = useCallback(() => {
+    if (!publicKey || !fromToken) {
+      setTokenBalance(null);
+      return;
+    }
+
+    if (fromToken.address === "So11111111111111111111111111111111111111112") {
+      setTokenBalance(getSolBalance());
     } else {
-      setTokenBalance(null);
+      setTokenBalance(getUserTokenBalance(fromToken.address));
     }
-  }, [publicKey, fromToken]);
+  }, [publicKey, fromToken, getSolBalance, getUserTokenBalance]);
 
-  const fetchTokenBalance = async () => {
-    if (!publicKey || !fromToken) return;
-
-    try {
-      // For SOL (native token)
-      if (fromToken.address === "So11111111111111111111111111111111111111112") {
-        const balance = await connection.getBalance(publicKey);
-        setTokenBalance(balance / Math.pow(10, 9));
-      } else {
-        // For SPL tokens
-        const tokenMint = new PublicKey(fromToken.address);
-        const tokenAccount = await getAssociatedTokenAddress(tokenMint, publicKey);
-        
-        try {
-          const accountInfo = await getAccount(connection, tokenAccount);
-          const balance = Number(accountInfo.amount) / Math.pow(10, fromToken.decimals);
-          setTokenBalance(balance);
-        } catch (splError: any) {
-          // Try Token-2022
-          try {
-            const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
-            const token2022Account = await getAssociatedTokenAddress(
-              tokenMint,
-              publicKey,
-              false,
-              TOKEN_2022_PROGRAM_ID
-            );
-            
-            const accountInfo = await getAccount(connection, token2022Account, undefined, TOKEN_2022_PROGRAM_ID);
-            const balance = Number(accountInfo.amount) / Math.pow(10, fromToken.decimals);
-            setTokenBalance(balance);
-          } catch (token2022Error: any) {
-            setTokenBalance(0);
-          }
-        }
-      }
-    } catch (error) {
-      console.error("❌ Failed to fetch balance:", error);
-      setTokenBalance(null);
-    }
-  };
+  useEffect(() => {
+    fetchTokenBalance();
+  }, [fetchTokenBalance]);
 
   const handleHalfAmount = () => {
     if (tokenBalance === null) return;
@@ -567,7 +536,7 @@ function SwapPageContent() {
             setFromAmount("");
             setToAmount("");
             setCurrentQuote(null);
-            fetchTokenBalance();
+            loadUserData();
           } else if (status.value?.err) {
             throw new Error(`Transaction failed: ${JSON.stringify(status.value.err)}`);
           }
@@ -578,7 +547,7 @@ function SwapPageContent() {
           showInfo('⏳ Swap sent - check wallet for confirmation');
           setFromAmount("");
           setToAmount("");
-          fetchTokenBalance();
+          loadUserData();
         }
         
       } catch (confirmError: any) {
@@ -586,7 +555,7 @@ function SwapPageContent() {
         showInfo('⏳ Swap sent - check wallet for confirmation');
         setFromAmount("");
         setToAmount("");
-        fetchTokenBalance();
+        loadUserData();
       }
     
       // Record stats
