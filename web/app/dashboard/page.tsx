@@ -21,6 +21,7 @@ import { useRouter } from "next/navigation";
 import { UserStakedPools } from "@/components/UserStakedPools";
 import { usePoolData } from "@/hooks/usePoolData";
 import { useStakingProgram } from "@/hooks/useStakingProgram";
+import { calculatePendingRewards } from "@/utils/calculatePendingRewards";
 import { toast } from "sonner";
 
 type FeaturedPool = {
@@ -89,6 +90,7 @@ export default function Dashboard() {
     getPoolProject, 
     getUserStake: getCachedUserStake,
     getDecimals,
+    getPrice,
     isPoolDataLoading 
   } = usePoolData();
   const { claimRewards, stake } = useStakingProgram();
@@ -113,26 +115,48 @@ export default function Dashboard() {
   const [referralLoading, setReferralLoading] = useState(false);
   const [claimingAll, setClaimingAll] = useState(false);
   const [compounding, setCompounding] = useState(false);
+  const [rewardsRefreshTick, setRewardsRefreshTick] = useState(0);
 
-  // Calculate pending rewards from CACHED data (no extra RPC calls)
+  // Real-time rewards ticker - updates calculation every second
+  useEffect(() => {
+    if (!connected || userStakes.length === 0) return;
+    
+    const interval = setInterval(() => {
+      setRewardsRefreshTick(prev => prev + 1);
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [connected, userStakes.length]);
+
+  // Calculate pending rewards DYNAMICALLY using existing utility
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const stakesWithCachedData = useMemo(() => {
     return userStakes.map(stake => {
-      // Get cached on-chain stake data from usePoolData context
       const cachedStake = getCachedUserStake(stake.tokenMint, stake.poolId);
-      
-      // Use getDecimals from usePoolData (more reliable than project.decimals)
+      const cachedProject = getPoolProject(stake.tokenMint, stake.poolId);
       const decimals = getDecimals(stake.tokenMint);
-      const pendingRewards = cachedStake?.rewardsPending 
-        ? Number(cachedStake.rewardsPending.toString()) / Math.pow(10, decimals)
+      const { price } = getPrice(stake.tokenMint);
+      
+      // Use existing calculatePendingRewards utility
+      const pendingRewards = cachedProject && cachedStake 
+        ? calculatePendingRewards(cachedProject, cachedStake, decimals)
         : 0;
+      
+      const stakedAmountHuman = Number(stake.stakedAmount) / Math.pow(10, decimals);
+      const stakedUsd = price ? stakedAmountHuman * price : null;
+      const pendingUsd = price ? pendingRewards * price : null;
       
       return {
         ...stake,
         pendingRewards,
         decimals,
+        stakedAmountHuman,
+        stakedUsd,
+        pendingUsd,
+        price,
       };
     });
-  }, [userStakes, getCachedUserStake, getDecimals]);
+  }, [userStakes, getCachedUserStake, getPoolProject, getDecimals, getPrice, rewardsRefreshTick]);
 
   // Calculate totals from cached user stakes
   const totalPendingRewards = useMemo(() => 
@@ -141,12 +165,23 @@ export default function Dashboard() {
   );
   
   const totalStakedValue = useMemo(() => 
-    stakesWithCachedData.reduce((sum, stake) => {
-      const decimals = stake.decimals || 9;
-      return sum + (Number(stake.stakedAmount) / Math.pow(10, decimals));
-    }, 0),
+    stakesWithCachedData.reduce((sum, stake) => sum + stake.stakedAmountHuman, 0),
     [stakesWithCachedData]
   );
+
+  const totalStakedUsd = useMemo(() => {
+    const total = stakesWithCachedData.reduce((sum, stake) => {
+      return sum + (stake.stakedUsd || 0);
+    }, 0);
+    return total > 0 ? total : null;
+  }, [stakesWithCachedData]);
+
+  const totalPendingUsd = useMemo(() => {
+    const total = stakesWithCachedData.reduce((sum, stake) => {
+      return sum + (stake.pendingUsd || 0);
+    }, 0);
+    return total > 0 ? total : null;
+  }, [stakesWithCachedData]);
   
   const stakesWithRewards = useMemo(() => 
     stakesWithCachedData.filter(stake => stake.pendingRewards > 0),
@@ -502,6 +537,12 @@ export default function Dashboard() {
     return num.toLocaleString(undefined, { maximumFractionDigits: decimals });
   };
 
+  const formatUsd = (amount: number | null) => {
+    if (amount === null || amount === 0) return null;
+    if (amount < 0.01) return '< $0.01';
+    return `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
   return (
     <div className="min-h-screen p-4 sm:p-6">
       <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
@@ -531,10 +572,13 @@ export default function Dashboard() {
               ) : (
                 <>
                   <div className="text-2xl sm:text-3xl font-bold text-white">
-                    {formatNumber(totalStakedValue)}
+                    {totalStakedUsd ? formatUsd(totalStakedUsd) : formatNumber(totalStakedValue)}
                   </div>
                   <div className="text-sm text-gray-400 mt-1">
-                    Across {userStakes.length} pool{userStakes.length !== 1 ? 's' : ''}
+                    {totalStakedUsd 
+                      ? `${formatNumber(totalStakedValue)} tokens · ${userStakes.length} pool${userStakes.length !== 1 ? 's' : ''}`
+                      : `Across ${userStakes.length} pool${userStakes.length !== 1 ? 's' : ''}`
+                    }
                   </div>
                 </>
               )}
@@ -554,10 +598,13 @@ export default function Dashboard() {
               ) : (
                 <>
                   <div className="text-2xl sm:text-3xl font-bold" style={{ color: '#fb57ff' }}>
-                    {formatNumber(totalPendingRewards, 4)}
+                    {totalPendingUsd ? formatUsd(totalPendingUsd) : formatNumber(totalPendingRewards, 4)}
                   </div>
                   <div className="text-sm text-gray-400 mt-1">
-                    From {stakesWithRewards.length} pool{stakesWithRewards.length !== 1 ? 's' : ''} with rewards
+                    {totalPendingUsd 
+                      ? `${formatNumber(totalPendingRewards, 4)} tokens · ${stakesWithRewards.length} pool${stakesWithRewards.length !== 1 ? 's' : ''}`
+                      : `From ${stakesWithRewards.length} pool${stakesWithRewards.length !== 1 ? 's' : ''} with rewards`
+                    }
                   </div>
                 </>
               )}
