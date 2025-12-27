@@ -1,10 +1,27 @@
 "use client";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { TrendingUp, Users, ArrowUpRight, ArrowDownRight, Gift, AlertTriangle, ExternalLink, Coins } from "lucide-react";
-import { useState, useEffect } from "react";
+import { 
+  TrendingUp, 
+  Users, 
+  ArrowUpRight, 
+  ArrowDownRight, 
+  Gift, 
+  AlertTriangle, 
+  ExternalLink, 
+  Coins,
+  Wallet,
+  RefreshCw,
+  Zap,
+  Link2,
+  ChevronRight,
+  Loader2
+} from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { UserStakedPools } from "@/components/UserStakedPools";
 import { usePoolData } from "@/hooks/usePoolData";
+import { useStakingProgram } from "@/hooks/useStakingProgram";
+import { toast } from "sonner";
 
 type FeaturedPool = {
   id: string;
@@ -19,6 +36,7 @@ type FeaturedPool = {
   featured: boolean;
   hidden?: boolean; 
   featuredOrder?: number;
+  decimals?: number;
 };
 
 type Activity = {
@@ -34,13 +52,51 @@ type Activity = {
   };
 };
 
+type UserStakeFromAPI = {
+  id: string;
+  tokenMint: string;
+  poolId: number;
+  stakedAmount: string;
+  stakePda: string;
+  poolName: string;
+  poolSymbol: string;
+  poolLogo: string | null;
+  apy: number | null;
+  apr: number | null;
+  type: "locked" | "unlocked";
+};
+
+type ReferralStats = {
+  totalReferrals: number;
+  referredPools: {
+    id: string;
+    name: string;
+    symbol: string;
+    logo?: string;
+    createdAt: string;
+    referralSplitPercent: number;
+  }[];
+};
+
 export default function Dashboard() {
   const { connected, publicKey } = useWallet();
   const router = useRouter();
+  
+  // Hooks - use cached data from usePoolData to avoid hammering RPC
+  const { 
+    loadAllPoolData,
+    loadPoolsData,
+    getPoolProject, 
+    getUserStake: getCachedUserStake,
+    getDecimals,
+    isPoolDataLoading 
+  } = usePoolData();
+  const { claimRewards, stake } = useStakingProgram();
+  
+  // Existing state
   const [featuredPools, setFeaturedPools] = useState<FeaturedPool[]>([]);
   const [loading, setLoading] = useState(true);
   const [dynamicRates, setDynamicRates] = useState<Map<string, number>>(new Map());
-  const { loadAllPoolData, getPoolProject, isPoolDataLoading } = usePoolData();
   const [activities, setActivities] = useState<Activity[]>([]);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
   const [stats, setStats] = useState({
@@ -49,6 +105,127 @@ export default function Dashboard() {
     totalStakes: 0
   });
   const [statsLoading, setStatsLoading] = useState(true);
+
+  // New state for enhanced features
+  const [userStakes, setUserStakes] = useState<UserStakeFromAPI[]>([]);
+  const [userStakesLoading, setUserStakesLoading] = useState(false);
+  const [referralStats, setReferralStats] = useState<ReferralStats | null>(null);
+  const [referralLoading, setReferralLoading] = useState(false);
+  const [claimingAll, setClaimingAll] = useState(false);
+  const [compounding, setCompounding] = useState(false);
+
+  // Calculate pending rewards from CACHED data (no extra RPC calls)
+  const stakesWithCachedData = useMemo(() => {
+    return userStakes.map(stake => {
+      // Get cached on-chain stake data from usePoolData context
+      const cachedStake = getCachedUserStake(stake.tokenMint, stake.poolId);
+      
+      // Use getDecimals from usePoolData (more reliable than project.decimals)
+      const decimals = getDecimals(stake.tokenMint);
+      const pendingRewards = cachedStake?.rewardsPending 
+        ? Number(cachedStake.rewardsPending.toString()) / Math.pow(10, decimals)
+        : 0;
+      
+      return {
+        ...stake,
+        pendingRewards,
+        decimals,
+      };
+    });
+  }, [userStakes, getCachedUserStake, getDecimals]);
+
+  // Calculate totals from cached user stakes
+  const totalPendingRewards = useMemo(() => 
+    stakesWithCachedData.reduce((sum, stake) => sum + stake.pendingRewards, 0),
+    [stakesWithCachedData]
+  );
+  
+  const totalStakedValue = useMemo(() => 
+    stakesWithCachedData.reduce((sum, stake) => {
+      const decimals = stake.decimals || 9;
+      return sum + (Number(stake.stakedAmount) / Math.pow(10, decimals));
+    }, 0),
+    [stakesWithCachedData]
+  );
+  
+  const stakesWithRewards = useMemo(() => 
+    stakesWithCachedData.filter(stake => stake.pendingRewards > 0),
+    [stakesWithCachedData]
+  );
+
+  // Fetch user stakes from API (database) - no RPC calls
+  const fetchUserStakes = useCallback(async () => {
+    if (!connected || !publicKey) {
+      setUserStakes([]);
+      return;
+    }
+
+    try {
+      setUserStakesLoading(true);
+      const response = await fetch(`/api/stakes/user/${publicKey.toString()}`);
+      if (!response.ok) throw new Error('Failed to fetch stakes');
+      const data = await response.json();
+      
+      if (!data.success || !data.stakes) {
+        setUserStakes([]);
+        return;
+      }
+
+      setUserStakes(data.stakes);
+      
+      // Batch load on-chain data for all user stakes
+      if (data.stakes.length > 0) {
+        const poolInfos = data.stakes.map((s: UserStakeFromAPI) => ({
+          tokenMint: s.tokenMint,
+          poolId: s.poolId
+        }));
+        
+        // Load decimals for these tokens (batched via getMultipleAccountsInfo)
+        const uniqueMints = [...new Set(data.stakes.map((s: UserStakeFromAPI) => s.tokenMint))];
+        await loadPoolsData(uniqueMints);
+        
+        // Load project and stake accounts (2 RPC calls total via getMultipleAccountsInfo)
+        await loadAllPoolData(poolInfos);
+      }
+    } catch (error) {
+      console.error('Error fetching user stakes:', error);
+      setUserStakes([]);
+    } finally {
+      setUserStakesLoading(false);
+    }
+  }, [connected, publicKey, loadAllPoolData, loadPoolsData]);
+
+  useEffect(() => {
+    fetchUserStakes();
+    // Refresh every 60s - uses cached data so minimal RPC impact
+    const interval = setInterval(fetchUserStakes, 60000);
+    return () => clearInterval(interval);
+  }, [fetchUserStakes]);
+
+  // Fetch referral stats (API call, no RPC)
+  useEffect(() => {
+    async function fetchReferralStats() {
+      if (!connected || !publicKey) {
+        setReferralStats(null);
+        return;
+      }
+
+      try {
+        setReferralLoading(true);
+        const response = await fetch(`/api/referrals/stats?wallet=${publicKey.toString()}`);
+        if (!response.ok) throw new Error('Failed to fetch referral stats');
+        const data = await response.json();
+        setReferralStats(data);
+      } catch (error) {
+        console.error('Error fetching referral stats:', error);
+        setReferralStats(null);
+      } finally {
+        setReferralLoading(false);
+      }
+    }
+
+    fetchReferralStats();
+  }, [connected, publicKey]);
 
   // Fetch featured pools
   useEffect(() => {
@@ -64,12 +241,18 @@ export default function Dashboard() {
           .slice(0, 5);
         setFeaturedPools(featured);
         
-        // Load blockchain data for dynamic APR calculation
+        // Batch load blockchain data for featured pools
         if (featured.length > 0) {
           const poolInfos = featured.map((p: FeaturedPool) => ({ 
             tokenMint: p.tokenMint, 
             poolId: p.poolId 
           }));
+          
+          // Load decimals (batched)
+          const uniqueMints = [...new Set(featured.map((p: FeaturedPool) => p.tokenMint))];
+          await loadPoolsData(uniqueMints);
+          
+          // Load project accounts (1-2 RPC calls via getMultipleAccountsInfo)
           await loadAllPoolData(poolInfos);
         }
       } catch (error) {
@@ -81,11 +264,11 @@ export default function Dashboard() {
     }
 
     fetchFeaturedPools();
-  }, [loadAllPoolData]);
+  }, [loadAllPoolData, loadPoolsData]);
 
-  // Calculate dynamic rates from blockchain data
+  // Calculate dynamic rates from CACHED blockchain data (no RPC calls here)
   useEffect(() => {
-    if (featuredPools.length === 0) return;
+    if (featuredPools.length === 0 || isPoolDataLoading) return;
     
     const rates = new Map<string, number>();
     
@@ -116,7 +299,7 @@ export default function Dashboard() {
     setDynamicRates(rates);
   }, [featuredPools, getPoolProject, isPoolDataLoading]);
 
-  // Fetch platform stats
+  // Fetch platform stats (API call, no RPC)
   useEffect(() => {
     async function fetchStats() {
       try {
@@ -141,7 +324,7 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch recent activity for connected wallet
+  // Fetch recent activity (API call, no RPC)
   useEffect(() => {
     async function fetchActivity() {
       if (!connected || !publicKey) {
@@ -167,6 +350,101 @@ export default function Dashboard() {
     const interval = setInterval(fetchActivity, 60000);
     return () => clearInterval(interval);
   }, [connected, publicKey]);
+
+  // Claim all rewards handler - uses sendTransaction (already in useStakingProgram) to avoid Phantom warnings
+  const handleClaimAll = useCallback(async () => {
+    if (!connected || !publicKey || stakesWithRewards.length === 0) return;
+
+    setClaimingAll(true);
+    const toastId = toast.loading(`Claiming rewards from ${stakesWithRewards.length} pool(s)...`);
+
+    let successCount = 0;
+    let failCount = 0;
+
+    try {
+      // Process claims sequentially to avoid transaction conflicts
+      for (const stakeData of stakesWithRewards) {
+        try {
+          toast.loading(`Claiming from ${stakeData.poolSymbol}... (${successCount + 1}/${stakesWithRewards.length})`, { id: toastId });
+          
+          // claimRewards already uses sendTransaction with compute budget (from useStakingProgram)
+          await claimRewards(stakeData.tokenMint, stakeData.poolId);
+          successCount++;
+          
+          // Small delay between claims to avoid RPC rate limits
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (err: any) {
+          console.error(`Failed to claim from ${stakeData.poolSymbol}:`, err);
+          failCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`Successfully claimed from ${successCount} pool(s)${failCount > 0 ? `, ${failCount} failed` : ''}`, { id: toastId });
+        // Refresh stakes data
+        await fetchUserStakes();
+      } else {
+        toast.error('Failed to claim rewards', { id: toastId });
+      }
+    } catch (error) {
+      console.error('Claim all error:', error);
+      toast.error('Failed to claim rewards', { id: toastId });
+    } finally {
+      setClaimingAll(false);
+    }
+  }, [connected, publicKey, stakesWithRewards, claimRewards, fetchUserStakes]);
+
+  // Compound rewards handler (claim + restake) - uses sendTransaction to avoid Phantom warnings
+  const handleCompound = useCallback(async () => {
+    if (!connected || !publicKey || stakesWithRewards.length === 0) return;
+
+    setCompounding(true);
+    const toastId = toast.loading(`Compounding rewards from ${stakesWithRewards.length} pool(s)...`);
+
+    let successCount = 0;
+
+    try {
+      for (const stakeData of stakesWithRewards) {
+        try {
+          toast.loading(`Compounding ${stakeData.poolSymbol}... (${successCount + 1}/${stakesWithRewards.length})`, { id: toastId });
+          
+          // Step 1: Claim rewards
+          await claimRewards(stakeData.tokenMint, stakeData.poolId);
+          
+          // Small delay
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Step 2: Stake the claimed amount back
+          // Get the pending rewards amount in token units
+          const rewardsInTokenUnits = Math.floor(stakeData.pendingRewards * Math.pow(10, stakeData.decimals));
+          
+          if (rewardsInTokenUnits > 0) {
+            await stake(stakeData.tokenMint, rewardsInTokenUnits, stakeData.poolId);
+          }
+          
+          successCount++;
+          
+          // Delay between compounds
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (err: any) {
+          console.error(`Failed to compound ${stakeData.poolSymbol}:`, err);
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`Successfully compounded ${successCount} pool(s)`, { id: toastId });
+        // Refresh stakes data
+        await fetchUserStakes();
+      } else {
+        toast.error('Failed to compound rewards', { id: toastId });
+      }
+    } catch (error) {
+      console.error('Compound error:', error);
+      toast.error('Failed to compound rewards', { id: toastId });
+    } finally {
+      setCompounding(false);
+    }
+  }, [connected, publicKey, stakesWithRewards, claimRewards, stake, fetchUserStakes]);
 
   const handleStakeNow = (poolId: string) => {
     router.push(`/pools?highlight=${poolId}`);
@@ -218,6 +496,12 @@ export default function Dashboard() {
     return `https://solscan.io/tx/${sig}${cluster}`;
   };
 
+  const formatNumber = (num: number, decimals: number = 2) => {
+    if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(decimals)}M`;
+    if (num >= 1_000) return `${(num / 1_000).toFixed(decimals)}K`;
+    return num.toLocaleString(undefined, { maximumFractionDigits: decimals });
+  };
+
   return (
     <div className="min-h-screen p-4 sm:p-6">
       <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
@@ -227,8 +511,167 @@ export default function Dashboard() {
           <h1 className="text-2xl sm:text-3xl font-bold mb-1 sm:mb-2" style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
             Staking Dashboard
           </h1>
-          <p className="text-sm sm:text-base text-gray-400">Monitor your staking platform</p>
+          <p className="text-sm sm:text-base text-gray-400">Your command center for StakePoint</p>
         </div>
+
+        {/* Portfolio Summary Section - Only show when connected */}
+        {connected && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Total Staked Card */}
+            <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4 sm:p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-gray-400 text-sm">Your Total Staked</div>
+                <Wallet className="w-5 h-5" style={{ color: '#fb57ff' }} />
+              </div>
+              {userStakesLoading ? (
+                <div className="animate-pulse">
+                  <div className="h-8 bg-white/[0.05] rounded w-28 mb-1"></div>
+                  <div className="h-4 bg-white/[0.05] rounded w-20"></div>
+                </div>
+              ) : (
+                <>
+                  <div className="text-2xl sm:text-3xl font-bold text-white">
+                    {formatNumber(totalStakedValue)}
+                  </div>
+                  <div className="text-sm text-gray-400 mt-1">
+                    Across {userStakes.length} pool{userStakes.length !== 1 ? 's' : ''}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Pending Rewards Card */}
+            <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4 sm:p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-gray-400 text-sm">Pending Rewards</div>
+                <Gift className="w-5 h-5" style={{ color: '#fb57ff' }} />
+              </div>
+              {userStakesLoading || isPoolDataLoading ? (
+                <div className="animate-pulse">
+                  <div className="h-8 bg-white/[0.05] rounded w-24 mb-1"></div>
+                  <div className="h-4 bg-white/[0.05] rounded w-28"></div>
+                </div>
+              ) : (
+                <>
+                  <div className="text-2xl sm:text-3xl font-bold" style={{ color: '#fb57ff' }}>
+                    {formatNumber(totalPendingRewards, 4)}
+                  </div>
+                  <div className="text-sm text-gray-400 mt-1">
+                    From {stakesWithRewards.length} pool{stakesWithRewards.length !== 1 ? 's' : ''} with rewards
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Quick Actions Card */}
+            <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4 sm:p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-gray-400 text-sm">Quick Actions</div>
+                <Zap className="w-5 h-5" style={{ color: '#fb57ff' }} />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleClaimAll}
+                  disabled={claimingAll || compounding || stakesWithRewards.length === 0 || isPoolDataLoading}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ 
+                    background: stakesWithRewards.length > 0 ? 'linear-gradient(45deg, #fb57ff, #9333ea)' : 'rgba(255,255,255,0.05)',
+                    color: 'white'
+                  }}
+                >
+                  {claimingAll ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Gift className="w-4 h-4" />
+                  )}
+                  Claim All
+                </button>
+                <button
+                  onClick={handleCompound}
+                  disabled={claimingAll || compounding || stakesWithRewards.length === 0 || isPoolDataLoading}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed border border-white/[0.1] hover:bg-white/[0.05]"
+                >
+                  {compounding ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  Compound
+                </button>
+              </div>
+              {stakesWithRewards.length === 0 && !userStakesLoading && !isPoolDataLoading && (
+                <p className="text-xs text-gray-500 mt-2 text-center">No rewards to claim</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Referral Stats Section - Only show when connected */}
+        {connected && (
+          <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Link2 className="w-5 h-5" style={{ color: '#fb57ff' }} />
+                <h2 className="text-lg font-bold text-white">Referral Program</h2>
+              </div>
+              <button
+                onClick={() => router.push('/refer')}
+                className="text-sm flex items-center gap-1 hover:opacity-80 transition-opacity"
+                style={{ color: '#fb57ff' }}
+              >
+                View Details <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+            
+            {referralLoading ? (
+              <div className="animate-pulse flex gap-6">
+                <div className="h-12 bg-white/[0.05] rounded w-32"></div>
+                <div className="h-12 bg-white/[0.05] rounded w-48"></div>
+              </div>
+            ) : referralStats && referralStats.totalReferrals > 0 ? (
+              <div className="flex flex-wrap gap-6">
+                <div>
+                  <div className="text-2xl font-bold text-white">{referralStats.totalReferrals}</div>
+                  <div className="text-sm text-gray-400">Pools Referred</div>
+                </div>
+                {referralStats.referredPools.length > 0 && (
+                  <div className="flex-1">
+                    <div className="text-sm text-gray-400 mb-2">Recent Referrals</div>
+                    <div className="flex flex-wrap gap-2">
+                      {referralStats.referredPools.slice(0, 5).map(pool => (
+                        <div 
+                          key={pool.id}
+                          className="flex items-center gap-2 bg-white/[0.03] border border-white/[0.05] rounded-lg px-3 py-1.5"
+                        >
+                          {pool.logo ? (
+                            <img src={pool.logo} alt={pool.name} className="w-5 h-5 rounded-full" />
+                          ) : (
+                            <div className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: 'rgba(251, 87, 255, 0.2)' }}>
+                              {pool.symbol.slice(0, 1)}
+                            </div>
+                          )}
+                          <span className="text-sm text-white">{pool.symbol}</span>
+                          <span className="text-xs text-gray-500">{pool.referralSplitPercent}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-gray-400 text-sm">
+                Share your referral link and earn from every pool created through it.
+                <button
+                  onClick={() => router.push('/refer')}
+                  className="ml-2 underline hover:opacity-80"
+                  style={{ color: '#fb57ff' }}
+                >
+                  Get your link
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Featured Pools Section */}
         <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4 sm:p-6">
@@ -301,7 +744,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Stats Grid */}
+        {/* Platform Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4 sm:p-5 hover:bg-white/[0.04] transition-all">
             <div className="flex items-center justify-between mb-2 sm:mb-3">
