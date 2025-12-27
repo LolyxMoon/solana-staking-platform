@@ -292,7 +292,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
             <span className="hidden sm:inline">Filters</span>
             {hasActiveFilters && (
               <span className="text-white text-xs px-1.5 py-0.5 rounded-full font-bold" style={{ background: '#fb57ff' }}>
-                {[filterType !== "all", filterFeatured, apyMin > 0 || apyMax < 1000, searchQuery !== ""].filter(Boolean).length}
+                {[filterType !== "all", filterFeatured, aprMin > 0 || aprMax < 1000, searchQuery !== ""].filter(Boolean).length}
               </span>
             )}
           </button>
@@ -377,6 +377,7 @@ export default function PoolsClient({ pools }: { pools: Pool[] }) {
                 className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-white/[0.02] border border-white/[0.05] rounded-lg text-white focus:outline-none transition-colors text-sm sm:text-base min-h-[48px]"
               />
             </div>
+          </div>
 
           {/* Featured Toggle & Clear Button - MOBILE RESPONSIVE */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
