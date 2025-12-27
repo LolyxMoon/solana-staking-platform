@@ -144,7 +144,7 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
   const [reflectionLoading, setReflectionLoading] = useState(false);
   const [userRewardsData, setUserRewardsData] = useState<number>(0);
   const [onChainTotalStaked, setOnChainTotalStaked] = useState<number>(0);
-  const [isLoadingAPY, setIsLoadingAPY] = useState(true);
+  const [isLoadingAPR, setIsLoadingAPR] = useState(true);
 
   // Get blockchain project data
   const blockchainProject = getPoolProject(effectiveMintAddress, poolId);
@@ -158,7 +158,7 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
   }, [amount, platformFeePercent, flatSolFee]);
 
   // Calculate display values from blockchain (same as PoolCard)
-  const displayAPY = useMemo(() => {
+  const displayAPR = useMemo(() => {
     if (!blockchainProject) return dynamicRate ?? pool.apy ?? 0;
     
     if (blockchainProject.rateMode === 0) {
@@ -263,7 +263,7 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
   // Fetch project data and pool rate (for real-time data, not for initialization check)
   useEffect(() => {
     if (!effectiveMintAddress || !isInitialized) {
-      setIsLoadingAPY(false);
+      setIsLoadingAPR(false);
       return;
     }
 
@@ -610,12 +610,12 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
             <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-4">
               <div className="flex items-center gap-2 mb-2">
                 <TrendingUp className="w-4 h-4 text-[#fb57ff]" />
-                <span className="text-sm text-gray-400">APY</span>
+                <span className="text-sm text-gray-400">APR</span>
               </div>
-              {isLoadingAPY ? (
+              {isLoadingAPR ? (
                 <p className="text-2xl font-bold text-gray-400">Loading...</p>
               ) : (
-                <p className="text-2xl font-bold">{displayAPY.toFixed(2)}%</p>
+                <p className="text-2xl font-bold">{displayAPR.toFixed(2)}%</p>
               )}
             </div>
 
