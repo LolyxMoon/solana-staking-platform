@@ -951,12 +951,12 @@ export default function Dashboard() {
             ) : (
               <>
                 <div className="text-xl sm:text-2xl font-bold text-white">
-                  {stats.totalValueLocked.toLocaleString(undefined, { 
+                  ${stats.totalValueLocked.toLocaleString(undefined, { 
                     maximumFractionDigits: 2,
                     minimumFractionDigits: 2 
                   })}
                 </div>
-                <div className="text-xs mt-1" style={{ color: '#fb57ff' }}>Tokens Staked</div>
+                <div className="text-xs mt-1" style={{ color: '#fb57ff' }}>USD Value</div>
               </>
             )}
           </div>
