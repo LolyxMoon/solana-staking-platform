@@ -1452,20 +1452,6 @@ const claimUnclaimedTokens = async (tokenMint: string, poolId: number = 0) => {
   // Replace the existing batch functions in useStakingProgram.ts
   // ============================================
 
-  import { 
-    PublicKey, 
-    Transaction, 
-    ComputeBudgetProgram,
-    TransactionMessage,
-    VersionedTransaction,
-    AddressLookupTableAccount
-  } from "@solana/web3.js";
-  import { BN } from "@coral-xyz/anchor";
-  import { getAssociatedTokenAddress } from "@solana/spl-token";
-  import { getPDAs, getProgram } from "@/lib/anchor-program";
-
-  // Paste these functions INSIDE useStakingProgram(), replacing the existing batch functions
-
   /**
    * Get or create Address Lookup Table for batched transactions
    */
