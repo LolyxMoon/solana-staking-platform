@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Sparkles, BarChart3, Wrench, Send, Camera, Shield, ShieldCheck } from "lucide-react";
+import { Sparkles, BarChart3, Wrench, Send, Camera, ShieldCheck, Zap } from "lucide-react";
 
 const tools = [
   {
@@ -53,17 +53,16 @@ const tools = [
     title: "Sniper Bot",
     description: "Telegram bot for sniping new token launches",
     href: "/tools/sniper-bot",
-    icon: Shield,
+    icon: Zap,
     tags: ["Telegram", "Auto-buy", "New launches"],
     available: true,
     color: "from-[#fb57ff] to-purple-600",
-},
+  },
 ];
 
 export default function ToolsPage() {
   return (
     <div className="max-w-6xl mx-auto pt-6 px-4">
-      {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#fb57ff] to-purple-600 flex items-center justify-center">
@@ -76,48 +75,14 @@ export default function ToolsPage() {
         </div>
       </div>
 
-      {/* Tools Grid - 3x2 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {tools.map((tool) => (
+        {tools.map((tool) =>
           tool.available ? (
-            tool.external ? (
-              <a
-                key={tool.title}
-                href={tool.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block p-5 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 transition-all group"
-              >
-                <div className="flex flex-col h-full">
-                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${tool.color} flex items-center justify-center mb-4 group-hover:scale-105 transition-transform`}>
-                    <tool.icon className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h2 className="text-lg font-semibold text-white group-hover:text-[#fb57ff] transition-colors">
-                        {tool.title}
-                      </h2>
-                    </div>
-                    <p className="text-gray-400 text-sm mb-3">{tool.description}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {tool.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="px-2 py-1 rounded-md bg-white/[0.03] border border-white/[0.05] text-xs text-gray-400"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </a>
-            ) : (
-              <Link
-                key={tool.title}
-                href={tool.href}
-                className="block p-5 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 transition-all group"
-              >
+            <Link
+              key={tool.title}
+              href={tool.href}
+              className="block p-5 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-[#fb57ff]/30 transition-all group"
+            >
               <div className="flex flex-col h-full">
                 <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${tool.color} flex items-center justify-center mb-4 group-hover:scale-105 transition-transform`}>
                   <tool.icon className="w-6 h-6 text-white" />
@@ -171,7 +136,7 @@ export default function ToolsPage() {
               </div>
             </div>
           )
-        ))}
+        )}
       </div>
     </div>
   );
