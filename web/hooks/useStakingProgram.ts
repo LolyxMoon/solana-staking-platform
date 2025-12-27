@@ -1,5 +1,5 @@
 import { useConnection, useWallet, useAnchorWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction, ComputeBudgetProgram } from "@solana/web3.js";
+import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction, ComputeBudgetProgram, TransactionMessage, VersionedTransaction, AddressLookupTableAccount } from "@solana/web3.js";
 import * as anchor from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
 import { getProgram, getPDAs, PROGRAM_ID } from "@/lib/anchor-program";
@@ -1448,308 +1448,629 @@ const claimUnclaimedTokens = async (tokenMint: string, poolId: number = 0) => {
   };
 
   // ============================================
-    // BATCH FUNCTIONS - Paste this BEFORE the return statement
-    // ============================================
+  // BATCH FUNCTIONS WITH ADDRESS LOOKUP TABLE
+  // Replace the existing batch functions in useStakingProgram.ts
+  // ============================================
 
-    /**
-     * Build a claim instruction without sending (for batching)
-     */
-    const buildClaimInstruction = async (tokenMint: string, poolId: number = 0) => {
-      if (!wallet || !publicKey) return null;
+  import { 
+    PublicKey, 
+    Transaction, 
+    ComputeBudgetProgram,
+    TransactionMessage,
+    VersionedTransaction,
+    AddressLookupTableAccount
+  } from "@solana/web3.js";
+  import { BN } from "@coral-xyz/anchor";
+  import { getAssociatedTokenAddress } from "@solana/spl-token";
+  import { getPDAs, getProgram } from "@/lib/anchor-program";
 
-      try {
-        const program = getProgram(wallet, connection);
-        const tokenMintPubkey = new PublicKey(tokenMint);
+  // Paste these functions INSIDE useStakingProgram(), replacing the existing batch functions
 
-        const mintInfo = await connection.getAccountInfo(tokenMintPubkey);
-        if (!mintInfo) return null;
+  /**
+   * Get or create Address Lookup Table for batched transactions
+   */
+  const getOrCreateALT = async (): Promise<PublicKey | null> => {
+    if (!publicKey) return null;
+    
+    try {
+      // Check localStorage for existing ALT
+      const storedALT = typeof window !== 'undefined' 
+        ? localStorage.getItem(`stakepoint_alt_${publicKey.toString().slice(0, 8)}`) 
+        : null;
+      
+      if (storedALT) {
+        const altPubkey = new PublicKey(storedALT);
+        const altAccount = await connection.getAddressLookupTable(altPubkey);
         
-        const TOKEN_2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
-        const SPL_TOKEN = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-        const tokenProgramId = mintInfo.owner.equals(TOKEN_2022) ? TOKEN_2022 : SPL_TOKEN;
-
-        const platformConfig = await getPlatformConfig(program);
-        if (!platformConfig) return null;
-        const feeCollector = platformConfig.feeCollector;
-
-        const [platformConfigPDA] = getPDAs.platformConfig();
-        const [projectPDA] = getPDAs.project(tokenMintPubkey, poolId);
-        const [rewardVaultPDA] = getPDAs.rewardVault(tokenMintPubkey, poolId);
-        const [userStakePDA] = getPDAs.userStake(projectPDA, publicKey);
-        const [stakingVaultPDA] = getPDAs.stakingVault(tokenMintPubkey, poolId);
-
-        const userStake = await program.account.stake.fetch(userStakePDA, "confirmed");
-        const withdrawalWallet = userStake.withdrawalWallet || publicKey;
-
-        const NATIVE_SOL = "So11111111111111111111111111111111111111112";
-        const isNativeSOL = tokenMint === NATIVE_SOL;
-
-        const withdrawalTokenAccount = isNativeSOL 
-          ? withdrawalWallet 
-          : await getAssociatedTokenAddress(tokenMintPubkey, withdrawalWallet, false, tokenProgramId);
-
-        const project = await program.account.project.fetch(projectPDA, "confirmed");
-
-        const accounts: any = {
-          platform: platformConfigPDA,
-          project: projectPDA,
-          stake: userStakePDA,
-          rewardVault: rewardVaultPDA,
-          userTokenAccount: withdrawalTokenAccount,
-          feeCollector: feeCollector,
-          reflectionVault: project.reflectionVault || stakingVaultPDA,
-          tokenMintAccount: tokenMintPubkey,
-          user: publicKey,
-          tokenProgram: tokenProgramId,
-          systemProgram: SystemProgram.programId,
-        };
-
-        const remainingAccounts: any[] = [];
-        if (project.referrer && !project.referrer.equals(PublicKey.default)) {
-          remainingAccounts.push({ pubkey: project.referrer, isWritable: true, isSigner: false });
+        if (altAccount.value && altAccount.value.state.addresses.length > 0) {
+          console.log("✅ Using existing ALT:", altPubkey.toString());
+          return altPubkey;
         }
-
-        const instruction = await program.methods
-          .claim(tokenMintPubkey, new BN(poolId))
-          .accountsPartial(accounts)
-          .remainingAccounts(remainingAccounts)
-          .instruction();
-
-        return instruction;
-      } catch (error) {
-        console.error(`Error building claim instruction for ${tokenMint}:`, error);
-        return null;
       }
-    };
+      
+      return null; // Will create on first batch operation
+    } catch (e) {
+      console.warn("ALT lookup failed:", e);
+      return null;
+    }
+  };
 
-    /**
-     * Build a stake instruction without sending (for batching)
-     */
-    const buildStakeInstruction = async (tokenMint: string, amount: number, poolId: number = 0) => {
-      if (!wallet || !publicKey) return null;
+  /**
+   * Create Address Lookup Table with common addresses
+   */
+  const createALT = async (feeCollector: PublicKey): Promise<PublicKey | null> => {
+    if (!publicKey || !sendTransaction) return null;
+    
+    try {
+      const { AddressLookupTableProgram } = await import("@solana/web3.js");
+      
+      const slot = await connection.getSlot();
+      
+      const [createIx, lookupTableAddress] = AddressLookupTableProgram.createLookupTable({
+        authority: publicKey,
+        payer: publicKey,
+        recentSlot: slot - 1,
+      });
+      
+      // Common addresses
+      const [platformConfigPDA] = getPDAs.platformConfig();
+      const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+      const TOKEN_2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+      const ASSOCIATED_TOKEN = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+      const SYSTEM = new PublicKey("11111111111111111111111111111111");
+      
+      const addresses = [
+        platformConfigPDA,
+        feeCollector,
+        TOKEN_PROGRAM,
+        TOKEN_2022,
+        ASSOCIATED_TOKEN,
+        SYSTEM,
+        publicKey, // User's wallet
+      ];
+      
+      const extendIx = AddressLookupTableProgram.extendLookupTable({
+        payer: publicKey,
+        authority: publicKey,
+        lookupTable: lookupTableAddress,
+        addresses: addresses,
+      });
+      
+      const { blockhash } = await connection.getLatestBlockhash();
+      
+      const message = new TransactionMessage({
+        payerKey: publicKey,
+        recentBlockhash: blockhash,
+        instructions: [createIx, extendIx],
+      }).compileToV0Message();
+      
+      const tx = new VersionedTransaction(message);
+      
+      const signature = await sendTransaction(tx, connection, { skipPreflight: false });
+      console.log("✅ ALT created:", lookupTableAddress.toString());
+      
+      await pollForConfirmation(connection, signature);
+      
+      // Store for future use
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`stakepoint_alt_${publicKey.toString().slice(0, 8)}`, lookupTableAddress.toString());
+      }
+      
+      // Wait for ALT to become active
+      await new Promise(r => setTimeout(r, 2000));
+      
+      return lookupTableAddress;
+    } catch (e) {
+      console.error("ALT creation failed:", e);
+      return null;
+    }
+  };
 
-      try {
-        const program = getProgram(wallet, connection);
-        const tokenMintPubkey = new PublicKey(tokenMint);
-
-        const mintInfo = await connection.getAccountInfo(tokenMintPubkey);
-        if (!mintInfo) return null;
+  /**
+   * Extend ALT with pool-specific addresses
+   */
+  const extendALT = async (
+    altAddress: PublicKey,
+    newAddresses: PublicKey[]
+  ): Promise<boolean> => {
+    if (!publicKey || !sendTransaction || newAddresses.length === 0) return false;
+    
+    try {
+      const { AddressLookupTableProgram } = await import("@solana/web3.js");
+      
+      // Filter duplicates
+      const altAccount = await connection.getAddressLookupTable(altAddress);
+      if (!altAccount.value) return false;
+      
+      const existing = new Set(altAccount.value.state.addresses.map(a => a.toString()));
+      const toAdd = newAddresses.filter(a => !existing.has(a.toString()));
+      
+      if (toAdd.length === 0) return true;
+      
+      // ALT can only add 30 addresses at a time
+      const chunks = [];
+      for (let i = 0; i < toAdd.length; i += 30) {
+        chunks.push(toAdd.slice(i, i + 30));
+      }
+      
+      for (const chunk of chunks) {
+        const extendIx = AddressLookupTableProgram.extendLookupTable({
+          payer: publicKey,
+          authority: publicKey,
+          lookupTable: altAddress,
+          addresses: chunk,
+        });
         
-        const TOKEN_2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
-        const SPL_TOKEN = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-        const tokenProgramId = mintInfo.owner.equals(TOKEN_2022) ? TOKEN_2022 : SPL_TOKEN;
-
-        const platformConfig = await getPlatformConfig(program);
-        if (!platformConfig) return null;
-        const feeCollector = platformConfig.feeCollector;
-
-        const [platformConfigPDA] = getPDAs.platformConfig();
-        const [projectPDA] = getPDAs.project(tokenMintPubkey, poolId);
-        const [stakingVaultPDA] = getPDAs.stakingVault(tokenMintPubkey, poolId);
-        const [userStakePDA] = getPDAs.userStake(projectPDA, publicKey);
-
-        const NATIVE_SOL = "So11111111111111111111111111111111111111112";
-        const isNativeSOL = tokenMint === NATIVE_SOL;
-
-        const userTokenAccount = isNativeSOL 
-          ? publicKey 
-          : await getAssociatedTokenAddress(tokenMintPubkey, publicKey, false, tokenProgramId);
+        const { blockhash } = await connection.getLatestBlockhash();
         
-        const feeCollectorTokenAccount = isNativeSOL 
-          ? feeCollector 
-          : await getAssociatedTokenAddress(tokenMintPubkey, feeCollector, false, tokenProgramId);
+        const message = new TransactionMessage({
+          payerKey: publicKey,
+          recentBlockhash: blockhash,
+          instructions: [extendIx],
+        }).compileToV0Message();
+        
+        const tx = new VersionedTransaction(message);
+        const sig = await sendTransaction(tx, connection);
+        await pollForConfirmation(connection, sig);
+      }
+      
+      // Wait for extension to activate
+      await new Promise(r => setTimeout(r, 1500));
+      
+      console.log(`✅ Extended ALT with ${toAdd.length} addresses`);
+      return true;
+    } catch (e) {
+      console.error("ALT extension failed:", e);
+      return false;
+    }
+  };
 
-        const project = await program.account.project.fetch(projectPDA, "confirmed");
+  /**
+   * Build a claim instruction without sending (for batching)
+   */
+  const buildClaimInstruction = async (tokenMint: string, poolId: number = 0) => {
+    if (!wallet || !publicKey) return null;
 
-        const accounts: any = {
-          platform: platformConfigPDA,
-          project: projectPDA,
-          stake: userStakePDA,
-          stakingVault: stakingVaultPDA,
+    try {
+      const program = getProgram(wallet, connection);
+      const tokenMintPubkey = new PublicKey(tokenMint);
+
+      const mintInfo = await connection.getAccountInfo(tokenMintPubkey);
+      if (!mintInfo) return null;
+      
+      const TOKEN_2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+      const SPL_TOKEN = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+      const tokenProgramId = mintInfo.owner.equals(TOKEN_2022) ? TOKEN_2022 : SPL_TOKEN;
+
+      const platformConfig = await getPlatformConfig(program);
+      if (!platformConfig) return null;
+      const feeCollector = platformConfig.feeCollector;
+
+      const [platformConfigPDA] = getPDAs.platformConfig();
+      const [projectPDA] = getPDAs.project(tokenMintPubkey, poolId);
+      const [rewardVaultPDA] = getPDAs.rewardVault(tokenMintPubkey, poolId);
+      const [userStakePDA] = getPDAs.userStake(projectPDA, publicKey);
+      const [stakingVaultPDA] = getPDAs.stakingVault(tokenMintPubkey, poolId);
+
+      const userStake = await program.account.stake.fetch(userStakePDA, "confirmed");
+      const withdrawalWallet = userStake.withdrawalWallet || publicKey;
+
+      const NATIVE_SOL = "So11111111111111111111111111111111111111112";
+      const isNativeSOL = tokenMint === NATIVE_SOL;
+
+      const withdrawalTokenAccount = isNativeSOL 
+        ? withdrawalWallet 
+        : await getAssociatedTokenAddress(tokenMintPubkey, withdrawalWallet, false, tokenProgramId);
+
+      const project = await program.account.project.fetch(projectPDA, "confirmed");
+
+      const accounts: any = {
+        platform: platformConfigPDA,
+        project: projectPDA,
+        stake: userStakePDA,
+        rewardVault: rewardVaultPDA,
+        userTokenAccount: withdrawalTokenAccount,
+        feeCollector: feeCollector,
+        reflectionVault: project.reflectionVault || stakingVaultPDA,
+        tokenMintAccount: tokenMintPubkey,
+        user: publicKey,
+        tokenProgram: tokenProgramId,
+        systemProgram: new PublicKey("11111111111111111111111111111111"),
+      };
+
+      const remainingAccounts: any[] = [];
+      if (project.referrer && !project.referrer.equals(PublicKey.default)) {
+        remainingAccounts.push({ pubkey: project.referrer, isWritable: true, isSigner: false });
+      }
+
+      const instruction = await program.methods
+        .claim(tokenMintPubkey, new BN(poolId))
+        .accountsPartial(accounts)
+        .remainingAccounts(remainingAccounts)
+        .instruction();
+
+      // Return instruction + addresses for ALT
+      return {
+        instruction,
+        addresses: [
+          tokenMintPubkey,
+          projectPDA,
+          rewardVaultPDA,
+          userStakePDA,
+          stakingVaultPDA,
+          withdrawalTokenAccount,
+          project.reflectionVault || stakingVaultPDA,
+        ].filter(Boolean)
+      };
+    } catch (error) {
+      console.error(`Error building claim instruction for ${tokenMint}:`, error);
+      return null;
+    }
+  };
+
+  /**
+   * Build a stake instruction without sending (for batching)
+   */
+  const buildStakeInstruction = async (tokenMint: string, amount: number, poolId: number = 0) => {
+    if (!wallet || !publicKey) return null;
+
+    try {
+      const program = getProgram(wallet, connection);
+      const tokenMintPubkey = new PublicKey(tokenMint);
+
+      const mintInfo = await connection.getAccountInfo(tokenMintPubkey);
+      if (!mintInfo) return null;
+      
+      const TOKEN_2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+      const SPL_TOKEN = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+      const tokenProgramId = mintInfo.owner.equals(TOKEN_2022) ? TOKEN_2022 : SPL_TOKEN;
+
+      const platformConfig = await getPlatformConfig(program);
+      if (!platformConfig) return null;
+      const feeCollector = platformConfig.feeCollector;
+
+      const [platformConfigPDA] = getPDAs.platformConfig();
+      const [projectPDA] = getPDAs.project(tokenMintPubkey, poolId);
+      const [stakingVaultPDA] = getPDAs.stakingVault(tokenMintPubkey, poolId);
+      const [userStakePDA] = getPDAs.userStake(projectPDA, publicKey);
+
+      const NATIVE_SOL = "So11111111111111111111111111111111111111112";
+      const isNativeSOL = tokenMint === NATIVE_SOL;
+
+      const userTokenAccount = isNativeSOL 
+        ? publicKey 
+        : await getAssociatedTokenAddress(tokenMintPubkey, publicKey, false, tokenProgramId);
+      
+      const feeCollectorTokenAccount = isNativeSOL 
+        ? feeCollector 
+        : await getAssociatedTokenAddress(tokenMintPubkey, feeCollector, false, tokenProgramId);
+
+      const project = await program.account.project.fetch(projectPDA, "confirmed");
+
+      const accounts: any = {
+        platform: platformConfigPDA,
+        project: projectPDA,
+        stake: userStakePDA,
+        stakingVault: stakingVaultPDA,
+        userTokenAccount,
+        feeCollectorTokenAccount,
+        feeCollector,
+        reflectionVault: (project.reflectionVault && project.reflectionVault.toString() !== projectPDA.toString()) 
+          ? project.reflectionVault : null,
+        tokenMintAccount: tokenMintPubkey,
+        user: publicKey,
+        tokenProgram: tokenProgramId,
+        systemProgram: new PublicKey("11111111111111111111111111111111"),
+      };
+
+      const remainingAccounts: any[] = [];
+      if (project.referrer && !project.referrer.equals(PublicKey.default)) {
+        remainingAccounts.push({ pubkey: project.referrer, isWritable: true, isSigner: false });
+      }
+
+      const instruction = await program.methods
+        .deposit(tokenMintPubkey, new BN(poolId), new BN(amount))
+        .accountsPartial(accounts)
+        .remainingAccounts(remainingAccounts)
+        .instruction();
+
+      return {
+        instruction,
+        addresses: [
+          tokenMintPubkey,
+          projectPDA,
+          stakingVaultPDA,
+          userStakePDA,
           userTokenAccount,
           feeCollectorTokenAccount,
-          feeCollector,
-          reflectionVault: (project.reflectionVault && project.reflectionVault.toString() !== projectPDA.toString()) 
-            ? project.reflectionVault : null,
-          tokenMintAccount: tokenMintPubkey,
-          user: publicKey,
-          tokenProgram: tokenProgramId,
-          systemProgram: SystemProgram.programId,
-        };
+          project.reflectionVault,
+        ].filter(Boolean)
+      };
+    } catch (error) {
+      console.error(`Error building stake instruction for ${tokenMint}:`, error);
+      return null;
+    }
+  };
 
-        const remainingAccounts: any[] = [];
-        if (project.referrer && !project.referrer.equals(PublicKey.default)) {
-          remainingAccounts.push({ pubkey: project.referrer, isWritable: true, isSigner: false });
-        }
+  /**
+   * Batch claim rewards using Address Lookup Table for smaller transactions
+   */
+  const batchClaimRewards = async (
+    pools: { tokenMint: string; poolId: number; symbol: string }[],
+    onProgress?: (batchIndex: number, totalBatches: number, status: 'building' | 'signing' | 'confirming' | 'done', txSignature?: string) => void
+  ) => {
+    if (!wallet || !publicKey || !sendTransaction) {
+      throw new Error("Wallet not connected");
+    }
 
-        const instruction = await program.methods
-          .deposit(tokenMintPubkey, new BN(poolId), new BN(amount))
-          .accountsPartial(accounts)
-          .remainingAccounts(remainingAccounts)
-          .instruction();
+    const program = getProgram(wallet, connection);
+    const platformConfig = await getPlatformConfig(program);
+    if (!platformConfig) throw new Error("Platform not initialized");
 
-        return instruction;
-      } catch (error) {
-        console.error(`Error building stake instruction for ${tokenMint}:`, error);
-        return null;
-      }
-    };
+    // With ALT, we can fit more instructions per transaction
+    const MAX_PER_TX_WITH_ALT = 6;
+    const MAX_PER_TX_WITHOUT_ALT = 4;
+    
+    const results: { success: boolean; txSignature?: string; poolsInBatch: string[]; error?: string }[] = [];
 
-    /**
-     * Batch claim rewards from multiple pools (up to 6 per transaction)
-     */
-    const batchClaimRewards = async (
-      pools: { tokenMint: string; poolId: number; symbol: string }[],
-      onProgress?: (batchIndex: number, totalBatches: number, status: 'building' | 'signing' | 'confirming' | 'done', txSignature?: string) => void
-    ) => {
-      if (!wallet || !publicKey || !sendTransaction) {
-        throw new Error("Wallet not connected");
-      }
+    // Try to get/create ALT
+    let altAddress = await getOrCreateALT();
+    let altAccount: AddressLookupTableAccount | null = null;
+    
+    if (!altAddress) {
+      // Create ALT on first use
+      console.log("📦 Creating Address Lookup Table...");
+      onProgress?.(0, 1, 'building');
+      altAddress = await createALT(platformConfig.feeCollector);
+    }
 
-      const MAX_PER_TX = 6;
-      const results: { success: boolean; txSignature?: string; poolsInBatch: string[]; error?: string }[] = [];
+    if (altAddress) {
+      // Collect all addresses for ALT
+      const allAddresses: PublicKey[] = [];
       
-      // Split into batches
-      const batches: typeof pools[] = [];
-      for (let i = 0; i < pools.length; i += MAX_PER_TX) {
-        batches.push(pools.slice(i, i + MAX_PER_TX));
-      }
-
-      console.log(`🔄 Batching ${pools.length} claims into ${batches.length} transaction(s)`);
-
-      for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
-        const batch = batches[batchIdx];
-        const symbols = batch.map(p => p.symbol);
-        
-        onProgress?.(batchIdx, batches.length, 'building');
-        
-        try {
-          const transaction = new Transaction();
-          transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }));
-          transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }));
-
-          let added = 0;
-          for (const pool of batch) {
-            const ix = await buildClaimInstruction(pool.tokenMint, pool.poolId);
-            if (ix) {
-              transaction.add(ix);
-              added++;
-            }
-          }
-
-          if (added === 0) {
-            results.push({ success: false, poolsInBatch: symbols, error: "No valid instructions" });
-            continue;
-          }
-
-          console.log(`📦 Batch ${batchIdx + 1}: ${added} claim instructions`);
-          onProgress?.(batchIdx, batches.length, 'signing');
-          
-          const txSig = await sendTransaction(transaction, connection, { skipPreflight: false });
-          console.log(`✅ Batch ${batchIdx + 1} signature:`, txSig);
-          
-          onProgress?.(batchIdx, batches.length, 'confirming', txSig);
-          await pollForConfirmation(connection, txSig);
-          
-          onProgress?.(batchIdx, batches.length, 'done', txSig);
-          results.push({ success: true, txSignature: txSig, poolsInBatch: symbols });
-          
-          if (batchIdx < batches.length - 1) {
-            await new Promise(r => setTimeout(r, 500));
-          }
-        } catch (error: any) {
-          console.error(`❌ Batch ${batchIdx + 1} error:`, error);
-          results.push({ success: false, poolsInBatch: symbols, error: error.message?.slice(0, 100) });
+      for (const pool of pools) {
+        const result = await buildClaimInstruction(pool.tokenMint, pool.poolId);
+        if (result?.addresses) {
+          allAddresses.push(...result.addresses);
         }
       }
-
-      return results;
-    };
-
-    /**
-     * Batch compound (claim + stake) from multiple pools (up to 3 per transaction)
-     */
-    const batchCompound = async (
-      pools: { tokenMint: string; poolId: number; symbol: string; rewardAmount: number; decimals: number }[],
-      onProgress?: (batchIndex: number, totalBatches: number, status: 'building' | 'signing' | 'confirming' | 'done', txSignature?: string) => void
-    ) => {
-      if (!wallet || !publicKey || !sendTransaction) {
-        throw new Error("Wallet not connected");
-      }
-
-      const MAX_PER_TX = 3; // 2 instructions per pool
-      const results: { success: boolean; txSignature?: string; poolsInBatch: string[]; error?: string }[] = [];
       
-      const batches: typeof pools[] = [];
-      for (let i = 0; i < pools.length; i += MAX_PER_TX) {
-        batches.push(pools.slice(i, i + MAX_PER_TX));
+      // Extend ALT with pool addresses
+      await extendALT(altAddress, allAddresses);
+      
+      // Fetch updated ALT
+      const altResult = await connection.getAddressLookupTable(altAddress);
+      altAccount = altResult.value;
+    }
+
+    const maxPerTx = altAccount ? MAX_PER_TX_WITH_ALT : MAX_PER_TX_WITHOUT_ALT;
+    
+    // Split into batches
+    const batches: typeof pools[] = [];
+    for (let i = 0; i < pools.length; i += maxPerTx) {
+      batches.push(pools.slice(i, i + maxPerTx));
+    }
+
+    console.log(`🔄 Batching ${pools.length} claims into ${batches.length} transaction(s) ${altAccount ? '(with ALT)' : '(no ALT)'}`);
+
+    for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+      const batch = batches[batchIdx];
+      const symbols = batch.map(p => p.symbol);
+      
+      onProgress?.(batchIdx, batches.length, 'building');
+      
+      try {
+        const instructions = [
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }),
+          ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }),
+        ];
+
+        for (const pool of batch) {
+          const result = await buildClaimInstruction(pool.tokenMint, pool.poolId);
+          if (result?.instruction) {
+            instructions.push(result.instruction);
+          }
+        }
+
+        if (instructions.length <= 2) {
+          results.push({ success: false, poolsInBatch: symbols, error: "No valid instructions" });
+          continue;
+        }
+
+        const { blockhash } = await connection.getLatestBlockhash();
+        
+        let tx: VersionedTransaction | Transaction;
+        
+        if (altAccount) {
+          // Use versioned transaction with ALT
+          const message = new TransactionMessage({
+            payerKey: publicKey,
+            recentBlockhash: blockhash,
+            instructions: instructions,
+          }).compileToV0Message([altAccount]);
+          
+          tx = new VersionedTransaction(message);
+          console.log(`📦 Batch ${batchIdx + 1}: Using ALT (versioned tx)`);
+        } else {
+          // Fallback to legacy transaction
+          tx = new Transaction();
+          tx.recentBlockhash = blockhash;
+          tx.feePayer = publicKey;
+          instructions.forEach(ix => (tx as Transaction).add(ix));
+          console.log(`📦 Batch ${batchIdx + 1}: Legacy tx (no ALT)`);
+        }
+
+        onProgress?.(batchIdx, batches.length, 'signing');
+        
+        const txSig = await sendTransaction(tx, connection, { skipPreflight: false });
+        console.log(`✅ Batch ${batchIdx + 1} signature:`, txSig);
+        
+        onProgress?.(batchIdx, batches.length, 'confirming', txSig);
+        await pollForConfirmation(connection, txSig);
+        
+        onProgress?.(batchIdx, batches.length, 'done', txSig);
+        results.push({ success: true, txSignature: txSig, poolsInBatch: symbols });
+        
+        if (batchIdx < batches.length - 1) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+      } catch (error: any) {
+        console.error(`❌ Batch ${batchIdx + 1} error:`, error);
+        results.push({ success: false, poolsInBatch: symbols, error: error.message?.slice(0, 100) });
       }
+    }
 
-      console.log(`🔄 Batching ${pools.length} compounds into ${batches.length} transaction(s)`);
+    return results;
+  };
 
-      for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
-        const batch = batches[batchIdx];
-        const symbols = batch.map(p => p.symbol);
+  /**
+   * Batch compound (claim + stake) using Address Lookup Table
+   */
+  const batchCompound = async (
+    pools: { tokenMint: string; poolId: number; symbol: string; rewardAmount: number; decimals: number }[],
+    onProgress?: (batchIndex: number, totalBatches: number, status: 'building' | 'signing' | 'confirming' | 'done', txSignature?: string) => void
+  ) => {
+    if (!wallet || !publicKey || !sendTransaction) {
+      throw new Error("Wallet not connected");
+    }
+
+    const program = getProgram(wallet, connection);
+    const platformConfig = await getPlatformConfig(program);
+    if (!platformConfig) throw new Error("Platform not initialized");
+
+    // With ALT, we can fit more compound operations per transaction
+    const MAX_PER_TX_WITH_ALT = 4; // 8 instructions (2 per pool)
+    const MAX_PER_TX_WITHOUT_ALT = 2; // 4 instructions (2 per pool)
+    
+    const results: { success: boolean; txSignature?: string; poolsInBatch: string[]; error?: string }[] = [];
+
+    // Try to get/create ALT
+    let altAddress = await getOrCreateALT();
+    let altAccount: AddressLookupTableAccount | null = null;
+    
+    if (!altAddress) {
+      console.log("📦 Creating Address Lookup Table...");
+      onProgress?.(0, 1, 'building');
+      altAddress = await createALT(platformConfig.feeCollector);
+    }
+
+    if (altAddress) {
+      // Collect all addresses for ALT
+      const allAddresses: PublicKey[] = [];
+      
+      for (const pool of pools) {
+        const claimResult = await buildClaimInstruction(pool.tokenMint, pool.poolId);
+        if (claimResult?.addresses) {
+          allAddresses.push(...claimResult.addresses);
+        }
         
-        onProgress?.(batchIdx, batches.length, 'building');
-        
-        try {
-          const transaction = new Transaction();
-          transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 600000 }));
-          transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }));
-
-          let added = 0;
-          for (const pool of batch) {
-            // Add claim
-            const claimIx = await buildClaimInstruction(pool.tokenMint, pool.poolId);
-            if (claimIx) {
-              transaction.add(claimIx);
-              added++;
-            }
-            
-            // Add stake
-            const rewardsInUnits = Math.floor(pool.rewardAmount * Math.pow(10, pool.decimals));
-            if (rewardsInUnits > 0) {
-              const stakeIx = await buildStakeInstruction(pool.tokenMint, rewardsInUnits, pool.poolId);
-              if (stakeIx) {
-                transaction.add(stakeIx);
-                added++;
-              }
-            }
+        const rewardsInUnits = Math.floor(pool.rewardAmount * Math.pow(10, pool.decimals));
+        if (rewardsInUnits > 0) {
+          const stakeResult = await buildStakeInstruction(pool.tokenMint, rewardsInUnits, pool.poolId);
+          if (stakeResult?.addresses) {
+            allAddresses.push(...stakeResult.addresses);
           }
-
-          if (added === 0) {
-            results.push({ success: false, poolsInBatch: symbols, error: "No valid instructions" });
-            continue;
-          }
-
-          console.log(`📦 Batch ${batchIdx + 1}: ${added} compound instructions`);
-          onProgress?.(batchIdx, batches.length, 'signing');
-          
-          const txSig = await sendTransaction(transaction, connection, { skipPreflight: false });
-          console.log(`✅ Batch ${batchIdx + 1} signature:`, txSig);
-          
-          onProgress?.(batchIdx, batches.length, 'confirming', txSig);
-          await pollForConfirmation(connection, txSig);
-          
-          onProgress?.(batchIdx, batches.length, 'done', txSig);
-          results.push({ success: true, txSignature: txSig, poolsInBatch: symbols });
-          
-          if (batchIdx < batches.length - 1) {
-            await new Promise(r => setTimeout(r, 500));
-          }
-        } catch (error: any) {
-          console.error(`❌ Batch ${batchIdx + 1} error:`, error);
-          results.push({ success: false, poolsInBatch: symbols, error: error.message?.slice(0, 100) });
         }
       }
+      
+      // Extend ALT with pool addresses
+      await extendALT(altAddress, allAddresses);
+      
+      // Fetch updated ALT
+      const altResult = await connection.getAddressLookupTable(altAddress);
+      altAccount = altResult.value;
+    }
 
-      return results;
-    };
+    const maxPerTx = altAccount ? MAX_PER_TX_WITH_ALT : MAX_PER_TX_WITHOUT_ALT;
+    
+    const batches: typeof pools[] = [];
+    for (let i = 0; i < pools.length; i += maxPerTx) {
+      batches.push(pools.slice(i, i + maxPerTx));
+    }
 
-    // ============================================
-    // END OF BATCH FUNCTIONS
-    // ============================================
+    console.log(`🔄 Batching ${pools.length} compounds into ${batches.length} transaction(s) ${altAccount ? '(with ALT)' : '(no ALT)'}`);
+
+    for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+      const batch = batches[batchIdx];
+      const symbols = batch.map(p => p.symbol);
+      
+      onProgress?.(batchIdx, batches.length, 'building');
+      
+      try {
+        const instructions = [
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 800000 }),
+          ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }),
+        ];
+
+        for (const pool of batch) {
+          // Add claim
+          const claimResult = await buildClaimInstruction(pool.tokenMint, pool.poolId);
+          if (claimResult?.instruction) {
+            instructions.push(claimResult.instruction);
+          }
+          
+          // Add stake
+          const rewardsInUnits = Math.floor(pool.rewardAmount * Math.pow(10, pool.decimals));
+          if (rewardsInUnits > 0) {
+            const stakeResult = await buildStakeInstruction(pool.tokenMint, rewardsInUnits, pool.poolId);
+            if (stakeResult?.instruction) {
+              instructions.push(stakeResult.instruction);
+            }
+          }
+        }
+
+        if (instructions.length <= 2) {
+          results.push({ success: false, poolsInBatch: symbols, error: "No valid instructions" });
+          continue;
+        }
+
+        const { blockhash } = await connection.getLatestBlockhash();
+        
+        let tx: VersionedTransaction | Transaction;
+        
+        if (altAccount) {
+          const message = new TransactionMessage({
+            payerKey: publicKey,
+            recentBlockhash: blockhash,
+            instructions: instructions,
+          }).compileToV0Message([altAccount]);
+          
+          tx = new VersionedTransaction(message);
+          console.log(`📦 Batch ${batchIdx + 1}: Using ALT (versioned tx) - ${instructions.length - 2} instructions`);
+        } else {
+          tx = new Transaction();
+          tx.recentBlockhash = blockhash;
+          tx.feePayer = publicKey;
+          instructions.forEach(ix => (tx as Transaction).add(ix));
+          console.log(`📦 Batch ${batchIdx + 1}: Legacy tx - ${instructions.length - 2} instructions`);
+        }
+
+        onProgress?.(batchIdx, batches.length, 'signing');
+        
+        const txSig = await sendTransaction(tx, connection, { skipPreflight: false });
+        console.log(`✅ Batch ${batchIdx + 1} signature:`, txSig);
+        
+        onProgress?.(batchIdx, batches.length, 'confirming', txSig);
+        await pollForConfirmation(connection, txSig);
+        
+        onProgress?.(batchIdx, batches.length, 'done', txSig);
+        results.push({ success: true, txSignature: txSig, poolsInBatch: symbols });
+        
+        if (batchIdx < batches.length - 1) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+      } catch (error: any) {
+        console.error(`❌ Batch ${batchIdx + 1} error:`, error);
+        results.push({ success: false, poolsInBatch: symbols, error: error.message?.slice(0, 100) });
+      }
+    }
+
+    return results;
+  };
+
+  // ============================================
+  // END OF BATCH FUNCTIONS WITH ALT
+  // ============================================
 
   return {
     // Core Functions
