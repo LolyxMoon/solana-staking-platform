@@ -52,12 +52,11 @@ const tools = [
   {
     title: "Sniper Bot",
     description: "Telegram bot for sniping new token launches",
-    href: "https://t.me/SPTSniperBot",
+    href: "/tools/sniper-bot",
     icon: Shield,
     tags: ["Telegram", "Auto-buy", "New launches"],
     available: true,
     color: "from-[#fb57ff] to-purple-600",
-    external: true,
 },
 ];
 

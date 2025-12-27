@@ -32,6 +32,7 @@ const toolPages = [
   'airdrop',
   'snapshot',
   'token-safety',
+  'sniper-bot',
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
