@@ -64,6 +64,7 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
   const [isPoolDataLoading, setIsPoolDataLoading] = useState(false);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [poolsLoaded, setPoolsLoaded] = useState(false);
+  const [priceVersion, setPriceVersion] = useState(0);
   
   const connectionRef = useRef(connection);
   connectionRef.current = connection;
@@ -261,6 +262,7 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
     }
     
     console.log(`✅ Batch fetched prices for ${mintsNeedingPrice.length} tokens`);
+    setPriceVersion(v => v + 1);
   };
 
   // Load all user token balances
@@ -370,7 +372,7 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
   const getPrice = useCallback((mint: string): { price: number | null; change: number | null } => {
     const cached = priceCache.get(mint);
     return cached ? { price: cached.price, change: cached.change } : { price: null, change: null };
-  }, []);
+  }, [priceVersion]);
 
   const getUserTokenBalance = useCallback((mint: string): number => {
     if (!userData) return 0;
