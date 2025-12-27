@@ -2,29 +2,21 @@
 
 import { 
   Zap, 
-  Shield, 
   Clock, 
   Target, 
   Wallet, 
   TrendingUp, 
-  Bell, 
   Settings,
   ExternalLink,
-  CheckCircle,
-  ArrowRight
+  ArrowRight,
+  BarChart3
 } from "lucide-react";
-import Link from "next/link";
 
 const features = [
   {
     icon: Zap,
     title: "Lightning Fast Execution",
     description: "Execute trades in milliseconds when new liquidity pools are detected on Raydium and Meteora"
-  },
-  {
-    icon: Shield,
-    title: "Anti-Rug Protection",
-    description: "Built-in safety checks analyze token contracts before buying to protect against scams"
   },
   {
     icon: Target,
@@ -43,8 +35,13 @@ const features = [
   },
   {
     icon: TrendingUp,
-    title: "Auto Take-Profit",
-    description: "Set automatic sell orders at your target price to lock in gains"
+    title: "Limit Orders",
+    description: "Set buy and sell orders at your target price - execute when the market hits your level"
+  },
+  {
+    icon: BarChart3,
+    title: "Position Tracking",
+    description: "Track all your holdings, view PnL, and manage your portfolio directly in Telegram"
   },
 ];
 
@@ -55,6 +52,8 @@ const commands = [
   { command: "/snipe", description: "Set up a snipe order for a token" },
   { command: "/orders", description: "View and manage pending orders" },
   { command: "/settings", description: "Configure slippage, gas, and preferences" },
+  { command: "/pnl", description: "View your profit and loss stats" },
+  { command: "/leaderboard", description: "See top traders on the platform" },
 ];
 
 export default function SniperBotPage() {
@@ -79,34 +78,24 @@ export default function SniperBotPage() {
               for new liquidity pools and executes trades in milliseconds.
             </p>
             
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <a
-                href="https://t.me/SPTSniperBot"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-8 py-4 rounded-xl font-semibold text-white transition-all hover:scale-105"
-                style={{ background: 'linear-gradient(45deg, #fb57ff, #9333ea)' }}
-              >
-                Open in Telegram
-                <ExternalLink className="w-5 h-5" />
-              </a>
-              <Link
-                href="/docs/sniper-bot"
-                className="flex items-center gap-2 px-8 py-4 rounded-xl font-semibold text-white border border-white/10 hover:bg-white/5 transition-all"
-              >
-                Read Documentation
-                <ArrowRight className="w-5 h-5" />
-              </Link>
-            </div>
+            <a
+              href="https://t.me/SPTSniperBot"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-semibold text-white transition-all hover:scale-105"
+              style={{ background: 'linear-gradient(45deg, #fb57ff, #9333ea)' }}
+            >
+              Open in Telegram
+              <ExternalLink className="w-5 h-5" />
+            </a>
           </div>
           
           {/* Stats */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-12">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-12">
             {[
               { label: "Avg Response Time", value: "<100ms" },
-              { label: "Pools Monitored", value: "Raydium & Meteora" },
-              { label: "Success Rate", value: "99.2%" },
-              { label: "Active Users", value: "500+" },
+              { label: "DEXs Supported", value: "Raydium & Meteora" },
+              { label: "Platform", value: "Telegram" },
             ].map((stat) => (
               <div key={stat.label} className="text-center p-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
                 <div className="text-2xl font-bold text-white mb-1">{stat.value}</div>
@@ -123,7 +112,7 @@ export default function SniperBotPage() {
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-white mb-4">Why Use SPT Sniper?</h2>
             <p className="text-gray-400 max-w-xl mx-auto">
-              Professional-grade tools for catching the next 100x before everyone else
+              Professional-grade tools for catching new token launches
             </p>
           </div>
           
@@ -213,10 +202,10 @@ export default function SniperBotPage() {
         <div className="max-w-3xl mx-auto">
           <div className="p-8 sm:p-12 rounded-2xl bg-gradient-to-br from-[#fb57ff]/20 to-purple-600/20 border border-[#fb57ff]/30 text-center">
             <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4">
-              Ready to Snipe Your Next 100x?
+              Ready to Catch New Launches?
             </h2>
             <p className="text-gray-300 mb-8">
-              Join hundreds of traders already using SPT Sniper to catch new launches first.
+              Start sniping new token launches on Solana today.
             </p>
             <a
               href="https://t.me/SPTSniperBot"
