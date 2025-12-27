@@ -717,13 +717,10 @@ export default function Dashboard() {
               ) : (
                 <>
                   <div className="text-2xl sm:text-3xl font-bold text-white">
-                    {totalStakedUsd ? formatUsd(totalStakedUsd) : formatNumber(totalStakedValue)}
+                    {formatUsd(totalStakedUsd || 0) || '$0.00'}
                   </div>
                   <div className="text-sm text-gray-400 mt-1">
-                    {totalStakedUsd 
-                      ? `${formatNumber(totalStakedValue)} tokens · ${userStakes.length} pool${userStakes.length !== 1 ? 's' : ''}`
-                      : `Across ${userStakes.length} pool${userStakes.length !== 1 ? 's' : ''}`
-                    }
+                    {userStakes.length} pool{userStakes.length !== 1 ? 's' : ''}
                   </div>
                 </>
               )}
@@ -743,13 +740,10 @@ export default function Dashboard() {
               ) : (
                 <>
                   <div className="text-2xl sm:text-3xl font-bold" style={{ color: '#fb57ff' }}>
-                    {totalPendingUsd ? formatUsd(totalPendingUsd) : formatNumber(totalPendingRewards, 4)}
+                    {formatUsd(totalPendingUsd || 0) || '$0.00'}
                   </div>
                   <div className="text-sm text-gray-400 mt-1">
-                    {totalPendingUsd 
-                      ? `${formatNumber(totalPendingRewards, 4)} tokens · ${stakesWithRewards.length} pool${stakesWithRewards.length !== 1 ? 's' : ''}`
-                      : `From ${stakesWithRewards.length} pool${stakesWithRewards.length !== 1 ? 's' : ''} with rewards`
-                    }
+                    {stakesWithRewards.length} pool{stakesWithRewards.length !== 1 ? 's' : ''} with rewards
                   </div>
                 </>
               )}

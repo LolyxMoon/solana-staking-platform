@@ -77,42 +77,46 @@ export function PoolDataProvider({ children }: { children: ReactNode }) {
 
   // Batch load decimals for all mints
   const loadPoolsData = useCallback(async (mints: string[]) => {
-    const uniqueMints = [...new Set(mints)].filter(m => m && !decimalsCache.has(m));
-    
-    if (uniqueMints.length === 0) return;
+    const allMints = [...new Set(mints)].filter(m => m);
+    const mintsNeedingDecimals = allMints.filter(m => !decimalsCache.has(m));
     
     setIsLoading(true);
     
     try {
-      const conn = connectionRef.current;
-      const mintPubkeys = uniqueMints.map(m => new PublicKey(m));
-      
-      // ✅ BATCH CALL: Fetch all mint accounts in ONE call
-      const accounts = await conn.getMultipleAccountsInfo(mintPubkeys);
-      
-      accounts.forEach((account, idx) => {
-        const mint = uniqueMints[idx];
-        if (account) {
-          try {
-            // Parse mint account data - decimals at byte 44
-            const decimals = account.data[44] || 9;
-            decimalsCache.set(mint, decimals);
-          } catch {
+      // Fetch decimals for mints that need them
+      if (mintsNeedingDecimals.length > 0) {
+        const conn = connectionRef.current;
+        const mintPubkeys = mintsNeedingDecimals.map(m => new PublicKey(m));
+        
+        // ✅ BATCH CALL: Fetch all mint accounts in ONE call
+        const accounts = await conn.getMultipleAccountsInfo(mintPubkeys);
+        
+        accounts.forEach((account, idx) => {
+          const mint = mintsNeedingDecimals[idx];
+          if (account) {
+            try {
+              // Parse mint account data - decimals at byte 44
+              const decimals = account.data[44] || 9;
+              decimalsCache.set(mint, decimals);
+            } catch {
+              decimalsCache.set(mint, 9);
+            }
+          } else {
             decimalsCache.set(mint, 9);
           }
-        } else {
-          decimalsCache.set(mint, 9);
-        }
-      });
+        });
+        
+        console.log(`✅ Batch loaded decimals for ${mintsNeedingDecimals.length} mints in 1 RPC call`);
+      }
       
-      console.log(`✅ Batch loaded decimals for ${uniqueMints.length} mints in 1 RPC call`);
-      
-      // Batch fetch prices from DexScreener
-      await batchFetchPrices(uniqueMints);
+      // ✅ ALWAYS fetch prices for ALL mints (price cache has its own expiry)
+      if (allMints.length > 0) {
+        await batchFetchPrices(allMints);
+      }
       
     } catch (error) {
       console.error('Batch load error:', error);
-      uniqueMints.forEach(mint => {
+      mintsNeedingDecimals.forEach(mint => {
         if (!decimalsCache.has(mint)) {
           decimalsCache.set(mint, 9);
         }
