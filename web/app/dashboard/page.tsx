@@ -913,9 +913,9 @@ export default function Dashboard() {
                     </div>
                     <div className="w-full">
                       <p className="text-xl sm:text-2xl font-bold" style={{ color: '#fb57ff' }}>
-                        {dynamicRates.get(pool.id)?.toFixed(2) ?? (pool.type === "locked" ? pool.apy : pool.apr) ?? 0}%
+                        {dynamicRates.get(pool.id)?.toFixed(2) ?? pool.apr ?? pool.apy ?? 0}%
                       </p>
-                      <p className="text-xs text-gray-400">{pool.type === "locked" ? "APY" : "APR"}</p>
+                      <p className="text-xs text-gray-400">APR</p>
                     </div>
                     <button 
                       onClick={() => handleStakeNow(pool.id)}
