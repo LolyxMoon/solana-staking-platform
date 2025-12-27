@@ -6,7 +6,6 @@ const pageConfig: Record<string, { changeFrequency: 'always' | 'hourly' | 'daily
   '': { changeFrequency: 'daily', priority: 1.0 },
   '/landing': { changeFrequency: 'weekly', priority: 0.9 },
   '/pools': { changeFrequency: 'hourly', priority: 1.0 },
-  '/lp-pools': { changeFrequency: 'hourly', priority: 0.9 },
   '/locks': { changeFrequency: 'daily', priority: 0.9 },
   '/swap': { changeFrequency: 'daily', priority: 0.8 },
   '/tools': { changeFrequency: 'weekly', priority: 0.9 },
@@ -32,7 +31,6 @@ const toolPages = [
   'wallet-analyzer', 
   'airdrop',
   'snapshot',
-  'audit',
   'token-safety',
 ];
 
