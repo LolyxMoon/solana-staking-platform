@@ -405,87 +405,152 @@ export default function LandingPage() {
             </div>
 
             <div className="lg:block">
-              <div className="relative overflow-hidden backdrop-blur-xl bg-white/[0.02] border border-white/[0.08] rounded-xl p-6 space-y-4">
-                <div className="absolute top-0 right-0 w-40 h-40 rounded-full blur-3xl pointer-events-none" style={{ background: 'rgba(251, 87, 255, 0.1)' }}></div>
-                
-                <div className="relative">
-                  <div className="flex items-center justify-between mb-6">
-                    <div>
-                      <h2 className="text-lg font-bold text-white mb-1">
-                        Trending Pools
-                      </h2>
-                      <p className="text-xs text-gray-400">
-                        {pools.length} pools available
-                      </p>
-                    </div>
-                  </div>
-
-                  {loading ? (
-                    <div className="space-y-2">
-                      {[1, 2, 3].map((i) => (
-                        <div
-                          key={i}
-                          className="h-20 bg-white/[0.03] rounded-lg animate-pulse"
-                        />
-                      ))}
-                    </div>
-                  ) : pools.length > 0 ? (
-                    <div className="space-y-2">
-                      {pools.map((pool) => (
-                        <div
-                          key={pool.id}
-                          className="relative group p-3.5 bg-white/[0.03] hover:bg-white/[0.06] rounded-lg transition-all cursor-pointer border border-white/[0.05]"
-                          onMouseEnter={(e) => e.currentTarget.style.borderColor = 'rgba(251, 87, 255, 0.3)'}
-                          onMouseLeave={(e) => e.currentTarget.style.borderColor = ''}
-                        >
-                          <div className="flex items-center gap-3">
-                            {pool.logo ? (
-                              <img
-                                src={pool.logo}
-                                alt={pool.symbol}
-                                className="w-10 h-10 rounded-full ring-2 ring-white/[0.05]"
-                              />
-                            ) : (
-                              <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ring-2 ring-white/[0.05]" style={{ background: 'linear-gradient(135deg, rgba(251, 87, 255, 0.2), rgba(251, 87, 255, 0.1))', color: '#fb57ff' }}>
-                                {pool.symbol.slice(0, 2)}
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="font-semibold text-white text-sm truncate">
-                                {pool.name}
-                              </p>
-                              <p className="text-xs text-gray-400">{pool.symbol}</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-sm font-bold text-accent-green">
-                                {pool.liveRate && pool.liveRate > 0
-                                  ? `${pool.liveRate.toFixed(2)}%`
-                                  : "—"}
-                              </p>
-                              <p className="text-[10px] text-gray-400 uppercase tracking-wide">
-                                {pool.liveRateType ? pool.liveRateType.toUpperCase() : "Variable"}
-                              </p>
-                            </div>
-                            <ChevronRight className="w-4 h-4 text-gray-400 group-hover:translate-x-0.5 transition-all flex-shrink-0 ml-1" style={{ ['--hover-color' as any]: '#fb57ff' }} onMouseEnter={(e) => e.currentTarget.style.color = '#fb57ff'} onMouseLeave={(e) => e.currentTarget.style.color = ''} />
-                          </div>
+              <div className="relative p-[2px] rounded-xl overflow-hidden">
+                <div 
+                  className="absolute inset-0 rounded-xl"
+                  style={{ 
+                    background: 'linear-gradient(45deg, #fb57ff, #00d4ff, #fb57ff, #00d4ff)',
+                    backgroundSize: '300% 300%',
+                    animation: 'gradientShift 3s ease infinite',
+                  }}
+                />
+                <div className="relative overflow-hidden backdrop-blur-xl bg-[#0a0a0f] rounded-xl p-6 space-y-4">
+                  <div 
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                      background: 'linear-gradient(110deg, transparent 20%, rgba(251, 87, 255, 0.05) 40%, rgba(251, 87, 255, 0.1) 50%, rgba(251, 87, 255, 0.05) 60%, transparent 80%)',
+                      backgroundSize: '200% 100%',
+                      animation: 'shimmer 3s ease-in-out infinite',
+                    }}
+                  />
+                  <div className="absolute top-0 right-0 w-40 h-40 rounded-full blur-3xl pointer-events-none" style={{ background: 'rgba(251, 87, 255, 0.15)' }} />
+                  <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full blur-3xl pointer-events-none" style={{ background: 'rgba(0, 212, 255, 0.1)' }} />
+                  
+                  <div className="relative">
+                    <div className="flex items-center justify-between mb-6">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-lg">🔥</span>
+                          <h2 className="text-xl font-bold" style={{ background: 'linear-gradient(45deg, white, #fb57ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+                            Trending Pools
+                          </h2>
                         </div>
-                      ))}
+                        <p className="text-xs text-gray-400">
+                          {pools.length} pools available
+                        </p>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="text-center py-8 text-gray-400">
-                      <p className="text-sm">No featured pools yet</p>
-                    </div>
-                  )}
 
-                  <button
-                    onClick={() => router.push("/pools")}
-                    className="w-full mt-4 px-4 py-2 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] rounded-lg transition-all font-medium text-xs text-gray-400"
-                    style={{ ['--hover-border' as any]: 'rgba(251, 87, 255, 0.3)' }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(251, 87, 255, 0.3)'; e.currentTarget.style.color = '#fb57ff'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.color = ''; }}
-                  >
-                    View All Pools →
-                  </button>
+                    {loading ? (
+                      <div className="space-y-3">
+                        {[1, 2, 3, 4].map((i) => (
+                          <div
+                            key={i}
+                            className="h-24 bg-white/[0.03] rounded-lg animate-pulse"
+                          />
+                        ))}
+                      </div>
+                    ) : pools.length > 0 ? (
+                      <div className="space-y-3">
+                        {pools.map((pool, index) => {
+                          const glowColors = ['#fb57ff', '#00d4ff', '#10b981', '#f59e0b'];
+                          const glowColor = glowColors[index % glowColors.length];
+                          
+                          return (
+                            <div
+                              key={pool.id}
+                              onClick={() => router.push(`/pool/${pool.id}`)}
+                              className="relative group p-4 bg-white/[0.03] hover:bg-white/[0.06] rounded-xl transition-all cursor-pointer border border-white/[0.08] hover:scale-[1.02]"
+                              onMouseEnter={(e) => e.currentTarget.style.borderColor = 'rgba(251, 87, 255, 0.4)'}
+                              onMouseLeave={(e) => e.currentTarget.style.borderColor = ''}
+                            >
+                              <div className="flex items-center gap-4">
+                                <div 
+                                  className="absolute -top-2 -left-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-lg"
+                                  style={{ 
+                                    background: index === 0 ? 'linear-gradient(135deg, #FFD700, #FFA500)' : 
+                                               index === 1 ? 'linear-gradient(135deg, #C0C0C0, #A0A0A0)' : 
+                                               index === 2 ? 'linear-gradient(135deg, #CD7F32, #8B4513)' :
+                                               'linear-gradient(135deg, #fb57ff, #00d4ff)',
+                                    boxShadow: index === 0 ? '0 0 10px rgba(255, 215, 0, 0.5)' : 'none'
+                                  }}
+                                >
+                                  {index + 1}
+                                </div>
+                                
+                                <div className="relative">
+                                  <div 
+                                    className="absolute inset-0 rounded-full blur-md opacity-60"
+                                    style={{ background: glowColor, transform: 'scale(1.2)' }}
+                                  />
+                                  {pool.logo ? (
+                                    <img
+                                      src={pool.logo}
+                                      alt={pool.symbol}
+                                      className="relative w-14 h-14 rounded-full ring-2"
+                                      style={{ ringColor: glowColor, boxShadow: `0 0 20px ${glowColor}40` }}
+                                    />
+                                  ) : (
+                                    <div 
+                                      className="relative w-14 h-14 rounded-full flex items-center justify-center font-bold text-base ring-2"
+                                      style={{ 
+                                        background: `linear-gradient(135deg, ${glowColor}30, ${glowColor}10)`, 
+                                        color: glowColor,
+                                        ringColor: glowColor,
+                                        boxShadow: `0 0 20px ${glowColor}40`
+                                      }}
+                                    >
+                                      {pool.symbol.slice(0, 2)}
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-bold text-white text-base truncate">
+                                    {pool.name}
+                                  </p>
+                                  <p className="text-sm text-gray-400">{pool.symbol}</p>
+                                </div>
+                                
+                                <div className="text-right">
+                                  <p 
+                                    className="text-lg font-bold"
+                                    style={{ 
+                                      color: pool.liveRate && pool.liveRate > 100 ? '#10b981' : 
+                                             pool.liveRate && pool.liveRate > 50 ? '#00d4ff' : '#fb57ff',
+                                      textShadow: pool.liveRate && pool.liveRate > 100 ? '0 0 10px rgba(16, 185, 129, 0.5)' : 'none'
+                                    }}
+                                  >
+                                    {pool.liveRate && pool.liveRate > 0
+                                      ? `${pool.liveRate.toFixed(2)}%`
+                                      : "—"}
+                                  </p>
+                                  <p className="text-xs text-gray-400 uppercase tracking-wide">
+                                    {pool.liveRateType ? pool.liveRateType.toUpperCase() : "APR"}
+                                  </p>
+                                </div>
+                                
+                                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:translate-x-1 group-hover:text-[#fb57ff] transition-all flex-shrink-0" />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-400">
+                        <p className="text-sm">No featured pools yet</p>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => router.push("/pools")}
+                      className="w-full mt-4 px-4 py-3 bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.1] rounded-xl transition-all font-semibold text-sm text-gray-300 hover:text-white"
+                      onMouseEnter={(e) => e.currentTarget.style.borderColor = 'rgba(251, 87, 255, 0.4)'}
+                      onMouseLeave={(e) => e.currentTarget.style.borderColor = ''}
+                    >
+                      View All Pools →
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
