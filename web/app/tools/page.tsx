@@ -81,7 +81,7 @@ export default function ToolsPage() {
         {tools.map((tool) => (
           tool.available ? (
             tool.external ? (
-              
+              <a
                 key={tool.title}
                 href={tool.href}
                 target="_blank"
