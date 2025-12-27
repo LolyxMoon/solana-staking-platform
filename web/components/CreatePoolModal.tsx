@@ -293,6 +293,15 @@ useEffect(() => {
     setError(null); // Clear any previous errors
 
     setLoading(true);
+
+    // Check SOL balance before starting
+    const solBalance = await connection.getBalance(publicKey);
+    const estimatedFees = poolCreationFee + 0.02 * 1_000_000_000; // Fee + ~0.02 SOL for tx fees
+    if (solBalance < estimatedFees) {
+      setError(`Insufficient SOL. Need ${(estimatedFees / 1_000_000_000).toFixed(3)} SOL, have ${(solBalance / 1_000_000_000).toFixed(4)} SOL.`);
+      setLoading(false);
+      return;
+    }
     
     try {
       // Setup
@@ -420,6 +429,10 @@ useEffect(() => {
         })
         .transaction();
 
+      createProjectTxn.add(
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50000 }),
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 })
+      );
       const { blockhash: createBlockhash } = await connection.getLatestBlockhash();
       createProjectTxn.recentBlockhash = createBlockhash;
       createProjectTxn.feePayer = publicKey;
@@ -549,6 +562,10 @@ useEffect(() => {
         .accounts(initPoolAccounts)
         .transaction();
 
+      initPoolTxn.add(
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50000 }),
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 300000 })
+      );
       const { blockhash: initBlockhash } = await connection.getLatestBlockhash();
       initPoolTxn.recentBlockhash = initBlockhash;
       initPoolTxn.feePayer = publicKey;
@@ -577,6 +594,10 @@ useEffect(() => {
         })
         .transaction();
 
+      depositRewardsTxn.add(
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50000 }),
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 })
+      );
       const { blockhash: depositBlockhash } = await connection.getLatestBlockhash();
       depositRewardsTxn.recentBlockhash = depositBlockhash;
       depositRewardsTxn.feePayer = publicKey;
