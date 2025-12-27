@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Coins, X, Sparkles, ArrowDownUp, BookOpen, LifeBuoy, Send, Lock, Crown, Map, FileText, Wrench, Gift } from "lucide-react";
+import { Coins, X, Sparkles, ArrowDownUp, BookOpen, LifeBuoy, Send, Lock, Crown, Map, FileText, Wrench, Gift, LayoutDashboard } from "lucide-react";
 
 const navItems = [
   { name: "Home", href: "/landing", icon: Sparkles },
+  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Staking", href: "/pools", icon: Coins },
   // { name: "Farming", href: "/lp-pools", icon: Coins },
   { name: "Locks", href: "/locks", icon: Lock },

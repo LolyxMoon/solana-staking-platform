@@ -1447,6 +1447,310 @@ const claimUnclaimedTokens = async (tokenMint: string, poolId: number = 0) => {
     }
   };
 
+  // ============================================
+    // BATCH FUNCTIONS - Paste this BEFORE the return statement
+    // ============================================
+
+    /**
+     * Build a claim instruction without sending (for batching)
+     */
+    const buildClaimInstruction = async (tokenMint: string, poolId: number = 0) => {
+      if (!wallet || !publicKey) return null;
+
+      try {
+        const program = getProgram(wallet, connection);
+        const tokenMintPubkey = new PublicKey(tokenMint);
+
+        const mintInfo = await connection.getAccountInfo(tokenMintPubkey);
+        if (!mintInfo) return null;
+        
+        const TOKEN_2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+        const SPL_TOKEN = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+        const tokenProgramId = mintInfo.owner.equals(TOKEN_2022) ? TOKEN_2022 : SPL_TOKEN;
+
+        const platformConfig = await getPlatformConfig(program);
+        if (!platformConfig) return null;
+        const feeCollector = platformConfig.feeCollector;
+
+        const [platformConfigPDA] = getPDAs.platformConfig();
+        const [projectPDA] = getPDAs.project(tokenMintPubkey, poolId);
+        const [rewardVaultPDA] = getPDAs.rewardVault(tokenMintPubkey, poolId);
+        const [userStakePDA] = getPDAs.userStake(projectPDA, publicKey);
+        const [stakingVaultPDA] = getPDAs.stakingVault(tokenMintPubkey, poolId);
+
+        const userStake = await program.account.stake.fetch(userStakePDA, "confirmed");
+        const withdrawalWallet = userStake.withdrawalWallet || publicKey;
+
+        const NATIVE_SOL = "So11111111111111111111111111111111111111112";
+        const isNativeSOL = tokenMint === NATIVE_SOL;
+
+        const withdrawalTokenAccount = isNativeSOL 
+          ? withdrawalWallet 
+          : await getAssociatedTokenAddress(tokenMintPubkey, withdrawalWallet, false, tokenProgramId);
+
+        const project = await program.account.project.fetch(projectPDA, "confirmed");
+
+        const accounts: any = {
+          platform: platformConfigPDA,
+          project: projectPDA,
+          stake: userStakePDA,
+          rewardVault: rewardVaultPDA,
+          userTokenAccount: withdrawalTokenAccount,
+          feeCollector: feeCollector,
+          reflectionVault: project.reflectionVault || stakingVaultPDA,
+          tokenMintAccount: tokenMintPubkey,
+          user: publicKey,
+          tokenProgram: tokenProgramId,
+          systemProgram: SystemProgram.programId,
+        };
+
+        const remainingAccounts: any[] = [];
+        if (project.referrer && !project.referrer.equals(PublicKey.default)) {
+          remainingAccounts.push({ pubkey: project.referrer, isWritable: true, isSigner: false });
+        }
+
+        const instruction = await program.methods
+          .claim(tokenMintPubkey, new BN(poolId))
+          .accountsPartial(accounts)
+          .remainingAccounts(remainingAccounts)
+          .instruction();
+
+        return instruction;
+      } catch (error) {
+        console.error(`Error building claim instruction for ${tokenMint}:`, error);
+        return null;
+      }
+    };
+
+    /**
+     * Build a stake instruction without sending (for batching)
+     */
+    const buildStakeInstruction = async (tokenMint: string, amount: number, poolId: number = 0) => {
+      if (!wallet || !publicKey) return null;
+
+      try {
+        const program = getProgram(wallet, connection);
+        const tokenMintPubkey = new PublicKey(tokenMint);
+
+        const mintInfo = await connection.getAccountInfo(tokenMintPubkey);
+        if (!mintInfo) return null;
+        
+        const TOKEN_2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+        const SPL_TOKEN = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+        const tokenProgramId = mintInfo.owner.equals(TOKEN_2022) ? TOKEN_2022 : SPL_TOKEN;
+
+        const platformConfig = await getPlatformConfig(program);
+        if (!platformConfig) return null;
+        const feeCollector = platformConfig.feeCollector;
+
+        const [platformConfigPDA] = getPDAs.platformConfig();
+        const [projectPDA] = getPDAs.project(tokenMintPubkey, poolId);
+        const [stakingVaultPDA] = getPDAs.stakingVault(tokenMintPubkey, poolId);
+        const [userStakePDA] = getPDAs.userStake(projectPDA, publicKey);
+
+        const NATIVE_SOL = "So11111111111111111111111111111111111111112";
+        const isNativeSOL = tokenMint === NATIVE_SOL;
+
+        const userTokenAccount = isNativeSOL 
+          ? publicKey 
+          : await getAssociatedTokenAddress(tokenMintPubkey, publicKey, false, tokenProgramId);
+        
+        const feeCollectorTokenAccount = isNativeSOL 
+          ? feeCollector 
+          : await getAssociatedTokenAddress(tokenMintPubkey, feeCollector, false, tokenProgramId);
+
+        const project = await program.account.project.fetch(projectPDA, "confirmed");
+
+        const accounts: any = {
+          platform: platformConfigPDA,
+          project: projectPDA,
+          stake: userStakePDA,
+          stakingVault: stakingVaultPDA,
+          userTokenAccount,
+          feeCollectorTokenAccount,
+          feeCollector,
+          reflectionVault: (project.reflectionVault && project.reflectionVault.toString() !== projectPDA.toString()) 
+            ? project.reflectionVault : null,
+          tokenMintAccount: tokenMintPubkey,
+          user: publicKey,
+          tokenProgram: tokenProgramId,
+          systemProgram: SystemProgram.programId,
+        };
+
+        const remainingAccounts: any[] = [];
+        if (project.referrer && !project.referrer.equals(PublicKey.default)) {
+          remainingAccounts.push({ pubkey: project.referrer, isWritable: true, isSigner: false });
+        }
+
+        const instruction = await program.methods
+          .deposit(tokenMintPubkey, new BN(poolId), new BN(amount))
+          .accountsPartial(accounts)
+          .remainingAccounts(remainingAccounts)
+          .instruction();
+
+        return instruction;
+      } catch (error) {
+        console.error(`Error building stake instruction for ${tokenMint}:`, error);
+        return null;
+      }
+    };
+
+    /**
+     * Batch claim rewards from multiple pools (up to 6 per transaction)
+     */
+    const batchClaimRewards = async (
+      pools: { tokenMint: string; poolId: number; symbol: string }[],
+      onProgress?: (batchIndex: number, totalBatches: number, status: 'building' | 'signing' | 'confirming' | 'done', txSignature?: string) => void
+    ) => {
+      if (!wallet || !publicKey || !sendTransaction) {
+        throw new Error("Wallet not connected");
+      }
+
+      const MAX_PER_TX = 6;
+      const results: { success: boolean; txSignature?: string; poolsInBatch: string[]; error?: string }[] = [];
+      
+      // Split into batches
+      const batches: typeof pools[] = [];
+      for (let i = 0; i < pools.length; i += MAX_PER_TX) {
+        batches.push(pools.slice(i, i + MAX_PER_TX));
+      }
+
+      console.log(`🔄 Batching ${pools.length} claims into ${batches.length} transaction(s)`);
+
+      for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+        const batch = batches[batchIdx];
+        const symbols = batch.map(p => p.symbol);
+        
+        onProgress?.(batchIdx, batches.length, 'building');
+        
+        try {
+          const transaction = new Transaction();
+          transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }));
+          transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }));
+
+          let added = 0;
+          for (const pool of batch) {
+            const ix = await buildClaimInstruction(pool.tokenMint, pool.poolId);
+            if (ix) {
+              transaction.add(ix);
+              added++;
+            }
+          }
+
+          if (added === 0) {
+            results.push({ success: false, poolsInBatch: symbols, error: "No valid instructions" });
+            continue;
+          }
+
+          console.log(`📦 Batch ${batchIdx + 1}: ${added} claim instructions`);
+          onProgress?.(batchIdx, batches.length, 'signing');
+          
+          const txSig = await sendTransaction(transaction, connection, { skipPreflight: false });
+          console.log(`✅ Batch ${batchIdx + 1} signature:`, txSig);
+          
+          onProgress?.(batchIdx, batches.length, 'confirming', txSig);
+          await pollForConfirmation(connection, txSig);
+          
+          onProgress?.(batchIdx, batches.length, 'done', txSig);
+          results.push({ success: true, txSignature: txSig, poolsInBatch: symbols });
+          
+          if (batchIdx < batches.length - 1) {
+            await new Promise(r => setTimeout(r, 500));
+          }
+        } catch (error: any) {
+          console.error(`❌ Batch ${batchIdx + 1} error:`, error);
+          results.push({ success: false, poolsInBatch: symbols, error: error.message?.slice(0, 100) });
+        }
+      }
+
+      return results;
+    };
+
+    /**
+     * Batch compound (claim + stake) from multiple pools (up to 3 per transaction)
+     */
+    const batchCompound = async (
+      pools: { tokenMint: string; poolId: number; symbol: string; rewardAmount: number; decimals: number }[],
+      onProgress?: (batchIndex: number, totalBatches: number, status: 'building' | 'signing' | 'confirming' | 'done', txSignature?: string) => void
+    ) => {
+      if (!wallet || !publicKey || !sendTransaction) {
+        throw new Error("Wallet not connected");
+      }
+
+      const MAX_PER_TX = 3; // 2 instructions per pool
+      const results: { success: boolean; txSignature?: string; poolsInBatch: string[]; error?: string }[] = [];
+      
+      const batches: typeof pools[] = [];
+      for (let i = 0; i < pools.length; i += MAX_PER_TX) {
+        batches.push(pools.slice(i, i + MAX_PER_TX));
+      }
+
+      console.log(`🔄 Batching ${pools.length} compounds into ${batches.length} transaction(s)`);
+
+      for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+        const batch = batches[batchIdx];
+        const symbols = batch.map(p => p.symbol);
+        
+        onProgress?.(batchIdx, batches.length, 'building');
+        
+        try {
+          const transaction = new Transaction();
+          transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 600000 }));
+          transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }));
+
+          let added = 0;
+          for (const pool of batch) {
+            // Add claim
+            const claimIx = await buildClaimInstruction(pool.tokenMint, pool.poolId);
+            if (claimIx) {
+              transaction.add(claimIx);
+              added++;
+            }
+            
+            // Add stake
+            const rewardsInUnits = Math.floor(pool.rewardAmount * Math.pow(10, pool.decimals));
+            if (rewardsInUnits > 0) {
+              const stakeIx = await buildStakeInstruction(pool.tokenMint, rewardsInUnits, pool.poolId);
+              if (stakeIx) {
+                transaction.add(stakeIx);
+                added++;
+              }
+            }
+          }
+
+          if (added === 0) {
+            results.push({ success: false, poolsInBatch: symbols, error: "No valid instructions" });
+            continue;
+          }
+
+          console.log(`📦 Batch ${batchIdx + 1}: ${added} compound instructions`);
+          onProgress?.(batchIdx, batches.length, 'signing');
+          
+          const txSig = await sendTransaction(transaction, connection, { skipPreflight: false });
+          console.log(`✅ Batch ${batchIdx + 1} signature:`, txSig);
+          
+          onProgress?.(batchIdx, batches.length, 'confirming', txSig);
+          await pollForConfirmation(connection, txSig);
+          
+          onProgress?.(batchIdx, batches.length, 'done', txSig);
+          results.push({ success: true, txSignature: txSig, poolsInBatch: symbols });
+          
+          if (batchIdx < batches.length - 1) {
+            await new Promise(r => setTimeout(r, 500));
+          }
+        } catch (error: any) {
+          console.error(`❌ Batch ${batchIdx + 1} error:`, error);
+          results.push({ success: false, poolsInBatch: symbols, error: error.message?.slice(0, 100) });
+        }
+      }
+
+      return results;
+    };
+
+    // ============================================
+    // END OF BATCH FUNCTIONS
+    // ============================================
+
   return {
     // Core Functions
     stake,
@@ -1455,6 +1759,10 @@ const claimUnclaimedTokens = async (tokenMint: string, poolId: number = 0) => {
     claimReflections,
     refreshReflections,
     claimUnclaimedTokens,
+
+    // Batch Functions
+    batchClaimRewards,
+    batchCompound,
     
     // Query Functions
     getUserStake,

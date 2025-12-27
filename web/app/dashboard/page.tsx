@@ -22,6 +22,7 @@ import { UserStakedPools } from "@/components/UserStakedPools";
 import { usePoolData } from "@/hooks/usePoolData";
 import { useStakingProgram } from "@/hooks/useStakingProgram";
 import { calculatePendingRewards } from "@/utils/calculatePendingRewards";
+import BatchOperationModal, { BatchTxStep, BatchOperationType } from "@/components/BatchOperationModal";
 import { toast } from "sonner";
 
 type FeaturedPool = {
@@ -93,7 +94,7 @@ export default function Dashboard() {
     getPrice,
     isPoolDataLoading 
   } = usePoolData();
-  const { claimRewards, stake } = useStakingProgram();
+  const { claimRewards, stake, batchClaimRewards, batchCompound } = useStakingProgram();
   
   // Existing state
   const [featuredPools, setFeaturedPools] = useState<FeaturedPool[]>([]);
@@ -116,6 +117,17 @@ export default function Dashboard() {
   const [claimingAll, setClaimingAll] = useState(false);
   const [compounding, setCompounding] = useState(false);
   const [rewardsRefreshTick, setRewardsRefreshTick] = useState(0);
+
+  // Batch operation modal state
+  const [batchModalOpen, setBatchModalOpen] = useState(false);
+  const [batchOperationType, setBatchOperationType] = useState<BatchOperationType>("claim");
+  const [batchSteps, setBatchSteps] = useState<BatchTxStep[]>([]);
+  const [currentBatchStep, setCurrentBatchStep] = useState(0);
+  const [batchSuccessCount, setBatchSuccessCount] = useState(0);
+  const [batchFailCount, setBatchFailCount] = useState(0);
+  const [batchComplete, setBatchComplete] = useState(false);
+  const [totalPoolsInBatch, setTotalPoolsInBatch] = useState(0);
+  const [gasSaved, setGasSaved] = useState(0);
 
   // Real-time rewards ticker - updates calculation every second
   useEffect(() => {
@@ -386,100 +398,233 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [connected, publicKey]);
 
-  // Claim all rewards handler - uses sendTransaction (already in useStakingProgram) to avoid Phantom warnings
+  // Constants for batching
+  const MAX_CLAIMS_PER_TX = 6;
+  const MAX_COMPOUNDS_PER_TX = 3;
+
+  // Claim all rewards handler - TRUE BATCH approach with modal
   const handleClaimAll = useCallback(async () => {
     if (!connected || !publicKey || stakesWithRewards.length === 0) return;
 
+    const totalPools = stakesWithRewards.length;
+    const totalBatches = Math.ceil(totalPools / MAX_CLAIMS_PER_TX);
+    const txSaved = totalPools - totalBatches;
+
+    // Initialize modal
+    setBatchOperationType("claim");
+    setBatchComplete(false);
+    setBatchSuccessCount(0);
+    setBatchFailCount(0);
+    setCurrentBatchStep(0);
+    setTotalPoolsInBatch(totalPools);
+    setGasSaved(txSaved);
+    
+    // Create batch steps
+    const steps: BatchTxStep[] = [];
+    for (let i = 0; i < totalBatches; i++) {
+      const startIdx = i * MAX_CLAIMS_PER_TX;
+      const endIdx = Math.min(startIdx + MAX_CLAIMS_PER_TX, totalPools);
+      const poolsInBatch = stakesWithRewards.slice(startIdx, endIdx);
+      
+      steps.push({
+        id: `batch-claim-${i}`,
+        batchNumber: i + 1,
+        poolSymbols: poolsInBatch.map(p => p.poolSymbol),
+        status: "pending",
+      });
+    }
+    setBatchSteps(steps);
+    setBatchModalOpen(true);
     setClaimingAll(true);
-    const toastId = toast.loading(`Claiming rewards from ${stakesWithRewards.length} pool(s)...`);
 
     let successCount = 0;
     let failCount = 0;
 
     try {
-      // Process claims sequentially to avoid transaction conflicts
-      for (const stakeData of stakesWithRewards) {
+      // Process each batch
+      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        const startIdx = batchIdx * MAX_CLAIMS_PER_TX;
+        const endIdx = Math.min(startIdx + MAX_CLAIMS_PER_TX, totalPools);
+        const poolsInBatch = stakesWithRewards.slice(startIdx, endIdx);
+        
+        setCurrentBatchStep(batchIdx);
+        
+        // Update step to building
+        setBatchSteps(prev => prev.map((step, idx) => 
+          idx === batchIdx ? { ...step, status: "building" as const } : step
+        ));
+
         try {
-          toast.loading(`Claiming from ${stakeData.poolSymbol}... (${successCount + 1}/${stakesWithRewards.length})`, { id: toastId });
+          // Call the batch claim function from useStakingProgram
+          const result = await batchClaimRewards(
+            poolsInBatch.map(p => ({
+              tokenMint: p.tokenMint,
+              poolId: p.poolId,
+              symbol: p.poolSymbol,
+            })),
+            (_, __, status, txSig) => {
+              setBatchSteps(prev => prev.map((step, idx) => 
+                idx === batchIdx 
+                  ? { ...step, status: status === 'done' ? 'success' : status, txSignature: txSig } 
+                  : step
+              ));
+            }
+          );
+
+          // Check result
+          if (result[0]?.success) {
+            successCount++;
+            setBatchSteps(prev => prev.map((step, idx) => 
+              idx === batchIdx ? { ...step, status: "success" as const, txSignature: result[0].txSignature } : step
+            ));
+          } else {
+            failCount++;
+            setBatchSteps(prev => prev.map((step, idx) => 
+              idx === batchIdx ? { ...step, status: "error" as const, error: result[0]?.error } : step
+            ));
+          }
           
-          // claimRewards already uses sendTransaction with compute budget (from useStakingProgram)
-          await claimRewards(stakeData.tokenMint, stakeData.poolId);
-          successCount++;
-          
-          // Small delay between claims to avoid RPC rate limits
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // Delay between batches
+          if (batchIdx < totalBatches - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
         } catch (err: any) {
-          console.error(`Failed to claim from ${stakeData.poolSymbol}:`, err);
+          console.error(`Batch ${batchIdx + 1} failed:`, err);
           failCount++;
+          setBatchSteps(prev => prev.map((step, idx) => 
+            idx === batchIdx ? { ...step, status: "error" as const, error: err.message?.slice(0, 50) } : step
+          ));
         }
       }
 
+      setBatchSuccessCount(successCount);
+      setBatchFailCount(failCount);
+      setBatchComplete(true);
+
+      // Refresh stakes data
       if (successCount > 0) {
-        toast.success(`Successfully claimed from ${successCount} pool(s)${failCount > 0 ? `, ${failCount} failed` : ''}`, { id: toastId });
-        // Refresh stakes data
         await fetchUserStakes();
-      } else {
-        toast.error('Failed to claim rewards', { id: toastId });
       }
     } catch (error) {
-      console.error('Claim all error:', error);
-      toast.error('Failed to claim rewards', { id: toastId });
+      console.error('Batch claim error:', error);
+      setBatchComplete(true);
     } finally {
       setClaimingAll(false);
     }
-  }, [connected, publicKey, stakesWithRewards, claimRewards, fetchUserStakes]);
+  }, [connected, publicKey, stakesWithRewards, batchClaimRewards, fetchUserStakes]);
 
-  // Compound rewards handler (claim + restake) - uses sendTransaction to avoid Phantom warnings
+  // Compound rewards handler - TRUE BATCH approach with modal
   const handleCompound = useCallback(async () => {
     if (!connected || !publicKey || stakesWithRewards.length === 0) return;
 
+    const totalPools = stakesWithRewards.length;
+    const totalBatches = Math.ceil(totalPools / MAX_COMPOUNDS_PER_TX);
+    const txSaved = (totalPools * 2) - totalBatches; // 2 txs per pool (claim+stake) vs 1 batch tx
+
+    // Initialize modal
+    setBatchOperationType("compound");
+    setBatchComplete(false);
+    setBatchSuccessCount(0);
+    setBatchFailCount(0);
+    setCurrentBatchStep(0);
+    setTotalPoolsInBatch(totalPools);
+    setGasSaved(txSaved);
+    
+    // Create batch steps
+    const steps: BatchTxStep[] = [];
+    for (let i = 0; i < totalBatches; i++) {
+      const startIdx = i * MAX_COMPOUNDS_PER_TX;
+      const endIdx = Math.min(startIdx + MAX_COMPOUNDS_PER_TX, totalPools);
+      const poolsInBatch = stakesWithRewards.slice(startIdx, endIdx);
+      
+      steps.push({
+        id: `batch-compound-${i}`,
+        batchNumber: i + 1,
+        poolSymbols: poolsInBatch.map(p => p.poolSymbol),
+        status: "pending",
+      });
+    }
+    setBatchSteps(steps);
+    setBatchModalOpen(true);
     setCompounding(true);
-    const toastId = toast.loading(`Compounding rewards from ${stakesWithRewards.length} pool(s)...`);
 
     let successCount = 0;
+    let failCount = 0;
 
     try {
-      for (const stakeData of stakesWithRewards) {
+      // Process each batch
+      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        const startIdx = batchIdx * MAX_COMPOUNDS_PER_TX;
+        const endIdx = Math.min(startIdx + MAX_COMPOUNDS_PER_TX, totalPools);
+        const poolsInBatch = stakesWithRewards.slice(startIdx, endIdx);
+        
+        setCurrentBatchStep(batchIdx);
+        
+        // Update step to building
+        setBatchSteps(prev => prev.map((step, idx) => 
+          idx === batchIdx ? { ...step, status: "building" as const } : step
+        ));
+
         try {
-          toast.loading(`Compounding ${stakeData.poolSymbol}... (${successCount + 1}/${stakesWithRewards.length})`, { id: toastId });
-          
-          // Step 1: Claim rewards
-          await claimRewards(stakeData.tokenMint, stakeData.poolId);
-          
-          // Small delay
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          // Step 2: Stake the claimed amount back
-          // Get the pending rewards amount in token units
-          const rewardsInTokenUnits = Math.floor(stakeData.pendingRewards * Math.pow(10, stakeData.decimals));
-          
-          if (rewardsInTokenUnits > 0) {
-            await stake(stakeData.tokenMint, rewardsInTokenUnits, stakeData.poolId);
+          // Call the batch compound function from useStakingProgram
+          const result = await batchCompound(
+            poolsInBatch.map(p => ({
+              tokenMint: p.tokenMint,
+              poolId: p.poolId,
+              symbol: p.poolSymbol,
+              rewardAmount: p.pendingRewards,
+              decimals: p.decimals,
+            })),
+            (_, __, status, txSig) => {
+              setBatchSteps(prev => prev.map((step, idx) => 
+                idx === batchIdx 
+                  ? { ...step, status: status === 'done' ? 'success' : status, txSignature: txSig } 
+                  : step
+              ));
+            }
+          );
+
+          // Check result
+          if (result[0]?.success) {
+            successCount++;
+            setBatchSteps(prev => prev.map((step, idx) => 
+              idx === batchIdx ? { ...step, status: "success" as const, txSignature: result[0].txSignature } : step
+            ));
+          } else {
+            failCount++;
+            setBatchSteps(prev => prev.map((step, idx) => 
+              idx === batchIdx ? { ...step, status: "error" as const, error: result[0]?.error } : step
+            ));
           }
           
-          successCount++;
-          
-          // Delay between compounds
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // Delay between batches
+          if (batchIdx < totalBatches - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
         } catch (err: any) {
-          console.error(`Failed to compound ${stakeData.poolSymbol}:`, err);
+          console.error(`Batch ${batchIdx + 1} failed:`, err);
+          failCount++;
+          setBatchSteps(prev => prev.map((step, idx) => 
+            idx === batchIdx ? { ...step, status: "error" as const, error: err.message?.slice(0, 50) } : step
+          ));
         }
       }
 
+      setBatchSuccessCount(successCount);
+      setBatchFailCount(failCount);
+      setBatchComplete(true);
+
+      // Refresh stakes data
       if (successCount > 0) {
-        toast.success(`Successfully compounded ${successCount} pool(s)`, { id: toastId });
-        // Refresh stakes data
         await fetchUserStakes();
-      } else {
-        toast.error('Failed to compound rewards', { id: toastId });
       }
     } catch (error) {
-      console.error('Compound error:', error);
-      toast.error('Failed to compound rewards', { id: toastId });
+      console.error('Batch compound error:', error);
+      setBatchComplete(true);
     } finally {
       setCompounding(false);
     }
-  }, [connected, publicKey, stakesWithRewards, claimRewards, stake, fetchUserStakes]);
+  }, [connected, publicKey, stakesWithRewards, batchCompound, fetchUserStakes]);
 
   const handleStakeNow = (poolId: string) => {
     router.push(`/pools?highlight=${poolId}`);
@@ -946,6 +1091,24 @@ export default function Dashboard() {
         </div>
 
       </div>
+
+      {/* Batch Operation Modal */}
+      <BatchOperationModal
+        isOpen={batchModalOpen}
+        onClose={() => {
+          setBatchModalOpen(false);
+          setBatchSteps([]);
+        }}
+        operationType={batchOperationType}
+        steps={batchSteps}
+        currentStepIndex={currentBatchStep}
+        totalPools={totalPoolsInBatch}
+        totalBatches={batchSteps.length}
+        successCount={batchSuccessCount}
+        failCount={batchFailCount}
+        isComplete={batchComplete}
+        gasSaved={gasSaved}
+      />
     </div>
   );
 }
