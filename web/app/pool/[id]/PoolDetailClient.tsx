@@ -285,11 +285,11 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
           setDynamicRate(rateData.rate);
         }
         
-        setIsLoadingAPY(false);
-      } catch (error) {
-        console.error("⚠️ Error fetching project data (non-critical):", error);
-        setIsLoadingAPY(false);
-      }
+        setIsLoadingAPR(false);
+        } catch (error) {
+          console.error("⚠️ Error fetching project data (non-critical):", error);
+          setIsLoadingAPR(false);
+        }
     };
 
     fetchProjectData();
