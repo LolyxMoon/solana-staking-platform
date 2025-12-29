@@ -297,28 +297,22 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
     return () => clearInterval(interval);
   }, [effectiveMintAddress, poolId, isInitialized, tokenDecimals]);
 
-  // Fetch reflection balance
-  useEffect(() => {
+  // Reflection balance - fetched on demand, not on mount
+  const fetchReflectionBalance = async () => {
     if (!publicKey || !connected || !effectiveMintAddress || !pool.reflectionEnabled || !isInitialized) return;
-
-    const fetchReflectionBalance = async () => {
-      setReflectionLoading(true);
-      try {
-        const balance = await refreshReflections(effectiveMintAddress, poolId);
-        if (balance !== null) {
-          setReflectionBalance(balance / decimalsMultiplier);
-        }
-      } catch (error) {
-        console.error("⚠️ Error fetching reflection balance:", error);
-      } finally {
-        setReflectionLoading(false);
+    
+    setReflectionLoading(true);
+    try {
+      const balance = await refreshReflections(effectiveMintAddress, poolId);
+      if (balance !== null) {
+        setReflectionBalance(balance / decimalsMultiplier);
       }
-    };
-
-    fetchReflectionBalance();
-    const interval = setInterval(fetchReflectionBalance, 120000);
-    return () => clearInterval(interval);
-  }, [publicKey, connected, effectiveMintAddress, pool.reflectionEnabled, poolId, isInitialized]);
+    } catch (error) {
+      console.error("⚠️ Error fetching reflection balance:", error);
+    } finally {
+      setReflectionLoading(false);
+    }
+  };
 
   const handleShare = async () => {
     if (navigator.share) {
@@ -805,7 +799,10 @@ export default function PoolDetailClient({ pool }: PoolDetailClientProps) {
 
                 {pool.reflectionEnabled && (
                   <button
-                    onClick={() => setOpenModal("claimReflections")}
+                    onClick={async () => {
+                      await fetchReflectionBalance(); // Fetch balance first
+                      setOpenModal("claimReflections");
+                    }}
                     disabled={isClaimReflectionsDisabled}
                     className="w-full px-6 py-3 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 rounded-lg font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
