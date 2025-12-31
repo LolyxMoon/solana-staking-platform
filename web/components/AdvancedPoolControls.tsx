@@ -843,25 +843,47 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
       return;
     }
     
-    if (vaultType === "reflection") {
-      if (!pool?.externalReflectionMint && !tokenMint) {
-        showMessage("error", "❌ Reflection token mint not configured");
-        return;
-      }
-    }
-    
     setIsProcessing(true);
     try {
+      // Determine which token we're claiming
+      let claimTokenMint = tokenMint;
+      
+      if (vaultType === "reflection") {
+        if (pool?.externalReflectionMint) {
+          claimTokenMint = pool.externalReflectionMint;
+        } else if (pool?.hasSelfReflections) {
+          claimTokenMint = tokenMint;
+        } else {
+          showMessage("error", "❌ No reflection token configured for this pool");
+          setIsProcessing(false);
+          return;
+        }
+      }
+      
+      // Fetch correct decimals
+      const mintPubkey = new PublicKey(claimTokenMint);
+      const mintInfo = await connection.getParsedAccountInfo(mintPubkey);
+      
+      if (!mintInfo.value || !('parsed' in mintInfo.value.data)) {
+        throw new Error("Could not fetch token mint info");
+      }
+      
+      const decimals = mintInfo.value.data.parsed.info.decimals;
+      const amountInLamports = Math.floor(claimAmount * Math.pow(10, decimals));
+      
       console.log("🔍 Claiming:", {
+        vaultType,
+        claimTokenMint,
         amount: claimAmount,
-        amountLamports: claimAmount * 1_000_000_000
+        decimals,
+        amountLamports: amountInLamports
       });
       
       const txSig = await claimUnclaimedTokens(
         tokenMint,
         pool?.poolId ?? 0,
         vaultType,
-        claimAmount * 1_000_000_000
+        amountInLamports
       );
       
       console.log("✅ TX:", txSig);
@@ -1979,7 +2001,7 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
 
             {activeModal === "claimUnclaimed" && (
               <>
-                <h2 className="text-xl font-bold mb-4">💰 Claim Unclaimed</h2>
+                <h2 className="text-xl font-bold mb-4">💰 Claim Unclaimed Tokens</h2>
                 <div className="space-y-4 mb-6">
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">Vault</label>
@@ -1988,30 +2010,95 @@ export default function AdvancedPoolControls({ pool, onUpdate }: { pool: Pool; o
                       onChange={(e) => setVaultType(e.target.value as any)}
                       className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
                     >
-                      <option value="staking">Staking</option>
-                      <option value="reward">Reward</option>
-                      <option value="reflection">Reflection</option>
+                      <option value="staking">Staking Vault</option>
+                      <option value="reward">Reward Vault</option>
+                      <option value="reflection">Reflection Vault</option>
                     </select>
                   </div>
+                  
+                  {/* Show which token will be claimed */}
+                  <div className="p-3 bg-white/[0.02] rounded-lg border border-white/[0.05]">
+                    <p className="text-xs text-gray-400 mb-1">Token to claim:</p>
+                    <p className="text-sm font-mono text-white">
+                      {vaultType === "reflection" 
+                        ? (pool?.externalReflectionMint 
+                            ? `${pool.externalReflectionMint.slice(0, 8)}...${pool.externalReflectionMint.slice(-8)}`
+                            : pool?.hasSelfReflections 
+                              ? `${tokenMint?.slice(0, 8)}...${tokenMint?.slice(-8)} (self)`
+                              : "❌ Not configured")
+                        : `${tokenMint?.slice(0, 8)}...${tokenMint?.slice(-8)}`
+                      }
+                    </p>
+                  </div>
+                  
+                  {/* Warning for reflection if not configured */}
+                  {vaultType === "reflection" && !pool?.externalReflectionMint && !pool?.hasSelfReflections && (
+                    <div className="p-3 bg-red-900/20 border border-red-500/30 rounded text-red-300 text-sm">
+                      ⚠️ No reflection token configured for this pool. Cannot claim.
+                    </div>
+                  )}
+                  
+                  {/* Show vault balance if loaded */}
+                  {vaultInfo && (
+                    <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded">
+                      <p className="text-xs text-gray-400 mb-1">Available in vault:</p>
+                      <p className="text-lg font-bold text-blue-300">
+                        {vaultType === "staking" && `${vaultInfo.stakingVault.balance.toLocaleString()} tokens`}
+                        {vaultType === "reward" && `${vaultInfo.rewardVault.balance.toLocaleString()} tokens`}
+                        {vaultType === "reflection" && `${vaultInfo.reflectionVault.balance.toLocaleString()} ${vaultInfo.reflectionVault.symbol || 'tokens'}`}
+                      </p>
+                    </div>
+                  )}
+                  
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">Amount</label>
-                    <input
-                      type="number"
-                      value={claimAmount}
-                      onChange={(e) => setClaimAmount(Number(e.target.value))}
-                      className="w-full p-2 rounded bg-white/[0.02] text-white border border-gray-700"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        value={claimAmount}
+                        onChange={(e) => setClaimAmount(Number(e.target.value))}
+                        className="flex-1 p-2 rounded bg-white/[0.02] text-white border border-gray-700"
+                        placeholder="Enter amount"
+                      />
+                      {vaultInfo && (
+                        <button
+                          onClick={() => {
+                            if (vaultType === "staking") setClaimAmount(vaultInfo.stakingVault.balance);
+                            if (vaultType === "reward") setClaimAmount(vaultInfo.rewardVault.balance);
+                            if (vaultType === "reflection") setClaimAmount(vaultInfo.reflectionVault.balance);
+                          }}
+                          className="px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+                        >
+                          Max
+                        </button>
+                      )}
+                    </div>
                   </div>
+                  
+                  {!vaultInfo && (
+                    <button
+                      onClick={loadVaultInfo}
+                      disabled={loadingVaultInfo}
+                      className="w-full px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded text-sm"
+                    >
+                      {loadingVaultInfo ? "Loading..." : "🔄 Load Vault Balances"}
+                    </button>
+                  )}
                 </div>
+                
                 <div className="flex gap-3">
                   <button
                     onClick={handleClaimUnclaimed}
-                    disabled={isProcessing}
-                    className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50"
+                    disabled={isProcessing || claimAmount <= 0 || (vaultType === "reflection" && !pool?.externalReflectionMint && !pool?.hasSelfReflections)}
+                    className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isProcessing ? "⏳ Claiming..." : "Claim"}
+                    {isProcessing ? "⏳ Claiming..." : `Claim ${claimAmount > 0 ? claimAmount.toLocaleString() : ''} Tokens`}
                   </button>
-                  <button onClick={() => setActiveModal(null)} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded">
+                  <button 
+                    onClick={() => setActiveModal(null)} 
+                    disabled={isProcessing}
+                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded disabled:opacity-50"
+                  >
                     Cancel
                   </button>
                 </div>

@@ -1079,6 +1079,7 @@ const sendTransactionWithFreshBlockhash = async (
 
   /**
    * Claim unclaimed tokens from vault (admin only)
+   * FIXED: Proper reflection vault handling and token program detection
    */
   const claimUnclaimedTokens = async (
     tokenMint: string,
@@ -1092,31 +1093,85 @@ const sendTransactionWithFreshBlockhash = async (
 
     const program = await getProgram(wallet, connection);
     const tokenMintPubkey = new PublicKey(tokenMint);
-
+    
     const [projectPDA] = getPDAs.project(tokenMintPubkey, poolId);
 
+    // Token program detection
+    const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+    const SPL_TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
     let vaultPDA: PublicKey;
+    let claimTokenMint: PublicKey;
+    let tokenProgramId: PublicKey;
+
     if (vaultType === 'staking') {
       [vaultPDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("staking_vault"), projectPDA.toBuffer()],
         PROGRAM_ID
       );
+      claimTokenMint = tokenMintPubkey;
+      
+      const mintInfo = await connection.getAccountInfo(tokenMintPubkey);
+      tokenProgramId = mintInfo?.owner.equals(TOKEN_2022_PROGRAM_ID) 
+        ? TOKEN_2022_PROGRAM_ID 
+        : SPL_TOKEN_PROGRAM_ID;
+      
     } else if (vaultType === 'reward') {
       [vaultPDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("reward_vault"), projectPDA.toBuffer()],
         PROGRAM_ID
       );
+      claimTokenMint = tokenMintPubkey;
+      
+      const mintInfo = await connection.getAccountInfo(tokenMintPubkey);
+      tokenProgramId = mintInfo?.owner.equals(TOKEN_2022_PROGRAM_ID) 
+        ? TOKEN_2022_PROGRAM_ID 
+        : SPL_TOKEN_PROGRAM_ID;
+      
     } else {
-      [vaultPDA] = PublicKey.findProgramAddressSync(
-        [Buffer.from("reflection_vault"), projectPDA.toBuffer()],
-        PROGRAM_ID
+      // Reflection vault - ATA owned by Project PDA
+      const projectData = await program.account.project.fetch(projectPDA);
+      
+      if (!projectData.reflectionToken) {
+        throw new Error("No reflection token configured for this pool");
+      }
+      
+      const reflectionTokenMint = projectData.reflectionToken as PublicKey;
+      claimTokenMint = reflectionTokenMint;
+      
+      const mintInfo = await connection.getAccountInfo(reflectionTokenMint);
+      tokenProgramId = mintInfo?.owner.equals(TOKEN_2022_PROGRAM_ID) 
+        ? TOKEN_2022_PROGRAM_ID 
+        : SPL_TOKEN_PROGRAM_ID;
+      
+      // Reflection vault is ATA owned by Project PDA
+      vaultPDA = getAssociatedTokenAddressSync(
+        reflectionTokenMint,
+        projectPDA,
+        true,
+        tokenProgramId
       );
+      
+      console.log('🔍 Reflection vault claim:', {
+        reflectionMint: reflectionTokenMint.toString(),
+        vaultATA: vaultPDA.toString(),
+      });
     }
 
+    // Admin's token account for the token being claimed
     const adminTokenAccount = await getAssociatedTokenAddress(
-      tokenMintPubkey,
-      publicKey
+      claimTokenMint,
+      publicKey,
+      false,
+      tokenProgramId
     );
+
+    console.log('🔍 Claim unclaimed:', {
+      vaultType,
+      vault: vaultPDA.toString(),
+      claimTokenMint: claimTokenMint.toString(),
+      adminTokenAccount: adminTokenAccount.toString(),
+    });
 
     const method = program.methods
       .claimUnclaimedTokens(tokenMintPubkey, new BN(poolId), new BN(amount.toString()))
@@ -1124,8 +1179,10 @@ const sendTransactionWithFreshBlockhash = async (
         project: projectPDA,
         vault: vaultPDA,
         adminTokenAccount,
+        tokenMintAccount: claimTokenMint,
         admin: publicKey,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        tokenProgram: tokenProgramId,
+        systemProgram: SystemProgram.programId,
       });
 
     return await sendTransactionWithFreshBlockhash(program, method);
